@@ -8,3 +8,7 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+- Keep the home-control experience in the index route with in-page device tabs, because all four views share a fixed e-ink screen.
+- Use semantic grayscale tokens and the eink Button variant for controls, because focus and state must remain visible without color or animation.
+- Device actions are clearly labeled demo state until a real Home Assistant connection is configured; never imply successful remote control.
