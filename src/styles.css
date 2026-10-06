@@ -211,6 +211,12 @@ body { margin: 0; font-family: Arial, Helvetica, sans-serif; }
 .scene-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
 .scene-grid .eink-button { height: 45px; font-size: 12px; }
 .screen-footer { margin: 0 26px; height: 49px; border-top: 1px solid var(--foreground); display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--muted-foreground); flex-shrink: 0; }
+.screensaver-launch { height: 28px; padding: 0 8px; font-size: 11px; border: 0; }
+.photo-screen { position: relative; }
+.photo-screen > img { width: 600px; height: 800px; object-fit: cover; filter: grayscale(1); }
+.photo-caption { position: absolute; bottom: 20px; left: 20px; right: 20px; padding: 13px 15px; background: var(--background); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.photo-caption > span { font-size: 12px; font-weight: 700; }
+.photo-caption small { flex-basis: 100%; font-size: 11px; color: var(--muted-foreground); }
 .footer-mark { display: flex; align-items: center; gap: 6px; }
 .vacuum-summary { display: flex; align-items: center; gap: 18px; border-top: 1px solid var(--border); padding: 19px 0; }
 .vacuum-summary svg { width: 55px; height: 55px; }
