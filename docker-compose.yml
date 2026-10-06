@@ -2,18 +2,20 @@ services:
   app:
     build: .
     restart: unless-stopped
-    expose:
-      - "3000"
+    # The bridge shares this network namespace, so its port is published here.
+    ports:
+      - "8790:8790"
 
   bridge:
     build: ./bridge
     restart: unless-stopped
     depends_on:
       - app
-    ports:
-      - "8790:8790"
+    # Share the app's network namespace: Chromium then loads http://127.0.0.1:3000,
+    # which is exempt from its HTTPS-upgrade logic (plain hostnames like "app" are not).
+    network_mode: "service:app"
     environment:
-      APP_URL: http://app:3000/
+      APP_URL: http://127.0.0.1:3000/
       PORT: "8790"
       WIDTH: "600"
       HEIGHT: "800"
