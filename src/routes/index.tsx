@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import { Home, Sun, Lightbulb, LampCeiling, LampDesk, Sofa, Power, Plug, Tv, Music2, Bot, Play, Pause, SkipBack, SkipForward, Minus, Plus, Moon, Film, RotateCcw, MapPin, Bed, Utensils, Bath, DoorOpen, Baby, ShowerHead, Volume2, Battery, Check, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import screensaverPhoto from '@/assets/screensaver-preview.jpg';
 
 export const Route = createFileRoute('/')({
   head: () => ({ meta: [
@@ -33,7 +34,28 @@ function HomeControl() {
   const [vacuum, setVacuum] = useState('Docked');
   const [notice, setNotice] = useState('Demo · not connected');
   const [locating, setLocating] = useState(false);
+  const [screensaver, setScreensaver] = useState(false);
   const screen = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => setScreensaver(true), 5 * 60 * 1000);
+    };
+    const wake = (event: Event) => {
+      if (screensaver) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        setScreensaver(false);
+      }
+      reset();
+    };
+    reset();
+    document.addEventListener('keydown', wake, true);
+    document.addEventListener('pointerdown', wake, true);
+    return () => { clearTimeout(timer); document.removeEventListener('keydown', wake, true); document.removeEventListener('pointerdown', wake, true); };
+  }, [screensaver]);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -41,7 +63,7 @@ function HomeControl() {
       event.preventDefault();
       if (event.key === 'PageUp' || event.key === 'PageDown') {
         const index = tabs.findIndex(item => item.name === tab);
-        setTab(tabs[(index + (event.key === 'PageDown' ? 1 : 3)) % 4].name);
+        setTab(tabs[(index + (event.key === 'PageDown' ? 1 : 3)) % 4]?.name ?? 'Lights');
         return;
       }
       const controls = Array.from(screen.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
@@ -76,6 +98,11 @@ function HomeControl() {
     setLights(items => items.map((item, i) => ({ ...item, on: name === 'Bright' || i === 0, level: name === 'Bright' ? 100 : name === 'Evening' ? 40 : 10 })));
     demo(`${name.toLowerCase()} scene`);
   };
+
+  if (screensaver) return <div className="screen-stage"><div className="kindle-screen photo-screen" aria-label="Immich favorites screensaver preview">
+    <img src={screensaverPhoto} width={600} height={800} alt="Grayscale alpine lake and mountains — sample screensaver photo" />
+    <div className="photo-caption"><span>IMMICH · FAVORITES</span><Button variant="eink" onClick={() => setScreensaver(false)} aria-label="Return to home"><Home />Home</Button><small>Sample photo · Immich not connected</small></div>
+  </div></div>;
 
   return <div className="screen-stage"><div className="kindle-screen" ref={screen}>
     <header className="home-header">
@@ -122,6 +149,6 @@ function HomeControl() {
         </section>)}
       </>}
     </main>
-    <footer className="screen-footer"><span className="footer-mark"><Check size={13} /><span role="status">{notice}</span></span><span>{tabs.findIndex(item => item.name === tab) + 1} / 4</span></footer>
+    <footer className="screen-footer"><span className="footer-mark"><Check size={13} /><span role="status">{notice}</span></span><Button variant="eink" className="screensaver-launch" onClick={() => setScreensaver(true)}><Moon />Screensaver</Button><span>{tabs.findIndex(item => item.name === tab) + 1} / 4</span></footer>
   </div></div>;
 }

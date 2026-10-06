@@ -12,3 +12,4 @@
 - Keep the home-control experience in the index route with in-page device tabs, because all four views share a fixed e-ink screen.
 - Use semantic grayscale tokens and the eink Button variant for controls, because focus and state must remain visible without color or animation.
 - Device actions are clearly labeled demo state until a real Home Assistant connection is configured; never imply successful remote control.
+- The photo screensaver wakes on the first input without activating an underlying control; sample imagery is labeled until Immich is connected.
