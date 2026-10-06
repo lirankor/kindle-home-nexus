@@ -15,7 +15,7 @@ log() { echo "$(date '+%H:%M:%S') $*" >> $LOG; }
 
 fetch() { # fetch <path> ; draws if we got a non-empty file that differs from the last frame
   rm -f $SHOT.tmp
-  wget -q --header "X-Bridge-Token: $BRIDGE_TOKEN" -O $SHOT.tmp "$BRIDGE_URL$1" 2>/dev/null
+  wget -q -O $SHOT.tmp "$BRIDGE_URL/$BRIDGE_TOKEN$1" 2>/dev/null
   if [ -s $SHOT.tmp ]; then
     sum=$(md5sum $SHOT.tmp | cut -c1-32)
     if [ "$sum" != "$(cat $LAST 2>/dev/null)" ]; then
@@ -24,7 +24,7 @@ fetch() { # fetch <path> ; draws if we got a non-empty file that differs from th
     return 0
   fi
   log "fetch failed: $1"
-  eips 0 39 "nexus: bridge unreachable ($BRIDGE_URL) $(date +%H:%M)" 2>/dev/null
+  eips 0 39 "bridge unreachable $(date +%H:%M)" 2>/dev/null
   return 1
 }
 

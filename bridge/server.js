@@ -154,14 +154,23 @@ if (!BRIDGE_TOKEN) console.log("WARNING: BRIDGE_TOKEN unset, bridge is open to a
 const server = http.createServer(async (req, res) => {
   const t0 = Date.now();
   const url = new URL(req.url, "http://x");
-  if (url.searchParams.has("token")) url.searchParams.set("token", "[redacted]");
-  const shownUrl = url.pathname + (url.search || "");
+  const queryToken = url.searchParams.get("token");
+  if (queryToken !== null) url.searchParams.set("token", "[redacted]");
+  // Token may also be the first path segment (/<token>/screen.png) for clients that cannot set headers.
+  let shownPath = url.pathname;
+  let pathToken = null;
+  if (BRIDGE_TOKEN && url.pathname.startsWith("/" + BRIDGE_TOKEN + "/")) {
+    pathToken = BRIDGE_TOKEN;
+    url.pathname = url.pathname.slice(BRIDGE_TOKEN.length + 1);
+    shownPath = "/[redacted]" + url.pathname;
+  }
+  const shownUrl = shownPath + (url.search || "");
   res.on("finish", () =>
     log(`${req.method} ${shownUrl} -> ${res.statusCode} ${Date.now() - t0}ms`));
   try {
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (BRIDGE_TOKEN && path !== "/healthz") {
-      const given = req.headers["x-bridge-token"] || url.searchParams.get("token");
+      const given = req.headers["x-bridge-token"] || queryToken || pathToken;
       if (given !== BRIDGE_TOKEN) {
         res.writeHead(401, { "Content-Type": "text/plain" });
         return res.end("unauthorized\n");
