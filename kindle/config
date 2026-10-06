@@ -1,0 +1,4 @@
+# Kindle Home Nexus client config (POSIX sh, UNIX line endings)
+BRIDGE_URL="http://192.168.1.140:8790"   # Mac for testing; pop-os: http://192.168.1.15:8790
+POLL_SECONDS=20                            # how often to re-fetch the screen when idle
+STOP_FRAMEWORK=1                           # 1 = stop the Kindle reader UI while running (frees RAM, frees buttons)
