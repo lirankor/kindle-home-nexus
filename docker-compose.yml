@@ -2,11 +2,6 @@ services:
   app:
     build: .
     restart: unless-stopped
-    env_file:
-      - path: .env
-        required: false
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     # HA_* / IMMICH_* settings (see .env.example); optional so the demo still starts without it.
     env_file:
       - path: .env
