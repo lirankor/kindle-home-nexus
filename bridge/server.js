@@ -52,6 +52,7 @@ async function launch() {
       args: [
         "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
         "--disable-gpu", "--hide-scrollbars", "--force-color-profile=srgb",
+        "--disable-features=HttpsUpgrades,HttpsFirstBalancedModeAutoEnable,HttpsFirstModeV2ForEngagedSites",
         `--window-size=${WIDTH},${HEIGHT}`,
       ],
     });
