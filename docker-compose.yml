@@ -32,3 +32,11 @@ services:
       BRIDGE_TOKEN: ${BRIDGE_TOKEN:-}
     # Chromium needs more than Docker's default 64MB /dev/shm
     shm_size: "512m"
+
+networks:
+  default:
+    # Fixed subnet so a host firewall rule can allow this stack to reach Home Assistant:
+    #   sudo ufw allow from 10.90.90.0/24 to any port 8123 proto tcp
+    ipam:
+      config:
+        - subnet: 10.90.90.0/24
