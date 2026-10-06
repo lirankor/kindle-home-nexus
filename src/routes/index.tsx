@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
-import { Home, Sun, Lightbulb, LampCeiling, LampDesk, Sofa, Power, Plug, Tv, Music2, Bot, Play, Pause, SkipBack, SkipForward, Minus, Plus, Moon, Film, RotateCcw, MapPin, Bed, Utensils, Bath, DoorOpen, Baby, ShowerHead, Volume2, Battery, Check, ArrowLeft } from 'lucide-react';
+import { Home, Sun, Lightbulb, LampCeiling, LampDesk, Sofa, Power, Plug, Tv, Music2, Bot, Play, Pause, SkipBack, SkipForward, Minus, Plus, Moon, Film, RotateCcw, MapPin, Bed, Utensils, Bath, DoorOpen, Baby, ShowerHead, Volume2, Battery, Check, ArrowLeft, Palette, X, Thermometer, Droplets } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import screensaverPhoto from '@/assets/screensaver-preview.jpg';
 
@@ -18,10 +18,10 @@ export const Route = createFileRoute('/')({
 
 const tabs = [{ name: 'Lights', icon: Lightbulb }, { name: 'Vacuum', icon: Bot }, { name: 'Power', icon: Plug }, { name: 'Media', icon: Music2 }];
 const initialLights = [
-  { name: 'Main light', room: 'Living room', icon: LampCeiling, on: true, level: 96 },
-  { name: 'Spot light', room: 'Living room', icon: LampDesk, on: false, level: 60 },
-  { name: 'Dining table', room: 'Dining room', icon: LampCeiling, on: false, level: 80 },
-  { name: 'Cabinet strips', room: 'Dining room', icon: Lightbulb, on: false, level: 50 },
+  { name: 'Main light', room: 'Living room', icon: LampCeiling, on: true, level: 96, shade: 'Warm', color: 'White' },
+  { name: 'Spot light', room: 'Living room', icon: LampDesk, on: false, level: 60, shade: 'Neutral', color: 'White' },
+  { name: 'Dining table', room: 'Dining room', icon: LampCeiling, on: false, level: 80, shade: 'Warm', color: 'White' },
+  { name: 'Cabinet strips', room: 'Dining room', icon: Lightbulb, on: false, level: 50, shade: 'Cool', color: 'White' },
 ];
 const rooms = [{ name: 'Shower', icon: ShowerHead }, { name: 'Kids room', icon: Baby }, { name: 'Corridor', icon: DoorOpen }, { name: 'Kitchen', icon: Utensils }, { name: 'Hall', icon: Home }, { name: 'Bathroom', icon: Bath }, { name: 'Bedroom', icon: Bed }, { name: 'Living room', icon: Sofa }];
 
@@ -35,7 +35,16 @@ function HomeControl() {
   const [notice, setNotice] = useState('Demo · not connected');
   const [locating, setLocating] = useState(false);
   const [screensaver, setScreensaver] = useState(false);
+  const [lightMenu, setLightMenu] = useState<{ index: number; mode: 'shade' | 'color' } | null>(null);
+  const [dateLabel, setDateLabel] = useState('Tuesday, 6 October');
   const screen = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const update = () => setDateLabel(new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }));
+    update();
+    const timer = setInterval(update, 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
@@ -59,16 +68,19 @@ function HomeControl() {
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setLightMenu(null); return; }
       if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown'].includes(event.key)) return;
       event.preventDefault();
       if (event.key === 'PageUp' || event.key === 'PageDown') {
+        setLightMenu(null);
         const index = tabs.findIndex(item => item.name === tab);
         setTab(tabs[(index + (event.key === 'PageDown' ? 1 : 3)) % 4]?.name ?? 'Lights');
         return;
       }
-      const controls = Array.from(screen.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
+      const container = screen.current?.querySelector('[role="dialog"]') ?? screen.current;
+      const controls = Array.from(container?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
       const active = document.activeElement;
-      if (!(active instanceof HTMLElement) || !controls.includes(active as HTMLButtonElement)) { controls[4]?.focus(); return; }
+       if (!(active instanceof HTMLElement) || !controls.includes(active as HTMLButtonElement)) { controls[0]?.focus(); return; }
       const origin = active.getBoundingClientRect();
       const ox = origin.x + origin.width / 2;
       const oy = origin.y + origin.height / 2;
@@ -88,6 +100,11 @@ function HomeControl() {
     return () => document.removeEventListener('keydown', handleKey);
   }, [tab]);
 
+  useEffect(() => {
+    if (lightMenu) screen.current?.querySelector<HTMLButtonElement>('[role="dialog"] button')?.focus();
+    else screen.current?.querySelector<HTMLButtonElement>('[data-menu-open="true"]')?.focus();
+  }, [lightMenu]);
+
   const demo = (message: string) => setNotice(`Demo · ${message}`);
   const changeLight = (index: number, amount: number) => {
     setLights(items => items.map((item, i) => i === index ? { ...item, level: Math.max(0, Math.min(100, item.level + amount)), on: true } : item));
@@ -101,29 +118,26 @@ function HomeControl() {
 
   if (screensaver) return <div className="screen-stage"><div className="kindle-screen photo-screen" aria-label="Immich favorites screensaver preview">
     <img src={screensaverPhoto} width={600} height={800} alt="Grayscale alpine lake and mountains — sample screensaver photo" />
-    <div className="photo-caption"><span>IMMICH · FAVORITES</span><Button variant="eink" onClick={() => setScreensaver(false)} aria-label="Return to home"><Home />Home</Button><small>Sample photo · Immich not connected</small></div>
+    <div className="photo-caption"><div><strong>{dateLabel}</strong><small>Sample photo · Immich not connected</small></div><div className="photo-weather"><Sun size={32} strokeWidth={1.5} /><div><strong>19.1°</strong><small>Sunny · demo weather</small></div></div></div>
   </div></div>;
 
   return <div className="screen-stage"><div className="kindle-screen" ref={screen}>
-    <header className="home-header">
-      <div className="brand"><Home size={26} strokeWidth={1.7} />Home</div>
-      <div className="header-status"><div className="status-line"><span className="status-dot" />HOME ASSISTANT</div><div>Tuesday, 6 October</div></div>
+    <header className="weather-header" aria-label="Weather and home conditions">
+      <div className="weather-date"><span>{dateLabel}</span><Button variant="eink" size="icon" title="Screensaver" aria-label="Screensaver" onClick={() => setScreensaver(true)}><Moon /></Button></div>
+      <div className="weather-overview"><Sun size={64} strokeWidth={1.2} /><strong>19.1<span>°</span></strong><div><h2>Sunny</h2><p>Outside · demo weather</p></div></div>
+      <div className="weather-details"><span><Thermometer size={18} />Indoor <strong>22.0 °C</strong></span><span><Droplets size={18} />Humidity <strong>63%</strong></span></div>
     </header>
-    <section className="climate" aria-label="Home conditions">
-      <div className="weather"><Sun size={36} strokeWidth={1.4} /><div><strong>19.1°</strong><small>Sunny outside</small></div></div>
-      <div className="climate-stat"><strong>22.0<span> °C</span></strong><small>INDOOR</small></div>
-      <div className="climate-stat"><strong>63<span> %</span></strong><small>HUMIDITY</small></div>
-    </section>
-    <nav className="device-tabs" aria-label="Device categories">{tabs.map(({ name, icon: Icon }) => <Button key={name} variant="eink" data-active={tab === name} aria-current={tab === name ? 'page' : undefined} onClick={() => setTab(name)}><Icon />{name}</Button>)}</nav>
+    <nav className="device-tabs" aria-label="Device categories">{tabs.map(({ name, icon: Icon }) => <Button key={name} variant="eink" data-active={tab === name} aria-current={tab === name ? 'page' : undefined} onClick={() => { setTab(name); setLightMenu(null); }}><Icon />{name}</Button>)}</nav>
     <main className="content" key={tab}>
       {tab === 'Lights' && <>
         <div className="section-heading"><div><h1>Lights</h1><p>{lights.filter(light => light.on).length} of 4 lights on</p></div><Button variant="eink" onClick={() => { setLights(items => items.map(item => ({ ...item, on: false }))); setScene(''); demo('all lights off'); }}><Power />All off</Button></div>
         {lights.map((light, index) => <div key={light.name}>
           {(index === 0 || index === 2) && <div className="group-label">{light.room}</div>}
           <div className="light-row"><div className={`device-icon ${light.on ? 'on' : ''}`}><light.icon size={24} strokeWidth={1.5} /></div>
-            <div className="device-info"><strong>{light.name}</strong><p>{light.on ? `${light.level}% brightness` : 'Off'}</p></div>
-            <div className="level-control"><Button variant="eink" title={`Dim ${light.name}`} aria-label={`Dim ${light.name}`} onClick={() => changeLight(index, -10)}><Minus /></Button><span className="level-value">{light.on ? `${light.level}%` : '—'}</span><Button variant="eink" title={`Brighten ${light.name}`} aria-label={`Brighten ${light.name}`} onClick={() => changeLight(index, 10)}><Plus /></Button></div>
-            <Button variant="eink" className="toggle-button" aria-label={`Toggle ${light.name}`} aria-pressed={light.on} onClick={() => { setLights(items => items.map((item, i) => i === index ? { ...item, on: !item.on } : item)); setScene(''); demo(`${light.name.toLowerCase()} ${light.on ? 'off' : 'on'}`); }}>{light.on ? 'On' : 'Off'}</Button>
+             <div className="device-info"><strong>{light.name}</strong><p>{light.on ? `${light.level}%` : 'Off'} · {light.color === 'White' ? light.shade.toLowerCase() : light.color.toLowerCase()}</p></div>
+             <div className="light-adjustments"><Button variant="eink" className="shade-button" title={`${light.shade} white · ${light.name}`} aria-label={`White shade for ${light.name}`} data-menu-open={lightMenu?.index === index && lightMenu.mode === 'shade'} onClick={() => setLightMenu({ index, mode: 'shade' })}><span className={`shade-swatch shade-${light.shade.toLowerCase()}`} /></Button><Button variant="eink" size="icon" title={`Color · ${light.name}`} aria-label={`Color for ${light.name}`} data-menu-open={lightMenu?.index === index && lightMenu.mode === 'color'} onClick={() => setLightMenu({ index, mode: 'color' })}><Palette /></Button></div>
+             <div className="level-control"><Button variant="eink" title={`Dim ${light.name}`} aria-label={`Dim ${light.name}`} onClick={() => changeLight(index, -10)}><Minus /></Button><Button variant="eink" title={`Brighten ${light.name}`} aria-label={`Brighten ${light.name}`} onClick={() => changeLight(index, 10)}><Plus /></Button></div>
+             <Button variant="eink" className="toggle-button" title={`${light.name} ${light.on ? 'on' : 'off'}`} aria-label={`Toggle ${light.name}`} aria-pressed={light.on} onClick={() => { setLights(items => items.map((item, i) => i === index ? { ...item, on: !item.on } : item)); setScene(''); demo(`${light.name.toLowerCase()} ${light.on ? 'off' : 'on'}`); }}><span className="switch-indicator">{light.on && <Check />}</span></Button>
           </div></div>)}
         <div className="subheading">Scenes</div><div className="scene-grid">{[{ name: 'Bright', icon: Sun }, { name: 'Evening', icon: Moon }, { name: 'Movie', icon: Film }].map(({ name, icon: Icon }) => <Button key={name} variant="eink" aria-pressed={scene === name} onClick={() => applyScene(name)}><Icon />{name}</Button>)}</div>
       </>}
@@ -136,7 +150,7 @@ function HomeControl() {
       </>}
       {tab === 'Power' && <>
         <div className="section-heading"><div><h1>Power</h1><p>{plugs.filter(Boolean).length} of 3 plugs on</p></div><Plug size={25} /></div>
-        <div className="group-label">Plugs & power</div>{['TV Plug', 'Workstation', 'Kitchen boiler'].map((name, index) => <div className="light-row" key={name}><div className={`device-icon ${plugs[index] ? 'on' : ''}`}><Plug size={24} /></div><div className="device-info"><strong>{name}</strong><p>{plugs[index] ? 'On' : 'Off'} · {plugs[index] && index === 1 ? '62.1' : '0.0'} W</p></div><Button variant="eink" className="toggle-button" aria-label={`Toggle ${name}`} aria-pressed={plugs[index]} onClick={() => { setPlugs(items => items.map((item, i) => i === index ? !item : item)); demo(`${name.toLowerCase()} switched`); }}>{plugs[index] ? 'On' : 'Off'}</Button></div>)}
+         <div className="group-label">Plugs & power</div>{['TV Plug', 'Workstation', 'Kitchen boiler'].map((name, index) => <div className="light-row" key={name}><div className={`device-icon ${plugs[index] ? 'on' : ''}`}><Plug size={24} /></div><div className="device-info"><strong>{name}</strong><p>{plugs[index] && index === 1 ? '62.1' : '0.0'} W</p></div><Button variant="eink" className="toggle-button" title={`${name} ${plugs[index] ? 'on' : 'off'}`} aria-label={`Toggle ${name}`} aria-pressed={plugs[index]} onClick={() => { setPlugs(items => items.map((item, i) => i === index ? !item : item)); demo(`${name.toLowerCase()} switched`); }}><span className="switch-indicator">{plugs[index] && <Check />}</span></Button></div>)}
         <div className="subheading">Energy today</div><div className="power-stats"><div><strong>569<small> Wh</small></strong><small>Workstation</small></div><div><strong>244<small> Wh</small></strong><small>TV Plug</small></div><div><strong>0.00<small> kWh</small></strong><small>Kitchen boiler</small></div></div>
         <div className="subheading">Total today</div><div className="power-stats"><div><strong>0.813<small> kWh</small></strong><small>Across all plugs</small></div></div>
       </>}
@@ -149,6 +163,7 @@ function HomeControl() {
         </section>)}
       </>}
     </main>
-    <footer className="screen-footer"><span className="footer-mark"><Check size={13} /><span role="status">{notice}</span></span><Button variant="eink" className="screensaver-launch" onClick={() => setScreensaver(true)}><Moon />Screensaver</Button><span>{tabs.findIndex(item => item.name === tab) + 1} / 4</span></footer>
+    <span className="demo-label" role="status">{notice}</span>
+    {lightMenu && <div className="light-menu-backdrop"><section role="dialog" aria-modal="true" aria-label={`${lightMenu.mode === 'shade' ? 'White shade' : 'Color'} for ${lights[lightMenu.index]?.name}`} className="light-menu"><div className="menu-heading"><div><h2>{lightMenu.mode === 'shade' ? 'White shade' : 'Color'}</h2><p>{lights[lightMenu.index]?.name} · demo</p></div><Button variant="eink" size="icon" aria-label="Close light menu" onClick={() => setLightMenu(null)}><X /></Button></div><div className="color-options">{(lightMenu.mode === 'shade' ? ['Warm', 'Neutral', 'Cool'] : ['White', 'Red', 'Orange', 'Yellow', 'Green', 'Cyan', 'Blue', 'Purple', 'Pink']).map(value => <Button key={value} variant="eink" aria-pressed={lightMenu.mode === 'shade' ? lights[lightMenu.index]?.shade === value && lights[lightMenu.index]?.color === 'White' : lights[lightMenu.index]?.color === value} onClick={() => { setLights(items => items.map((item, i) => i === lightMenu.index ? { ...item, ...(lightMenu.mode === 'shade' ? { shade: value, color: 'White' } : { color: value }) } : item)); demo(`${value.toLowerCase()} selected`); setLightMenu(null); }}>{lightMenu.mode === 'shade' ? <span className={`shade-swatch shade-${value.toLowerCase()}`} /> : <Palette />}<span>{value}</span></Button>)}</div></section></div>}
   </div></div>;
 }

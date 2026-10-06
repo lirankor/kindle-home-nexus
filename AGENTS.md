@@ -13,3 +13,4 @@
 - Use semantic grayscale tokens and the eink Button variant for controls, because focus and state must remain visible without color or animation.
 - Device actions are clearly labeled demo state until a real Home Assistant connection is configured; never imply successful remote control.
 - The photo screensaver wakes on the first input without activating an underlying control; sample imagery is labeled until Immich is connected.
+- Light shade and RGB choices use an in-screen dialog with grayscale swatches and named colors, keeping five-way navigation within the open dialog.
