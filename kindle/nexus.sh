@@ -1,22 +1,23 @@
 #!/bin/sh
 # Kindle Home Nexus client: buttons -> bridge /key/<name>, PNG -> eips.
+# Runs on the Kindle 4's own busybox 1.7.2 /bin/sh (no read -t, no od; hexdump -e only from files).
 # Usage: nexus.sh start|stop|restart|status|run
 export PATH=/usr/sbin:/sbin:/usr/bin:/bin
-BB=/mnt/us/usbnet/bin/busybox   # modern busybox from USBNetwork (read -t, hexdump, md5sum...)
 DIR=/mnt/us/nexus
 . $DIR/config
 LOG=$DIR/nexus.log
 PID=$DIR/nexus.pid
+KIDS=$DIR/children.pid
 FIFO=/tmp/nexus.keys
 SHOT=/tmp/nexus.png
 LAST=/tmp/nexus.last.md5
 log() { echo "$(date '+%H:%M:%S') $*" >> $LOG; }
 
-fetch() { # fetch <path> ; draws if we got a non-empty file
+fetch() { # fetch <path> ; draws if we got a non-empty file that differs from the last frame
   rm -f $SHOT.tmp
   wget -q -O $SHOT.tmp "$BRIDGE_URL$1" 2>/dev/null
   if [ -s $SHOT.tmp ]; then
-    sum=$(md5sum < $SHOT.tmp | cut -c1-32)
+    sum=$(md5sum $SHOT.tmp | cut -c1-32)
     if [ "$sum" != "$(cat $LAST 2>/dev/null)" ]; then
       mv $SHOT.tmp $SHOT && eips -g $SHOT && echo "$sum" > $LAST
     fi
@@ -27,11 +28,14 @@ fetch() { # fetch <path> ; draws if we got a non-empty file
   return 1
 }
 
-reader() { # reader <device> : one line "type code value" per event
+reader() { # reader <device> <n> : one line "sec usec type code value" per input event
   while :; do
-    dd if=$1 bs=16 count=1 2>/dev/null | hexdump -e '8/1 "" 1/2 "%u " 1/2 "%u " 1/4 "%u\n"'
+    dd if=$1 bs=16 count=1 of=/tmp/nexus.ev$2 2>/dev/null
+    hexdump -v -e '1/4 "%u " 1/4 "%u " 1/2 "%u " 1/2 "%u " 1/4 "%u\n"' /tmp/nexus.ev$2
   done
 }
+
+poller() { while :; do sleep $POLL_SECONDS; echo "0 0 poll 0 0"; done; }
 
 keyname() { # keyname <code>
   case $1 in
@@ -51,38 +55,40 @@ run() {
   lipc-set-prop com.lab126.powerd preventScreenSaver 1 2>/dev/null
   eips -c
   rm -f $FIFO $LAST; mkfifo $FIFO
-  reader /dev/input/event0 > $FIFO &
+  reader /dev/input/event0 0 > $FIFO &
   R0=$!
-  reader /dev/input/event1 > $FIFO &
+  reader /dev/input/event1 1 > $FIFO &
   R1=$!
-  trap "kill $R0 $R1 2>/dev/null; killall dd 2>/dev/null; exit 0" TERM INT
+  poller > $FIFO &
+  P=$!
+  echo "$R0 $R1 $P" > $KIDS
+  trap "kill $R0 $R1 $P 2>/dev/null; killall dd 2>/dev/null; exit 0" TERM INT
   fetch /reload || fetch /screen.png
-  while :; do
-    # wait for a key for POLL_SECONDS, else refresh
-    if read -t $POLL_SECONDS type code value < $FIFO; then
-      [ "$type" = "1" ] && [ "$value" = "1" ] || continue
-      k=$(keyname $code)
-      [ -n "$k" ] || continue
-      log "key $code -> $k"
-      fetch /key/$k
-    else
-      fetch /screen.png
-    fi
-  done
+  while read sec usec type code value; do
+    if [ "$type" = "poll" ]; then fetch /screen.png; continue; fi
+    [ "$type" = "1" ] && [ "$value" = "1" ] || continue
+    k=$(keyname $code)
+    [ -n "$k" ] || continue
+    log "key $code -> $k"
+    fetch /key/$k
+  done < $FIFO
+  log "fifo closed, exiting"
 }
 
 case "$1" in
   run) run;;
   start)
     if [ -f $PID ] && kill -0 $(cat $PID) 2>/dev/null; then echo "already running"; exit 0; fi
-    ( $BB sh $0 run >> $LOG 2>&1 < /dev/null & echo $! > $PID )
+    ( /bin/sh $0 run >> $LOG 2>&1 < /dev/null & echo $! > $PID )
     sleep 1; echo "started pid $(cat $PID)";;
   stop)
-    [ -f $PID ] && kill $(cat $PID) 2>/dev/null; killall dd 2>/dev/null; rm -f $PID
+    [ -f $PID ] && kill $(cat $PID) 2>/dev/null
+    [ -f $KIDS ] && kill $(cat $KIDS) 2>/dev/null
+    killall dd 2>/dev/null; rm -f $PID $KIDS
     lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
     [ "$STOP_FRAMEWORK" = "1" ] && /etc/init.d/framework start >/dev/null 2>&1
     echo stopped;;
-  restart) $BB sh $0 stop; sleep 2; $BB sh $0 start;;
+  restart) /bin/sh $0 stop; sleep 2; /bin/sh $0 start;;
   status) if [ -f $PID ] && kill -0 $(cat $PID) 2>/dev/null; then echo "running pid $(cat $PID)"; else echo "not running"; fi; tail -5 $LOG 2>/dev/null;;
   *) echo "usage: $0 start|stop|restart|status"; exit 1;;
 esac

@@ -2,9 +2,16 @@ services:
   app:
     build: .
     restart: unless-stopped
+    # HA_* / IMMICH_* settings (see .env.example); optional so the demo still starts without it.
+    env_file:
+      - path: .env
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # The bridge shares this network namespace, so its port is published here.
     ports:
-      - "8790:8790"
+      - "192.168.1.15:8790:8790"
+      - "127.0.0.1:8790:8790"
 
   bridge:
     build: ./bridge
