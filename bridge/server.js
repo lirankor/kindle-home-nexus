@@ -164,14 +164,14 @@ const server = http.createServer(async (req, res) => {
     url.pathname = url.pathname.slice(BRIDGE_TOKEN.length + 1);
     shownPath = "/[redacted]" + url.pathname;
   }
-  const shownUrl = shownPath + (url.search || "");
   res.on("finish", () =>
-    log(`${req.method} ${shownUrl} -> ${res.statusCode} ${Date.now() - t0}ms`));
+    log(`${req.method} ${shownPath}${url.search || ""} -> ${res.statusCode} ${Date.now() - t0}ms`));
   try {
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (BRIDGE_TOKEN && path !== "/healthz") {
       const given = req.headers["x-bridge-token"] || queryToken || pathToken;
       if (given !== BRIDGE_TOKEN) {
+        shownPath = "/[auth-failed]"; // never log guessed/mistyped tokens
         res.writeHead(401, { "Content-Type": "text/plain" });
         return res.end("unauthorized\n");
       }
