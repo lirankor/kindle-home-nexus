@@ -15,7 +15,7 @@ log() { echo "$(date '+%H:%M:%S') $*" >> $LOG; }
 
 fetch() { # fetch <path> ; draws if we got a non-empty file that differs from the last frame
   rm -f $SHOT.tmp
-  wget -q -O $SHOT.tmp "$BRIDGE_URL$1" 2>/dev/null
+  wget -q --header "X-Bridge-Token: $BRIDGE_TOKEN" -O $SHOT.tmp "$BRIDGE_URL$1" 2>/dev/null
   if [ -s $SHOT.tmp ]; then
     sum=$(md5sum $SHOT.tmp | cut -c1-32)
     if [ "$sum" != "$(cat $LAST 2>/dev/null)" ]; then

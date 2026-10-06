@@ -2,6 +2,11 @@ services:
   app:
     build: .
     restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # HA_* / IMMICH_* settings (see .env.example); optional so the demo still starts without it.
     env_file:
       - path: .env
@@ -29,5 +34,6 @@ services:
       REFRESH_MS: "30000"
       KEY_SETTLE_MS: "200"
       PAGE_RELOAD_MS: "0"
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:-}
     # Chromium needs more than Docker's default 64MB /dev/shm
     shm_size: "512m"

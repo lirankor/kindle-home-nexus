@@ -148,6 +148,9 @@ function sendPng(res, frame) {
   res.end(frame.buf);
 }
 
+const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || "";
+if (!BRIDGE_TOKEN) console.log("WARNING: BRIDGE_TOKEN unset, bridge is open to anyone who can reach it");
+
 const server = http.createServer(async (req, res) => {
   const t0 = Date.now();
   const url = new URL(req.url, "http://x");
@@ -155,6 +158,13 @@ const server = http.createServer(async (req, res) => {
     log(`${req.method} ${req.url} -> ${res.statusCode} ${Date.now() - t0}ms`));
   try {
     const path = url.pathname.replace(/\/+$/, "") || "/";
+    if (BRIDGE_TOKEN && path !== "/healthz") {
+      const given = req.headers["x-bridge-token"] || url.searchParams.get("token");
+      if (given !== BRIDGE_TOKEN) {
+        res.writeHead(401, { "Content-Type": "text/plain" });
+        return res.end("unauthorized\n");
+      }
+    }
     if (path === "/healthz") {
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       return res.end(JSON.stringify({
