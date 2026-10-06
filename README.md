@@ -22,3 +22,16 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+## Kindle bridge
+
+`bridge/` runs this app in headless Chromium and exposes it to a Kindle 4 over plain HTTP GET:
+`/screen.png` (8-bit grayscale 600x800), `/key/<name>` to inject keys, `/healthz`.
+Run both with Docker Compose:
+
+```sh
+docker compose up -d --build
+curl -o screen.png http://localhost:8790/screen.png
+```
+
+See `bridge/README.md` for details.
