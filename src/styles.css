@@ -191,7 +191,7 @@ body { margin: 0; font-family: Arial, Helvetica, sans-serif; }
 .eink-button[data-active="true"]:hover, .eink-button[aria-pressed="true"]:hover { background: var(--primary); }
 .device-tabs .eink-button { height: 56px; border: 0; font-size: 15px; gap: 8px; }
 .device-tabs .eink-button svg { width: 20px; height: 20px; }
-.content { padding: 20px 26px 0; flex: 1; min-height: 0; }
+.content { padding: 20px 26px 0; flex: 1; min-height: 0; line-height: 1.25; }
 .section-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .section-heading h1 { font-size: 27px; margin: 0; }
 .section-heading p { margin: 5px 0 0; font-size: 12px; color: var(--muted-foreground); }
@@ -230,7 +230,7 @@ body { margin: 0; font-family: Arial, Helvetica, sans-serif; }
 .progress-line { display: flex; justify-content: space-between; font-size: 12px; margin-top: 22px; }
 .progress-track { height: 10px; border: 1px solid var(--foreground); margin-top: 8px; }
 .progress-track span { display: block; height: 100%; background: var(--foreground); width: 0; }
-.power-stats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--border); padding-top: 16px; gap: 16px; }
+.power-stats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--border); padding-top: 10px; gap: 16px; }
 .power-stats strong { display: block; font-size: 24px; margin-bottom: 6px; }
 .power-stats small { font-size: 11px; color: var(--muted-foreground); }
 .media-device { border-top: 1px solid var(--border); padding: 12px 0; }
@@ -238,7 +238,7 @@ body { margin: 0; font-family: Arial, Helvetica, sans-serif; }
 .media-title strong { font-size: 16px; }
 .media-title p { margin: 5px 0; font-size: 12px; color: var(--muted-foreground); }
 .media-title > div { flex: 1; }
-.transport { display: flex; gap: 9px; margin-top: 15px; }
+.transport { display: flex; gap: 9px; margin-top: 10px; }
 .transport .eink-button { flex: 1; height: 41px; }
 .source-control { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font-size: 12px; }
 @media (max-width: 600px) { .screen-stage { padding: 0; min-width: 600px; } }
