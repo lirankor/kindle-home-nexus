@@ -154,8 +154,10 @@ if (!BRIDGE_TOKEN) console.log("WARNING: BRIDGE_TOKEN unset, bridge is open to a
 const server = http.createServer(async (req, res) => {
   const t0 = Date.now();
   const url = new URL(req.url, "http://x");
+  if (url.searchParams.has("token")) url.searchParams.set("token", "[redacted]");
+  const shownUrl = url.pathname + (url.search || "");
   res.on("finish", () =>
-    log(`${req.method} ${req.url} -> ${res.statusCode} ${Date.now() - t0}ms`));
+    log(`${req.method} ${shownUrl} -> ${res.statusCode} ${Date.now() - t0}ms`));
   try {
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (BRIDGE_TOKEN && path !== "/healthz") {
