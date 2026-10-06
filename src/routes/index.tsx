@@ -37,10 +37,15 @@ function HomeControl() {
   const [screensaver, setScreensaver] = useState(false);
   const [lightMenu, setLightMenu] = useState<{ index: number; mode: 'shade' | 'color' } | null>(null);
   const [dateLabel, setDateLabel] = useState('Tuesday, 6 October');
+  const [calendar, setCalendar] = useState({ weekday: 'Tuesday', day: '6', month: 'October', year: '2026' });
   const screen = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const update = () => setDateLabel(new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }));
+    const update = () => {
+      const now = new Date();
+      setDateLabel(now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }));
+      setCalendar({ weekday: now.toLocaleDateString('en-GB', { weekday: 'long' }), day: String(now.getDate()), month: now.toLocaleDateString('en-GB', { month: 'long' }), year: String(now.getFullYear()) });
+    };
     update();
     const timer = setInterval(update, 60000);
     return () => clearInterval(timer);
@@ -118,7 +123,11 @@ function HomeControl() {
 
   if (screensaver) return <div className="screen-stage"><div className="kindle-screen photo-screen" aria-label="Immich favorites screensaver preview">
     <img src={screensaverPhoto} width={600} height={800} alt="Grayscale alpine lake and mountains — sample screensaver photo" />
-    <div className="photo-caption"><div><strong>{dateLabel}</strong><small>Sample photo · Immich not connected</small></div><div className="photo-weather"><Sun size={32} strokeWidth={1.5} /><div><strong>19.1°</strong><small>Sunny · demo weather</small></div></div></div>
+    <div className="photo-caption">
+      <div className="photo-date" aria-label={dateLabel}><strong className="photo-date-day">{calendar.day}</strong><div><span className="photo-date-weekday">{calendar.weekday}</span><span className="photo-date-month">{calendar.month} {calendar.year}</span></div></div>
+      <div className="photo-weather"><Sun size={34} strokeWidth={1.5} /><div><strong>19.1°</strong><small>Sunny outside</small></div></div>
+      <div className="photo-home"><span><Thermometer size={18} />Home <strong>22.0 °C</strong></span><span><Droplets size={18} />Humidity <strong>63%</strong></span><small>Demo readings</small></div>
+    </div>
   </div></div>;
 
   return <div className="screen-stage"><div className="kindle-screen" ref={screen}>
