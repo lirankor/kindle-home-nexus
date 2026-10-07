@@ -9,6 +9,7 @@ import {
   SCRIPTS,
   SENSORS,
   VACUUM,
+  COLOR_MODES,
   nearestColor,
   nearestShade,
 } from "@/lib/home";
@@ -18,6 +19,7 @@ type HaAttrs = {
   brightness?: unknown;
   color_temp_kelvin?: unknown;
   color_mode?: unknown;
+  supported_color_modes?: unknown;
   rgb_color?: unknown;
   battery_level?: unknown;
   volume_level?: unknown;
@@ -73,12 +75,17 @@ function parseLight(s?: HaState): LightState {
     mode !== "color_temp" &&
     mode !== "brightness" &&
     mode !== "onoff";
+  const modes = Array.isArray(a.supported_color_modes)
+    ? (a.supported_color_modes as unknown[])
+    : [];
+  const canColor = modes.some((m) => typeof m === "string" && COLOR_MODES.includes(m));
   const shade: Shade = kelvin !== null ? nearestShade(kelvin) : "Neutral";
   return {
     on,
     level: on ? (b === null ? 100 : Math.max(1, Math.round((b / 255) * 100))) : 0,
     shade,
-    color: colored ? nearestColor(rgb) : "White",
+    color: canColor && colored ? nearestColor(rgb) : "White",
+    canColor,
   };
 }
 

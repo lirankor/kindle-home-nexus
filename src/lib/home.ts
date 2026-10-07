@@ -141,7 +141,15 @@ export const SENSORS = {
   weather: "weather.forecast_home",
 } as const;
 
-export type LightState = { on: boolean; level: number; shade: Shade; color: string };
+export type LightState = {
+  on: boolean;
+  level: number;
+  shade: Shade;
+  color: string;
+  /** From supported_color_modes: hs, rgb, rgbw, rgbww or xy. Otherwise only white tones. */
+  canColor: boolean;
+};
+export const COLOR_MODES = ["hs", "rgb", "rgbw", "rgbww", "xy"];
 export type MediaState = { state: string; volume: number | null; source: string | null };
 export type Snapshot = {
   lights: LightState[];
@@ -193,10 +201,10 @@ export const nearestColor = (rgb: number[]): string =>
 export function demoSnapshot(): Snapshot {
   return {
     lights: [
-      { on: true, level: 96, shade: "Warm", color: "White" },
-      { on: false, level: 60, shade: "Neutral", color: "White" },
-      { on: false, level: 80, shade: "Warm", color: "White" },
-      { on: false, level: 50, shade: "Cool", color: "White" },
+      { on: true, level: 96, shade: "Warm", color: "White", canColor: true },
+      { on: false, level: 60, shade: "Neutral", color: "White", canColor: true },
+      { on: false, level: 80, shade: "Warm", color: "White", canColor: false },
+      { on: false, level: 50, shade: "Cool", color: "White", canColor: false },
     ],
     movieActive: false,
     vacuum: { state: "docked", battery: 100 },
@@ -215,7 +223,13 @@ export function demoSnapshot(): Snapshot {
 // Shown when HA is configured but not reachable yet: no invented readings.
 export function emptySnapshot(): Snapshot {
   return {
-    lights: LIGHTS.map(() => ({ on: false, level: 0, shade: "Neutral" as Shade, color: "White" })),
+    lights: LIGHTS.map(() => ({
+      on: false,
+      level: 0,
+      shade: "Neutral" as Shade,
+      color: "White",
+      canColor: false,
+    })),
     movieActive: false,
     vacuum: { state: "unavailable", battery: null },
     rooms: ROOMS.map(() => false),
