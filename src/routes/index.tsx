@@ -155,8 +155,8 @@ function HomeControl() {
   if (screensaver) return <div className="screen-stage"><div className="kindle-screen photo-screen" aria-label="Immich favorites screensaver preview">
     <img src={screensaverPhoto} width={600} height={800} alt="Grayscale alpine lake and mountains — sample screensaver photo" />
     <div className="photo-caption">
-      <section className="photo-block"><h2>Outdoor</h2><Sun size={40} strokeWidth={1.5} /><strong className="climate-reading">19.1°</strong><span>Sunny</span></section>
-      <section className="photo-block"><h2>Indoor</h2><Thermometer size={40} strokeWidth={1.5} /><strong className="climate-reading">22.0°</strong><span className="humidity-reading"><Droplets size={22} />63%</span></section>
+      <section className="photo-block"><h2>Outdoor</h2><Sun size={38} strokeWidth={1.5} /><strong className="climate-reading">19.1°</strong><span>Sunny</span></section>
+      <section className="photo-block"><h2>Indoor</h2><Thermometer size={34} strokeWidth={1.5} /><strong className="climate-reading">22.0°</strong><span className="humidity-reading"><Droplets size={22} />63%</span></section>
       <section className="photo-block calendar-block" aria-label={dateLabel}><span className="calendar-month">{calendar.month.slice(0, 3).toUpperCase()}</span><CalendarDays size={40} strokeWidth={1.5} /><strong className="calendar-day">{calendar.day}</strong><span className="calendar-weekday">{calendar.weekday.slice(0, 3).toUpperCase()}</span></section>
     </div>
   </div></div>;
