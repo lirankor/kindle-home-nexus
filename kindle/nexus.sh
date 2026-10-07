@@ -34,10 +34,12 @@ fetch() { # fetch <path> [full] ; draws if we got a non-empty file that differs 
 }
 
 reader() { # reader <device> <n> : one line "sec usec type code value" per input event
+  # The device is opened ONCE (stdin of the loop) so events queue in the kernel between reads.
+  # Re-opening per event loses the key event that follows the keypad's scan-code event.
   while :; do
-    dd if=$1 bs=16 count=1 of=/tmp/nexus.ev$2 2>/dev/null
+    dd bs=16 count=1 of=/tmp/nexus.ev$2 2>/dev/null
     hexdump -v -e '1/4 "%u " 1/4 "%u " 1/2 "%u " 1/2 "%u " 1/4 "%u\n"' /tmp/nexus.ev$2
-  done
+  done < $1
 }
 
 poller() { while :; do sleep $POLL_SECONDS; echo "0 0 poll 0 0"; done; }
