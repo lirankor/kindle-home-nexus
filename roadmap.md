@@ -1,4 +1,5 @@
 # Tasks
+- [ ] Move tabs to top, create four light cards and physical-button action footers, enlarge screensaver blocks, and add power usage graph.
 - [x] Replace screensaver sample-photo text with a calendar date widget and home temperature/humidity.
 - [x] Simplify light and power indicators, add shade/color menus, and update weather and screensaver presentation.
 - [x] Verify the 600×800 grayscale controls and non-touch navigation in the browser.
