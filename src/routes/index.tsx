@@ -58,6 +58,8 @@ import {
 import { LightModal, PickerModal, PlugModal, pickerValues } from "@/components/light-modals";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import { useFullRefresh } from "@/lib/eink";
+import { BatteryBadge } from "@/components/battery-badge";
+import { useKindleBattery } from "@/lib/battery";
 import { dateLocale, isRtl, makeT } from "@/lib/i18n";
 import { LangContext } from "@/lib/lang-context";
 import type { Key } from "@/lib/i18n";
@@ -147,6 +149,7 @@ function HomeControl() {
   const [cursor, setCursor] = useState(0);
   const opener = useRef<HTMLElement | null>(null);
   const photoRef = useRef<HTMLImageElement>(null);
+  const battery = useKindleBattery();
   // Tell the bridge where the photo is (x,y,w,h in CSS pixels) so it can dither only that region.
   const publishPhotoRegion = () => {
     const box = photoRef.current?.getBoundingClientRect();
@@ -645,6 +648,7 @@ function HomeControl() {
               height={800}
               alt={shot?.image ? t("photo.altImmich") : t("photo.altSample")}
             />
+            {battery && <BatteryBadge battery={battery} variant="photo" />}
             <div className="photo-caption">
               <section className="photo-block">
                 <h2>{t("photo.outdoor")}</h2>
@@ -708,6 +712,7 @@ function HomeControl() {
                 {t(`tab.${name}`)}
               </Button>
             ))}
+            {battery && !battery.charging && <BatteryBadge battery={battery} variant="tabs" />}
           </nav>
           <main className="content" key={tab}>
             {tab === "Lights" && (

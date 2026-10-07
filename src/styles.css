@@ -443,3 +443,11 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .transport { margin-top: 6px; }
 .transport .eink-button { height: 44px; }
 .source-control { margin-top: 6px; }
+
+/* Kindle battery: discreet badge on the photo, small indicator at the end of the tab bar (hidden while charging). */
+.device-tabs { grid-template-columns: repeat(4, 1fr) auto; }
+.device-tabs .eink-button { padding: 0 4px; }
+.battery-badge { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+.battery-tabs { padding: 0 10px; font-size: 20px; color: var(--muted-foreground); }
+.battery-photo { position: absolute; top: 12px; left: 12px; z-index: 5; padding: 4px 10px; font-size: 24px; background: color-mix(in oklab, var(--background) 80%, transparent); }
+.battery-badge[data-low="true"] { background: var(--primary); color: var(--primary-foreground); font-weight: 700; }

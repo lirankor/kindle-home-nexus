@@ -155,6 +155,8 @@ const en = {
   "modal.light": "Light {name}",
   "modal.pickerLabel": "{title} for {name}",
   "footer.label": "Physical button actions",
+  "battery.label": "Battery {n}%",
+  "battery.charging": "Charging, {n}%",
   "nav.label": "Device categories",
 } as const;
 
@@ -308,6 +310,8 @@ const he: Record<Key, string> = {
   "modal.light": "אור {name}",
   "modal.pickerLabel": "{title} של {name}",
   "footer.label": "פעולות הכפתורים הפיזיים",
+  "battery.label": "סוללה {n}%",
+  "battery.charging": "בטעינה, {n}%",
   "nav.label": "קטגוריות מכשירים",
 };
 
