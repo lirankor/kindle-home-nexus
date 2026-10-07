@@ -42,7 +42,13 @@ reader() { # reader <device> <n> : one line "sec usec type code value" per input
   done < $1
 }
 
-poller() { while :; do sleep $POLL_SECONDS; echo "0 0 poll 0 0"; done; }
+report_battery() { # tell the bridge our battery level and charging state (shown by the app)
+  lvl=$(cat /sys/devices/system/yoshi_battery/yoshi_battery0/battery_capacity 2>/dev/null | tr -dc 0-9)
+  chg=$(lipc-get-prop com.lab126.powerd isCharging 2>/dev/null | tr -dc 0-9)
+  [ -n "$lvl" ] && wget -q -O /dev/null "$BRIDGE_URL/$BRIDGE_TOKEN/battery?level=$lvl&charging=${chg:-0}" 2>/dev/null
+}
+
+poller() { while :; do report_battery >/dev/null 2>&1; sleep $POLL_SECONDS; echo "0 0 poll 0 0"; done; }
 
 keyname() { # keyname <code>
   case $1 in

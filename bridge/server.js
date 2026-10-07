@@ -76,6 +76,7 @@ async function launch() {
     }
     await page.keyboard.press("ArrowDown");
     log("page ready", APP_URL);
+    await injectBattery(page);
   })().finally(() => { starting = null; });
   return starting;
 }
@@ -105,6 +106,19 @@ async function processPhotoRegion(frameBuf, r) {
     .toColourspace("b-w")
     .png({ palette: false, compressionLevel: 9 })
     .toBuffer();
+}
+
+// Kindle battery state, reported by the device client via GET /battery?level=NN&charging=0|1 and
+// pushed into the page as window.__kindleBattery + a "kindle-battery" CustomEvent.
+let battery = null;
+async function injectBattery(p) {
+  if (!battery || !p) return;
+  try {
+    await p.evaluate((b) => {
+      window.__kindleBattery = b;
+      window.dispatchEvent(new CustomEvent("kindle-battery", { detail: b }));
+    }, battery);
+  } catch (e) { log("battery inject failed:", e.message); }
 }
 
 async function shoot() {
@@ -217,8 +231,17 @@ const server = http.createServer(async (req, res) => {
     if (path === "/healthz") {
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       return res.end(JSON.stringify({
-        ok: !!latest, etag: latest?.etag ?? null, hint: latest?.hint ?? null, lastShotAt, appUrl: APP_URL,
+        ok: !!latest, etag: latest?.etag ?? null, hint: latest?.hint ?? null, battery, lastShotAt, appUrl: APP_URL,
       }));
+    }
+    if (path === "/battery") {
+      const level = Number(url.searchParams.get("level"));
+      const charging = url.searchParams.get("charging") === "1";
+      if (!Number.isFinite(level) || level < 0 || level > 100) { res.writeHead(400); return res.end("bad level\n"); }
+      battery = { level: Math.round(level), charging, at: new Date().toISOString() };
+      await injectBattery(page);
+      res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
+      return res.end("ok\n");
     }
     if (path === "/hint") {
       // "full" or "partial": how the Kindle should draw the current frame.
