@@ -462,3 +462,12 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .power-row.eink-button { height: 108px; }
 .watt-reading { font-size: 42px; }
 .watt-reading small { font-size: 24px; }
+
+/* Vacuum: robot icon beside the heading, battery in the heading line, large room buttons. */
+.vacuum-heading { display: flex; align-items: center; gap: 14px; justify-content: flex-start; }
+.vacuum-heading-text { flex: 1; min-width: 0; }
+.vacuum-battery { display: flex; align-items: center; gap: 6px; font-size: 26px; font-weight: 600; flex-shrink: 0; }
+.room-grid { gap: 12px; }
+.room-grid .eink-button { height: 122px; font-size: 25px; gap: 10px; }
+.room-grid .eink-button svg { width: 34px; height: 34px; }
+.media-title strong { font-size: 30px; }

@@ -776,26 +776,20 @@ function HomeControl() {
                   const battery = data.vacuum.battery;
                   return (
                     <>
-                      <div className="section-heading">
-                        <div>
+                      <div className="section-heading vacuum-heading">
+                        <Bot size={64} strokeWidth={1.3} className="vacuum-bot" />
+                        <div className="vacuum-heading-text">
                           <h1>{t("vacuum.title")}</h1>
-                          <p>{picked ? t("vacuum.rooms", { n: picked }) : t("vacuum.wholeHome")}</p>
-                        </div>
-                        <span
-                          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14 }}
-                        >
-                          <Battery size={24} />
-                          <Ltr>{battery === null ? "—" : `${battery}%`}</Ltr>
-                        </span>
-                      </div>
-                      <div className="vacuum-summary">
-                        <Bot strokeWidth={1.3} />
-                        <div>
-                          <strong dir="ltr">Roborock Qrevo Edge</strong>
                           <p>
                             {locating ? t("vacuum.locating") : vacuumLabel(data.vacuum.state, lang)}
+                            {" · "}
+                            {picked ? t("vacuum.rooms", { n: picked }) : t("vacuum.wholeHome")}
                           </p>
                         </div>
+                        <span className="vacuum-battery" aria-label={t("vacuum.battery")}>
+                          <Battery size={30} />
+                          <Ltr>{battery === null ? "—" : `${battery}%`}</Ltr>
+                        </span>
                       </div>
                       <div className="subheading">{t("vacuum.roomsLabel")}</div>
                       <div className="room-grid">
@@ -814,13 +808,6 @@ function HomeControl() {
                             </Button>
                           );
                         })}
-                      </div>
-                      <div className="progress-line">
-                        <span>{t("vacuum.battery")}</span>
-                        <strong dir="ltr">{battery === null ? "—" : `${battery}%`}</strong>
-                      </div>
-                      <div className="progress-track">
-                        <span style={{ width: `${battery ?? 0}%` }} />
                       </div>
                     </>
                   );
