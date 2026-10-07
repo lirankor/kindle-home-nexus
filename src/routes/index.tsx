@@ -48,7 +48,7 @@ import {
   CalendarDays,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DeviceActions, type DeviceAction } from "@/components/device-actions";
+import { DeviceActions, pressSoftKey, type DeviceAction } from "@/components/device-actions";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import screensaverPhoto from "@/assets/screensaver-preview.jpg";
 import {
@@ -136,6 +136,7 @@ function HomeControl() {
   });
   const screen = useRef<HTMLDivElement>(null);
   const focusTabAfterChange = useRef(false);
+  const latest = useRef<{ actions: DeviceAction[] }>({ actions: [] });
   const queryClient = useQueryClient();
   const loaded = Route.useLoaderData();
   const query = useQuery<SnapshotResult>({
@@ -256,6 +257,10 @@ function HomeControl() {
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
+      if (pressSoftKey(latest.current.actions, event.key)) {
+        event.preventDefault();
+        return;
+      }
       if (event.key === "Escape") {
         setLightMenu(null);
         return;
@@ -417,13 +422,6 @@ function HomeControl() {
             ]
           : [
               {
-                label: "Yamaha power",
-                icon: Music2,
-                disabled: mediaOff(0),
-                onClick: () => mediaPower(0),
-              },
-              { label: "TV power", icon: Tv, disabled: mediaOff(1), onClick: () => mediaPower(1) },
-              {
                 label: "Movie mode",
                 icon: Film,
                 pressed: data.movieActive,
@@ -437,7 +435,16 @@ function HomeControl() {
                   act({ type: "movie.end" });
                 },
               },
+              { label: "TV power", icon: Tv, disabled: mediaOff(1), onClick: () => mediaPower(1) },
+              {
+                label: "Yamaha power",
+                icon: Music2,
+                disabled: mediaOff(0),
+                onClick: () => mediaPower(0),
+              },
             ];
+
+  latest.current = { actions };
 
   if (screensaver)
     return (
