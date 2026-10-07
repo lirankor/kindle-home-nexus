@@ -49,7 +49,12 @@ import {
   Snowflake,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DeviceActions, pressSoftKey, type DeviceAction } from "@/components/device-actions";
+import {
+  DeviceActions,
+  flashSoftKey,
+  pressSoftKey,
+  type DeviceAction,
+} from "@/components/device-actions";
 import { LightModal, PickerModal, pickerValues } from "@/components/light-modals";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import { useFullRefresh } from "@/lib/eink";
@@ -142,7 +147,6 @@ function HomeControl() {
   const opener = useRef<HTMLElement | null>(null);
   const [now, setNow] = useState(() => new Date(2026, 9, 6));
   const screen = useRef<HTMLDivElement>(null);
-  const focusTabAfterChange = useRef(false);
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => {});
   const queryClient = useQueryClient();
   const loaded = Route.useLoaderData();
@@ -239,12 +243,6 @@ function HomeControl() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [configured, queryClient, lang],
   );
-
-  useEffect(() => {
-    if (!focusTabAfterChange.current) return;
-    screen.current?.querySelector<HTMLButtonElement>('.device-tabs [data-active="true"]')?.focus();
-    focusTabAfterChange.current = false;
-  }, [tab]);
 
   useEffect(() => {
     setNow(new Date());
@@ -513,6 +511,7 @@ function HomeControl() {
   keyHandler.current = (event) => {
     if (pressSoftKey(modal ? modalActions : actions, event.key)) {
       event.preventDefault();
+      flashSoftKey(event.key);
       return;
     }
     if (modal) {
@@ -556,12 +555,12 @@ function HomeControl() {
     event.preventDefault();
     if (event.key === "PageUp" || event.key === "PageDown") {
       const index = tabs.findIndex((item) => item.name === tab);
-      focusTabAfterChange.current = true;
       setTab(tabs[(index + (event.key === "PageDown" ? 1 : 3)) % 4]?.name ?? "Lights");
       return;
     }
     const controls = Array.from(
-      screen.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
+      // Arrow keys only ever move within the content: tabs are PageUp/PageDown, the footer is F1..F4.
+      screen.current?.querySelectorAll<HTMLButtonElement>(".content button:not(:disabled)") ?? [],
     );
     const active = document.activeElement;
     if (!(active instanceof HTMLElement) || !controls.includes(active as HTMLButtonElement)) {

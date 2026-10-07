@@ -388,3 +388,4 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 
 /* Right-to-left (Hebrew): steppers and the soft-key footer keep their physical left-to-right order. */
 .level-control, .device-actions, .transport { direction: ltr; }
+.device-actions .eink-button[data-flash="true"] { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
