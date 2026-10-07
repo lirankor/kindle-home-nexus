@@ -36,7 +36,7 @@ export function DeviceActions({ actions }: { actions: (DeviceAction | null | und
             aria-pressed={pressed}
             disabled={disabled}
           >
-            <Icon size={30} />
+            <Icon size={34} />
             <span>{label}</span>
           </Button>
         );

@@ -602,7 +602,7 @@ function HomeControl() {
             <div className="photo-caption">
               <section className="photo-block">
                 <h2>{t("photo.outdoor")}</h2>
-                <SIcon size={40} strokeWidth={1.5} />
+                <SIcon size={38} strokeWidth={1.5} />
                 <strong className="climate-reading">
                   <Ltr>
                     {readings.weather.temp === null ? "—" : `${fmt(readings.weather.temp)}°`}
@@ -612,7 +612,7 @@ function HomeControl() {
               </section>
               <section className="photo-block">
                 <h2>{t("photo.indoor")}</h2>
-                <Thermometer size={40} strokeWidth={1.5} />
+                <Thermometer size={34} strokeWidth={1.5} />
                 <strong className="climate-reading">
                   <Ltr>{readings.indoor.temp === null ? "—" : `${fmt(readings.indoor.temp)}°`}</Ltr>
                 </strong>
