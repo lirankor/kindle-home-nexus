@@ -103,6 +103,7 @@ async function processPhotoRegion(frameBuf, r) {
   return sharp(frameBuf)
     .composite([{ input: raw, raw: { width: r.w, height: r.h, channels: 1 }, left: r.x, top: r.y }])
     .removeAlpha()
+    .grayscale()
     .toColourspace("b-w")
     .png({ palette: false, compressionLevel: 9 })
     .toBuffer();
@@ -144,7 +145,14 @@ async function shoot() {
       frame = sharp(await processPhotoRegion(await frame.png({ palette: false }).toBuffer(), photo));
     } catch (e) { log("photo processing failed:", e.message); }
   }
-  const buf = await frame.png({ palette: false, compressionLevel: 9 }).toBuffer();
+  let buf = await frame.grayscale().toColourspace("b-w").removeAlpha().png({ palette: false, compressionLevel: 9 }).toBuffer();
+  // eips can only draw 8-bit single-channel PNGs; never serve anything else.
+  const meta = await sharp(buf).metadata();
+  if (meta.channels !== 1 || meta.depth !== "uchar") {
+    log(`frame not 8-bit grayscale (channels=${meta.channels}, depth=${meta.depth}), re-encoding`);
+    buf = await sharp(buf).flatten({ background: "#ffffff" }).grayscale().toColourspace("b-w").removeAlpha()
+      .png({ palette: false, compressionLevel: 9 }).toBuffer();
+  }
   const etag = crypto.createHash("sha1").update(buf).digest("hex");
   const changed = !latest || latest.etag !== etag;
   latest = { buf, etag, hint };
