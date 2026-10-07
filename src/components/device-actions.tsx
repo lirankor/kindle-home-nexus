@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/lib/lang-context";
 
 export type DeviceAction = {
   label: string;
@@ -13,8 +14,10 @@ export const SOFT_KEYS = ["F1", "F2", "F3", "F4"] as const;
 
 /** Always four slots, left to right = Kindle buttons F1..F4 (Back, Keyboard, Menu, Home). */
 export function DeviceActions({ actions }: { actions: (DeviceAction | null | undefined)[] }) {
+  const t = useT();
+  // Always laid out left to right: slot 1 sits over the physical Back button, also in RTL languages.
   return (
-    <footer className="device-actions" aria-label="Physical button actions">
+    <footer className="device-actions" aria-label={t("footer.label")} dir="ltr">
       {SOFT_KEYS.map((key, slot) => {
         const action = actions[slot];
         if (!action)

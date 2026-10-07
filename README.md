@@ -34,6 +34,7 @@ Copy `.env.example` to `.env` (git-ignored; `docker compose` loads it automatica
 | `HA_TOKEN` | Long-lived access token. Empty = demo mode ("Demo · HA not configured") |
 | `IMMICH_URL` | Immich server, e.g. `http://100.125.35.82:2283` |
 | `IMMICH_API_KEY` | Immich API key. Empty = bundled sample screensaver photo |
+| `UI_LANGUAGE` | `he` (default, right-to-left) or `en`. Read per request, restart the app container to switch |
 
 The entity ids are mapped in `src/lib/home.ts`.
 

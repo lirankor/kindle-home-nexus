@@ -1,6 +1,36 @@
 // Shared (client + server) Home Assistant model: entity map, snapshot shape,
 // demo data and the pure optimistic reducer. Contains no secrets.
 
+import { makeT, tryT } from "./i18n";
+import type { Lang } from "./i18n";
+
+// Display-name overrides per language, keyed by the English name used below.
+// Entities without an entry keep their English name.
+export const NAME_OVERRIDES: Record<Lang, Record<string, string>> = {
+  en: {},
+  he: {
+    "Main light": "אור ראשי",
+    "Spot light": "ספוטים",
+    "Dining table": "שולחן אוכל",
+    "Cabinet strips": "פסי ארון",
+    "Living room": "סלון",
+    "Dining room": "פינת אוכל",
+    Shower: "מקלחת",
+    "Kids room": "חדר ילדים",
+    Corridor: "מסדרון",
+    Kitchen: "מטבח",
+    Hall: "כניסה",
+    Bathroom: "אמבטיה",
+    Bedroom: "חדר שינה",
+    "TV Plug": "שקע טלוויזיה",
+    Workstation: "עמדת עבודה",
+    "Kitchen boiler": "דוד מטבח",
+    "Sony TV": "טלוויזיה",
+    "Yamaha R-N500": "מגבר ימאהה",
+  },
+};
+export const localName = (lang: Lang, name: string) => NAME_OVERRIDES[lang][name] ?? name;
+
 export const LIGHTS = [
   { id: "light.main_light", name: "Main light", room: "Living room" },
   { id: "light.spots", name: "Spot light", room: "Living room" },
@@ -22,23 +52,6 @@ export const COLORS = [
   "Purple",
   "Pink",
 ] as const;
-// German UI labels for the full-page light modals; action payloads keep the English names.
-export const SHADE_LABELS: Record<Shade, string> = {
-  Warm: "Warm",
-  Neutral: "Neutral",
-  Cool: "Kalt",
-};
-export const COLOR_LABELS: Record<(typeof COLORS)[number], string> = {
-  White: "Weiß",
-  Red: "Rot",
-  Orange: "Orange",
-  Yellow: "Gelb",
-  Green: "Grün",
-  Cyan: "Türkis",
-  Blue: "Blau",
-  Purple: "Lila",
-  Pink: "Rosa",
-};
 export const SHADE_NAMES = Object.keys(SHADES) as Shade[];
 
 const COLOR_RGB: Record<string, [number, number, number]> = {
@@ -140,7 +153,12 @@ export type Snapshot = {
   weather: { condition: string | null; temp: number | null };
   indoor: { temp: number | null; humidity: number | null };
 };
-export type SnapshotResult = { configured: boolean; error?: string; snapshot: Snapshot | null };
+export type SnapshotResult = {
+  configured: boolean;
+  error?: string;
+  snapshot: Snapshot | null;
+  lang: Lang;
+};
 
 export type Action =
   | { type: "light.toggle"; entity: string }
@@ -209,41 +227,43 @@ export function emptySnapshot(): Snapshot {
 }
 
 const lightIndex = (entity: string) => LIGHTS.findIndex((l) => l.id === entity);
-const label = (list: readonly { id: string; name: string }[], id: string) =>
-  list.find((i) => i.id === id)?.name ?? id;
+const label = (lang: Lang, list: readonly { id: string; name: string }[], id: string) =>
+  localName(lang, list.find((i) => i.id === id)?.name ?? id);
 
 /** Human-readable result for the status line. */
-export function actionLabel(a: Action): string {
+export function actionLabel(a: Action, lang: Lang): string {
+  const t = makeT(lang);
   switch (a.type) {
     case "light.toggle":
-      return `${label(LIGHTS, a.entity)} toggled`;
+      return t("act.toggled", { name: label(lang, LIGHTS, a.entity) });
     case "light.brightness":
-      return `${label(LIGHTS, a.entity)} ${a.pct}%`;
+      return t("act.brightness", { name: label(lang, LIGHTS, a.entity), pct: a.pct });
     case "light.kelvin":
-      return `${label(LIGHTS, a.entity)} ${nearestShade(a.kelvin).toLowerCase()} white`;
+      return t("act.kelvin", {
+        name: label(lang, LIGHTS, a.entity),
+        shade: t(`shade.${nearestShade(a.kelvin)}`),
+      });
     case "light.color":
-      return `${label(LIGHTS, a.entity)} ${a.color.toLowerCase()}`;
+      return t("act.color", {
+        name: label(lang, LIGHTS, a.entity),
+        color: t(`color.${a.color}`),
+      });
     case "lights.off":
-      return "all lights off";
+      return t("act.lightsOff");
     case "scene":
-      return `${a.name.toLowerCase()} scene`;
+      return t("act.scene", { scene: t(`scene.${a.name}`) });
     case "movie.end":
-      return "movie mode ended";
+      return t("act.movieEnd");
     case "vacuum":
-      return {
-        start: "cleaning started",
-        pause: "cleaning paused",
-        dock: "return to dock",
-        locate: "locate vacuum",
-      }[a.op];
+      return t(`act.vacuum.${a.op}`);
     case "room.toggle":
-      return `${label(ROOMS, a.entity)} room toggled`;
+      return t("act.room", { name: label(lang, ROOMS, a.entity) });
     case "rooms.clear":
-      return "whole home selected";
+      return t("act.roomsClear");
     case "switch.toggle":
-      return `${label(PLUGS, a.entity)} switched`;
+      return t("act.switch", { name: label(lang, PLUGS, a.entity) });
     case "media":
-      return `${label(MEDIA, a.entity)} ${a.op.replace(/_/g, " ")}`;
+      return t("act.media", { name: label(lang, MEDIA, a.entity), op: t(`op.${a.op}`) });
   }
 }
 
@@ -335,34 +355,9 @@ export function applyOptimistic(s: Snapshot, a: Action): Snapshot {
   return next;
 }
 
-export const vacuumLabel = (state: string) =>
-  (
-    ({
-      docked: "Docked",
-      cleaning: "Cleaning",
-      paused: "Paused",
-      returning: "Returning to dock",
-      idle: "Idle",
-      error: "Error",
-      unavailable: "Unavailable",
-      unknown: "Unknown",
-    }) as Record<string, string>
-  )[state] ?? state.charAt(0).toUpperCase() + state.slice(1);
-export const conditionLabel = (c: string | null) =>
+export const vacuumLabel = (state: string, lang: Lang) =>
+  tryT(lang, `state.${state}`) ?? state.charAt(0).toUpperCase() + state.slice(1);
+export const conditionLabel = (c: string | null, lang: Lang) =>
   c === null
-    ? "Weather unavailable"
-    : ((
-        {
-          "clear-night": "Clear night",
-          partlycloudy: "Partly cloudy",
-          rainy: "Rainy",
-          pouring: "Pouring",
-          snowy: "Snowy",
-          "snowy-rainy": "Sleet",
-          lightning: "Lightning",
-          "lightning-rainy": "Thunderstorm",
-          windy: "Windy",
-          "windy-variant": "Windy",
-          exceptional: "Exceptional",
-        } as Record<string, string>
-      )[c] ?? c.charAt(0).toUpperCase() + c.slice(1));
+    ? makeT(lang)("weather.unavailable")
+    : (tryT(lang, `weather.${c}`) ?? c.charAt(0).toUpperCase() + c.slice(1));

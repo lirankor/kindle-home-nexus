@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { parseLang } from "@/lib/i18n";
 import { LIGHT_IDS, MEDIA_IDS, MEDIA_OPS, ROOM_IDS, SWITCH_IDS } from "@/lib/home";
 import type { Action, ActionResult, Snapshot, SnapshotResult } from "@/lib/home";
 import {
@@ -39,11 +40,13 @@ const actionSchema = z.discriminatedUnion("type", [
 ]);
 
 async function snapshotResult(): Promise<SnapshotResult> {
-  if (!haConfigured()) return { configured: false, snapshot: null };
+  // Read per request so UI_LANGUAGE can change without a rebuild.
+  const lang = parseLang(process.env["UI_LANGUAGE"]);
+  if (!haConfigured()) return { configured: false, snapshot: null, lang };
   try {
-    return { configured: true, snapshot: await readSnapshot() };
+    return { configured: true, snapshot: await readSnapshot(), lang };
   } catch (e) {
-    return { configured: true, error: errorMessage(e), snapshot: null };
+    return { configured: true, error: errorMessage(e), snapshot: null, lang };
   }
 }
 

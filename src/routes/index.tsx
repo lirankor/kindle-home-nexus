@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Home,
   Sun,
@@ -50,13 +50,17 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DeviceActions, pressSoftKey, type DeviceAction } from "@/components/device-actions";
-import { LightModal, PickerModal, pickerOptions } from "@/components/light-modals";
+import { LightModal, PickerModal, pickerValues } from "@/components/light-modals";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import { useFullRefresh } from "@/lib/eink";
+import { dateLocale, isRtl, makeT } from "@/lib/i18n";
+import { LangContext } from "@/lib/lang-context";
+import type { Key } from "@/lib/i18n";
 import screensaverPhoto from "@/assets/screensaver-preview.jpg";
 import {
   COLORS,
   LIGHTS,
+  localName,
   MEDIA,
   PLUGS,
   ROOMS,
@@ -94,7 +98,7 @@ export const Route = createFileRoute("/")({
   component: HomeControl,
 });
 
-const tabs = [
+const tabs: { name: "Lights" | "Vacuum" | "Power" | "Media"; icon: typeof Lightbulb }[] = [
   { name: "Lights", icon: Lightbulb },
   { name: "Vacuum", icon: Bot },
   { name: "Power", icon: Plug },
@@ -120,6 +124,8 @@ const weatherIcons: Record<string, typeof Sun> = {
 };
 const weatherIcon = (condition: string | null) =>
   (condition && weatherIcons[condition]) || (condition === null ? CloudDrizzle : CloudMoon);
+/** Keeps numbers and units in reading order inside right-to-left text. */
+const Ltr = ({ children }: { children: ReactNode }) => <bdi dir="ltr">{children}</bdi>;
 const fmt = (value: number | null, digits = 1) => (value === null ? "—" : value.toFixed(digits));
 const SAMPLE_REFRESH_MS = 10 * 60 * 1000;
 const MODAL_IDLE_MS = 30 * 1000;
@@ -134,13 +140,7 @@ function HomeControl() {
   );
   const [cursor, setCursor] = useState(0);
   const opener = useRef<HTMLElement | null>(null);
-  const [dateLabel, setDateLabel] = useState("Tuesday, 6 October");
-  const [calendar, setCalendar] = useState({
-    weekday: "Tuesday",
-    day: "6",
-    month: "October",
-    year: "2026",
-  });
+  const [now, setNow] = useState(() => new Date(2026, 9, 6));
   const screen = useRef<HTMLDivElement>(null);
   const focusTabAfterChange = useRef(false);
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => {});
@@ -154,6 +154,20 @@ function HomeControl() {
     refetchIntervalInBackground: true,
   });
   const result = query.data;
+  const lang = result.lang;
+  const t = makeT(lang);
+  const rtl = isRtl(lang);
+  const locale = dateLocale(lang);
+  const dateLabel = now.toLocaleDateString(locale, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+  const calendar = {
+    day: String(now.getDate()),
+    month: now.toLocaleDateString(locale, { month: "short" }),
+    weekday: now.toLocaleDateString(locale, { weekday: "short" }),
+  };
   const configured = result.configured;
   const lastGood = useRef<Snapshot | null>(null);
   if (result.snapshot) lastGood.current = result.snapshot;
@@ -163,15 +177,24 @@ function HomeControl() {
   const inFlight = useRef(0);
   const locateTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const data: Snapshot = !configured ? demo : (optimistic ?? lastGood.current ?? emptySnapshot());
-  const pollError = query.isError ? "Server unreachable" : result.error;
+  const serverText = (text: string) =>
+    text === "HA unreachable"
+      ? t("err.ha")
+      : text === "HA rejected token"
+        ? t("err.token")
+        : text === "Immich unreachable"
+          ? t("err.immich")
+          : text;
+  const pollError = query.isError ? t("err.server") : result.error;
   const status = !configured
-    ? `Demo · ${notice?.text ?? "HA not configured"}`
-    : (pollError ??
-      (notice
+    ? t("status.demo", { text: notice?.text ?? t("status.notConfigured") })
+    : pollError
+      ? `${t("status.disconnected")} · ${serverText(pollError)}`
+      : notice
         ? notice.error
           ? notice.text
-          : `Done · ${notice.text}`
-        : "Home Assistant · connected"));
+          : t("status.done", { text: notice.text })
+        : t("status.connected");
   const photo = useQuery({
     queryKey: ["screensaver"],
     queryFn: () => getScreensaver(),
@@ -185,7 +208,7 @@ function HomeControl() {
     async (action: Action) => {
       if (!configured) {
         setDemo((current) => applyOptimistic(current, action));
-        setNotice({ text: actionLabel(action) });
+        setNotice({ text: actionLabel(action, lang) });
         return;
       }
       setOptimistic((current) =>
@@ -196,22 +219,25 @@ function HomeControl() {
         await queryClient.cancelQueries({ queryKey: ["snapshot"] });
         const res = await runAction({ data: action });
         if (res.ok) {
-          setNotice({ text: actionLabel(action) });
+          setNotice({ text: actionLabel(action, lang) });
           if (res.snapshot)
             queryClient.setQueryData<SnapshotResult>(["snapshot"], {
               configured: true,
               snapshot: res.snapshot,
+              lang,
             });
-        } else setNotice({ text: res.error ?? "Action failed", error: true });
+        } else
+          setNotice({ text: res.error ? serverText(res.error) : t("err.failed"), error: true });
       } catch {
-        setNotice({ text: "Server unreachable", error: true });
+        setNotice({ text: t("err.server"), error: true });
       } finally {
         inFlight.current -= 1;
         if (inFlight.current === 0) setOptimistic(null);
         void queryClient.invalidateQueries({ queryKey: ["snapshot"] });
       }
     },
-    [configured, queryClient],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [configured, queryClient, lang],
   );
 
   useEffect(() => {
@@ -221,22 +247,16 @@ function HomeControl() {
   }, [tab]);
 
   useEffect(() => {
-    const update = () => {
-      const now = new Date();
-      setDateLabel(
-        now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }),
-      );
-      setCalendar({
-        weekday: now.toLocaleDateString("en-GB", { weekday: "long" }),
-        day: String(now.getDate()),
-        month: now.toLocaleDateString("en-GB", { month: "long" }),
-        year: String(now.getFullYear()),
-      });
-    };
-    update();
-    const timer = setInterval(update, 60000);
+    setNow(new Date());
+    const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.lang = lang;
+    root.dir = rtl ? "rtl" : "ltr";
+  }, [lang, rtl]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
@@ -328,12 +348,8 @@ function HomeControl() {
     locateTimer.current = setTimeout(() => setLocating(false), 8000);
     act({ type: "vacuum", op: "locate" });
   };
-  const WeatherIcon = weatherIcon(data.weather.condition);
-  const outdoor = data.weather.temp === null ? "—" : `${fmt(data.weather.temp)}°`;
-  const indoor = data.indoor.temp === null ? "—" : `${fmt(data.indoor.temp)} °C`;
-  const humidity = data.indoor.humidity === null ? "—" : `${Math.round(data.indoor.humidity)}%`;
   const shot = photo.data;
-  const sampleNote = shot?.note ?? "Sample photo";
+  const sampleNote = shot?.note ? serverText(shot.note) : t("photo.sample");
   const readings = shot?.result.snapshot && configured ? shot.result.snapshot : data;
   const SIcon = weatherIcon(readings.weather.condition);
 
@@ -361,10 +377,14 @@ function HomeControl() {
     ? []
     : modal.kind === "light"
       ? [
-          { label: "Schließen", icon: X, onClick: () => setModal(null) },
-          { label: "Farbe / Weiß", icon: Palette, onClick: () => openModal("color", modal.index) },
+          { label: t("modal.close"), icon: X, onClick: () => setModal(null) },
           {
-            label: "Ein / Aus",
+            label: t("modal.colorWhite"),
+            icon: Palette,
+            onClick: () => openModal("color", modal.index),
+          },
+          {
+            label: t("modal.power"),
             icon: Power,
             pressed: modalLight?.on ?? false,
             onClick: () => {
@@ -375,7 +395,7 @@ function HomeControl() {
             },
           },
           {
-            label: "Warm / Kalt",
+            label: t("modal.warmCold"),
             icon: cold ? Snowflake : Sun,
             pressed: cold,
             onClick: () => {
@@ -387,9 +407,9 @@ function HomeControl() {
           },
         ]
       : [
-          { label: "Schließen", icon: X, onClick: () => setModal(null) },
+          { label: t("modal.close"), icon: X, onClick: () => setModal(null) },
           {
-            label: "Zurück",
+            label: t("modal.back"),
             icon: ArrowLeft,
             onClick: () => setModal({ kind: "light", index: modal.index }),
           },
@@ -403,7 +423,7 @@ function HomeControl() {
   const mediaPower = (index: number) =>
     media(index, data.media[index]?.state === "off" ? "turn_on" : "turn_off");
   const cleaning = data.vacuum.state === "cleaning";
-  const actions: DeviceAction[] =
+  const actions: (DeviceAction | null)[] =
     tab === "Lights"
       ? [
           ...(
@@ -413,13 +433,13 @@ function HomeControl() {
               { name: "Movie", icon: Film },
             ] as const
           ).map(({ name, icon }) => ({
-            label: name,
+            label: t(`scene.${name}`),
             icon,
             pressed: scene === name || (name === "Movie" && data.movieActive),
             onClick: () => applyScene(name),
           })),
           {
-            label: "All off",
+            label: t("lights.alloff"),
             icon: Power,
             onClick: () => {
               setScene("");
@@ -430,15 +450,19 @@ function HomeControl() {
       : tab === "Vacuum"
         ? [
             {
-              label: cleaning ? "Pause cleaning" : "Start cleaning",
+              label: cleaning ? t("vacuum.pause") : t("vacuum.start"),
               icon: cleaning ? Pause : Play,
               pressed: cleaning,
               onClick: () => act({ type: "vacuum", op: cleaning ? "pause" : "start" }),
             },
-            { label: "Dock", icon: Home, onClick: () => act({ type: "vacuum", op: "dock" }) },
-            { label: "Locate", icon: MapPin, pressed: locating, onClick: locate },
             {
-              label: "Clean all",
+              label: t("vacuum.dock"),
+              icon: Home,
+              onClick: () => act({ type: "vacuum", op: "dock" }),
+            },
+            { label: t("vacuum.locate"), icon: MapPin, pressed: locating, onClick: locate },
+            {
+              label: t("vacuum.cleanAll"),
               icon: RotateCcw,
               onClick: () => {
                 act({ type: "rooms.clear" });
@@ -449,13 +473,13 @@ function HomeControl() {
         : tab === "Power"
           ? [
               ...PLUGS.map((meta, index) => ({
-                label: meta.name,
+                label: localName(lang, meta.name),
                 icon: Plug,
                 pressed: plugOn(index),
                 onClick: () => act({ type: "switch.toggle", entity: meta.id }),
               })),
               {
-                label: "All off",
+                label: t("power.allOff"),
                 icon: Power,
                 onClick: () => {
                   PLUGS.forEach((meta, index) => {
@@ -466,26 +490,24 @@ function HomeControl() {
             ]
           : [
               {
-                label: "Movie mode",
+                label: t("media.movie"),
                 icon: Film,
                 pressed: data.movieActive,
                 onClick: () => applyScene("Movie"),
               },
               {
-                label: "End movie",
-                icon: ArrowLeft,
-                onClick: () => {
-                  setScene("");
-                  act({ type: "movie.end" });
-                },
+                label: t("media.tv"),
+                icon: Tv,
+                disabled: mediaOff(1),
+                onClick: () => mediaPower(1),
               },
-              { label: "TV power", icon: Tv, disabled: mediaOff(1), onClick: () => mediaPower(1) },
               {
-                label: "Yamaha power",
+                label: t("media.yamaha"),
                 icon: Music2,
                 disabled: mediaOff(0),
                 onClick: () => mediaPower(0),
               },
+              null,
             ];
 
   keyHandler.current = (event) => {
@@ -507,16 +529,22 @@ function HomeControl() {
         changeLight(modal.index, up ? 10 : -10);
         return;
       }
-      const count = pickerOptions(modal.kind).length;
+      const count = pickerValues(modal.kind).length;
       const step = modal.kind === "shade" ? 1 : 3;
+      // The grid reads right to left in Hebrew, so ArrowLeft moves to the next item there.
+      const side = rtl ? -1 : 1;
       const delta =
-        event.key === "ArrowLeft" || event.key === "PageUp"
+        event.key === "PageUp"
           ? -1
-          : event.key === "ArrowRight" || event.key === "PageDown"
+          : event.key === "PageDown"
             ? 1
-            : event.key === "ArrowUp"
-              ? -step
-              : step;
+            : event.key === "ArrowLeft"
+              ? -side
+              : event.key === "ArrowRight"
+                ? side
+                : event.key === "ArrowUp"
+                  ? -step
+                  : step;
       const next = Math.max(0, Math.min(count - 1, cursor + delta));
       if (next !== cursor) pick(modal.kind, modal.index, next);
       return;
@@ -562,170 +590,412 @@ function HomeControl() {
 
   if (screensaver)
     return (
-      <div className="screen-stage">
-        <div
-          className="kindle-screen photo-screen"
-          aria-label="Immich favorites screensaver preview"
-        >
-          <img
-            src={shot?.image ?? screensaverPhoto}
-            width={600}
-            height={800}
-            alt={
-              shot?.image
-                ? "Favorite photo from Immich"
-                : "Grayscale alpine lake and mountains — sample screensaver photo"
-            }
-          />
-          <div className="photo-caption">
-            <section className="photo-block">
-              <h2>Outdoor</h2>
-              <SIcon size={40} strokeWidth={1.5} />
-              <strong className="climate-reading">
-                {readings.weather.temp === null ? "—" : `${fmt(readings.weather.temp)}°`}
-              </strong>
-              <span>{conditionLabel(readings.weather.condition)}</span>
-            </section>
-            <section className="photo-block">
-              <h2>Indoor</h2>
-              <Thermometer size={40} strokeWidth={1.5} />
-              <strong className="climate-reading">
-                {readings.indoor.temp === null ? "—" : `${fmt(readings.indoor.temp)}°`}
-              </strong>
-              <span className="humidity-reading">
-                <Droplets size={22} />
-                {readings.indoor.humidity === null
-                  ? "—"
-                  : `${Math.round(readings.indoor.humidity)}%`}
-              </span>
-            </section>
-            <section className="photo-block calendar-block" aria-label={dateLabel}>
-              <span className="calendar-month">{calendar.month.slice(0, 3).toUpperCase()}</span>
-              <CalendarDays size={40} strokeWidth={1.5} />
-              <strong className="calendar-day">{calendar.day}</strong>
-              <span className="calendar-weekday">{calendar.weekday.slice(0, 3).toUpperCase()}</span>
-            </section>
-            <small className="photo-demo">
-              {shot?.image
-                ? "Immich favorite"
-                : !configured
-                  ? "Demo readings · " + sampleNote
-                  : sampleNote}
-            </small>
+      <LangContext.Provider value={lang}>
+        <div className="screen-stage">
+          <div className="kindle-screen photo-screen" aria-label={t("photo.label")}>
+            <img
+              src={shot?.image ?? screensaverPhoto}
+              width={600}
+              height={800}
+              alt={shot?.image ? t("photo.altImmich") : t("photo.altSample")}
+            />
+            <div className="photo-caption">
+              <section className="photo-block">
+                <h2>{t("photo.outdoor")}</h2>
+                <SIcon size={40} strokeWidth={1.5} />
+                <strong className="climate-reading">
+                  <Ltr>
+                    {readings.weather.temp === null ? "—" : `${fmt(readings.weather.temp)}°`}
+                  </Ltr>
+                </strong>
+                <span>{conditionLabel(readings.weather.condition, lang)}</span>
+              </section>
+              <section className="photo-block">
+                <h2>{t("photo.indoor")}</h2>
+                <Thermometer size={40} strokeWidth={1.5} />
+                <strong className="climate-reading">
+                  <Ltr>{readings.indoor.temp === null ? "—" : `${fmt(readings.indoor.temp)}°`}</Ltr>
+                </strong>
+                <span className="humidity-reading">
+                  <Droplets size={22} />
+                  {readings.indoor.humidity === null
+                    ? "—"
+                    : `${Math.round(readings.indoor.humidity)}%`}
+                </span>
+              </section>
+              <section className="photo-block calendar-block" aria-label={dateLabel}>
+                <span className="calendar-month">{calendar.month.toUpperCase()}</span>
+                <CalendarDays size={40} strokeWidth={1.5} />
+                <strong className="calendar-day">{calendar.day}</strong>
+                <span className="calendar-weekday">{calendar.weekday.toUpperCase()}</span>
+              </section>
+              <small className="photo-demo">
+                {shot?.image
+                  ? t("photo.immich")
+                  : !configured
+                    ? t("photo.demo", { note: sampleNote })
+                    : sampleNote}
+              </small>
+            </div>
           </div>
         </div>
-      </div>
+      </LangContext.Provider>
     );
 
   return (
-    <div className="screen-stage">
-      <div className="kindle-screen" ref={screen}>
-        <nav className="device-tabs" aria-label="Device categories">
-          {tabs.map(({ name, icon: Icon }) => (
-            <Button
-              key={name}
-              variant="eink"
-              data-active={tab === name}
-              aria-current={tab === name ? "page" : undefined}
-              onClick={() => {
-                setTab(name);
-                setModal(null);
-              }}
-            >
-              <Icon />
-              {name}
-            </Button>
-          ))}
-        </nav>
-        <main className="content" key={tab}>
-          {tab === "Lights" && (
-            <>
-              <div className="section-heading">
-                <div>
-                  <h1>Lights</h1>
-                  <p>{data.lights.filter((light) => light.on).length} of 4 lights on</p>
+    <LangContext.Provider value={lang}>
+      <div className="screen-stage">
+        <div className="kindle-screen" ref={screen}>
+          <nav className="device-tabs" aria-label={t("nav.label")}>
+            {tabs.map(({ name, icon: Icon }) => (
+              <Button
+                key={name}
+                variant="eink"
+                data-active={tab === name}
+                aria-current={tab === name ? "page" : undefined}
+                onClick={() => {
+                  setTab(name);
+                  setModal(null);
+                }}
+              >
+                <Icon />
+                {t(`tab.${name}`)}
+              </Button>
+            ))}
+          </nav>
+          <main className="content" key={tab}>
+            {tab === "Lights" && (
+              <>
+                <div className="section-heading">
+                  <div>
+                    <h1>{t("lights.title")}</h1>
+                    <p>
+                      {t("lights.count", { n: data.lights.filter((light) => light.on).length })}
+                    </p>
+                  </div>
+                  <Button
+                    variant="eink"
+                    size="icon"
+                    title={t("screensaver")}
+                    aria-label={t("screensaver")}
+                    onClick={() => setScreensaver(true)}
+                  >
+                    <Moon />
+                  </Button>
                 </div>
-                <Button
-                  variant="eink"
-                  size="icon"
-                  title="Screensaver"
-                  aria-label="Screensaver"
-                  onClick={() => setScreensaver(true)}
-                >
-                  <Moon />
-                </Button>
-              </div>
-              <div className="light-card-grid">
-                {data.lights.map((light, index) => {
-                  const meta = LIGHTS[index];
-                  const Icon = lightIcons[index];
-                  if (!meta || !Icon) return null;
-                  return (
-                    <section className="light-card" key={meta.id}>
-                      <div className="light-card-heading">
-                        <Button
-                          variant="eink"
-                          className="device-icon"
-                          title={`${meta.name} ${light.on ? "on" : "off"}`}
-                          aria-label={`Toggle ${meta.name}`}
-                          aria-pressed={light.on}
-                          onClick={() => {
-                            setScene("");
-                            act({ type: "light.toggle", entity: meta.id });
-                          }}
-                        >
-                          <Icon size={32} strokeWidth={1.6} />
-                        </Button>
-                        <Button
-                          variant="eink"
-                          className="light-open device-info"
-                          title={`Open ${meta.name}`}
-                          aria-label={`Open ${meta.name}`}
-                          onClick={() => openModal("light", index)}
-                        >
-                          <strong>{meta.name}</strong>
-                          <p>
-                            {light.on ? `${light.level}%` : "Off"} ·{" "}
-                            {light.color === "White"
-                              ? light.shade.toLowerCase()
-                              : light.color.toLowerCase()}
-                          </p>
-                        </Button>
-                      </div>
-                      <p className="light-room">{meta.room}</p>
-                      <div className="light-card-controls">
-                        <div className="light-adjustments">
+                <div className="light-card-grid">
+                  {data.lights.map((light, index) => {
+                    const meta = LIGHTS[index];
+                    const Icon = lightIcons[index];
+                    if (!meta || !Icon) return null;
+                    const name = localName(lang, meta.name);
+                    return (
+                      <section className="light-card" key={meta.id}>
+                        <div className="light-card-heading">
                           <Button
                             variant="eink"
-                            title={`${light.shade} white · ${meta.name}`}
-                            aria-label={`White shade for ${meta.name}`}
-                            onClick={() => openModal("shade", index)}
+                            className="device-icon"
+                            title={name}
+                            aria-label={t("lights.toggle", { name })}
+                            aria-pressed={light.on}
+                            onClick={() => {
+                              setScene("");
+                              act({ type: "light.toggle", entity: meta.id });
+                            }}
                           >
-                            <span className={`shade-swatch shade-${light.shade.toLowerCase()}`} />
+                            <Icon size={32} strokeWidth={1.6} />
                           </Button>
                           <Button
                             variant="eink"
-                            title={`Color · ${meta.name}`}
-                            aria-label={`Color for ${meta.name}`}
-                            onClick={() => openModal("color", index)}
+                            className="light-open device-info"
+                            title={t("lights.open", { name })}
+                            aria-label={t("lights.open", { name })}
+                            onClick={() => openModal("light", index)}
                           >
-                            <Palette />
+                            <strong>{name}</strong>
+                            <p>
+                              {light.on ? <Ltr>{light.level}%</Ltr> : t("lights.off")} ·{" "}
+                              {light.color === "White"
+                                ? t(`shade.${light.shade}`)
+                                : t(`color.${light.color as (typeof COLORS)[number]}`)}
+                            </p>
                           </Button>
                         </div>
+                        <p className="light-room">{localName(lang, meta.room)}</p>
+                        <div className="light-card-controls">
+                          <div className="light-adjustments">
+                            <Button
+                              variant="eink"
+                              title={t("lights.shade", { name })}
+                              aria-label={t("lights.shade", { name })}
+                              onClick={() => openModal("shade", index)}
+                            >
+                              <span className={`shade-swatch shade-${light.shade.toLowerCase()}`} />
+                            </Button>
+                            <Button
+                              variant="eink"
+                              title={t("lights.color", { name })}
+                              aria-label={t("lights.color", { name })}
+                              onClick={() => openModal("color", index)}
+                            >
+                              <Palette />
+                            </Button>
+                          </div>
+                          <div className="level-control">
+                            <Button
+                              variant="eink"
+                              title={t("lights.dim", { name })}
+                              aria-label={t("lights.dim", { name })}
+                              onClick={() => changeLight(index, -10)}
+                            >
+                              <Minus />
+                            </Button>
+                            <Button
+                              variant="eink"
+                              title={t("lights.brighten", { name })}
+                              aria-label={t("lights.brighten", { name })}
+                              onClick={() => changeLight(index, 10)}
+                            >
+                              <Plus />
+                            </Button>
+                          </div>
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            {tab === "Vacuum" && (
+              <>
+                {(() => {
+                  const picked = data.rooms.filter(Boolean).length;
+                  const battery = data.vacuum.battery;
+                  return (
+                    <>
+                      <div className="section-heading">
+                        <div>
+                          <h1>{t("vacuum.title")}</h1>
+                          <p>{picked ? t("vacuum.rooms", { n: picked }) : t("vacuum.wholeHome")}</p>
+                        </div>
+                        <span
+                          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14 }}
+                        >
+                          <Battery size={24} />
+                          <Ltr>{battery === null ? "—" : `${battery}%`}</Ltr>
+                        </span>
+                      </div>
+                      <div className="vacuum-summary">
+                        <Bot strokeWidth={1.3} />
+                        <div>
+                          <strong dir="ltr">Roborock Qrevo Edge</strong>
+                          <p>
+                            {locating ? t("vacuum.locating") : vacuumLabel(data.vacuum.state, lang)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="subheading">{t("vacuum.roomsLabel")}</div>
+                      <div className="room-grid">
+                        {ROOMS.map(({ name, id }, index) => {
+                          const Icon = roomIcons[index];
+                          if (!Icon) return null;
+                          return (
+                            <Button
+                              key={id}
+                              variant="eink"
+                              aria-pressed={data.rooms[index]}
+                              onClick={() => act({ type: "room.toggle", entity: id })}
+                            >
+                              <Icon />
+                              {localName(lang, name)}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                      <div className="progress-line">
+                        <span>{t("vacuum.battery")}</span>
+                        <strong dir="ltr">{battery === null ? "—" : `${battery}%`}</strong>
+                      </div>
+                      <div className="progress-track">
+                        <span style={{ width: `${battery ?? 0}%` }} />
+                      </div>
+                    </>
+                  );
+                })()}
+              </>
+            )}
+            {tab === "Power" && (
+              <>
+                {(() => {
+                  const wh = (value: number | null) =>
+                    value === null ? "—" : `\u2066${Math.round(value)} Wh\u2069`;
+                  const known = data.plugs.filter((plug) => plug.energyWh !== null);
+                  const total = known.length
+                    ? known.reduce((sum, plug) => sum + (plug.energyWh ?? 0), 0)
+                    : null;
+                  return (
+                    <>
+                      <div className="section-heading">
+                        <div>
+                          <h1>{t("power.title")}</h1>
+                          <p>
+                            {t("power.count", { n: data.plugs.filter((plug) => plug.on).length })}
+                          </p>
+                        </div>
+                        <Plug size={25} />
+                      </div>
+                      <div className="power-readings">
+                        {PLUGS.map((meta, index) => {
+                          const plug = data.plugs[index];
+                          if (!plug) return null;
+                          return (
+                            <div className="power-row" key={meta.id}>
+                              <div className={`device-icon ${plug.on ? "on" : ""}`}>
+                                <Plug size={28} />
+                              </div>
+                              <div className="device-info">
+                                <strong>{localName(lang, meta.name)}</strong>
+                                <p>
+                                  {t("power.today", {
+                                    state: plug.on ? t("state.on") : t("state.off"),
+                                    wh: wh(plug.energyWh),
+                                  })}
+                                </p>
+                              </div>
+                              <strong className="watt-reading">
+                                <Ltr>
+                                  {fmt(plug.power)} <small>W</small>
+                                </Ltr>
+                              </strong>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <section className="usage-chart" aria-label={t("power.total")}>
+                        <div className="chart-heading">
+                          <h2>{t("power.total")}</h2>
+                          <strong>
+                            <Ltr>{total === null ? "—" : (total / 1000).toFixed(3)}</Ltr>{" "}
+                            <small>{t("power.kwhToday")}</small>
+                          </strong>
+                        </div>
+                        {!configured && (
+                          <div dir="ltr">
+                            <div className="chart-axis-label">{t("power.demoHistory")}</div>
+                            <svg
+                              viewBox="0 0 540 155"
+                              preserveAspectRatio="none"
+                              role="img"
+                              aria-label={t("power.chartLabel")}
+                            >
+                              <g className="chart-grid">
+                                <path d="M35 10H530M35 70H530M35 130H530" />
+                              </g>
+                              <g className="chart-labels">
+                                <text x="0" y="15">
+                                  120
+                                </text>
+                                <text x="8" y="75">
+                                  60
+                                </text>
+                                <text x="15" y="135">
+                                  0
+                                </text>
+                              </g>
+                              <path
+                                className="chart-line"
+                                d="M35 128L55 128L76 124L97 127L117 128L138 125L159 98L179 32L200 46L221 86L241 108L262 105L283 110L303 88L324 75L345 92L365 50L386 20L407 62L427 68L448 67L469 68L489 68L510 68L530 68"
+                              />
+                            </svg>
+                            <div className="chart-times">
+                              <span>00:00</span>
+                              <span>06:00</span>
+                              <span>12:00</span>
+                              <span>18:00</span>
+                              <span>24:00</span>
+                            </div>
+                          </div>
+                        )}
+                      </section>
+                    </>
+                  );
+                })()}
+              </>
+            )}
+            {tab === "Media" && (
+              <>
+                <div className="section-heading">
+                  <div>
+                    <h1>{t("media.title")}</h1>
+                    <p>{t("media.room")}</p>
+                  </div>
+                  <Music2 size={25} />
+                </div>
+                {MEDIA.map((meta, index) => {
+                  const m = data.media[index];
+                  if (!m) return null;
+                  const off = m.state === "unavailable" || m.state === "unknown";
+                  const idle = off || m.state === "off";
+                  const name = localName(lang, meta.name);
+                  return (
+                    <section className="media-device" key={meta.id}>
+                      <div className="media-title">
+                        {index === 0 ? <Music2 size={27} /> : <Tv size={27} />}
+                        <div>
+                          <strong>{name}</strong>
+                          <p>{vacuumLabel(m.state, lang)}</p>
+                        </div>
+                      </div>
+                      <div className="transport">
+                        {(
+                          [
+                            {
+                              icon: SkipBack,
+                              label: t("media.previous"),
+                              op: "media_previous_track",
+                            },
+                            { icon: Play, label: t("media.play"), op: "media_play" },
+                            { icon: Pause, label: t("media.pause"), op: "media_pause" },
+                            { icon: SkipForward, label: t("media.next"), op: "media_next_track" },
+                          ] as const
+                        ).map(({ icon: Icon, label, op }) => (
+                          <Button
+                            variant="eink"
+                            disabled={idle}
+                            key={label}
+                            title={label}
+                            aria-label={t("media.op", { label, name })}
+                            onClick={() => media(index, op)}
+                          >
+                            <Icon />
+                          </Button>
+                        ))}
+                      </div>
+                      <div className="source-control">
+                        <span>{t("media.source")}</span>
+                        <span>{m.source ?? "—"}</span>
+                      </div>
+                      <div className="source-control">
+                        <span>
+                          <Volume2 size={16} /> {t("media.volume")}
+                        </span>
                         <div className="level-control">
                           <Button
                             variant="eink"
-                            title={`Dim ${meta.name}`}
-                            aria-label={`Dim ${meta.name}`}
-                            onClick={() => changeLight(index, -10)}
+                            disabled={idle}
+                            aria-label={t("media.volDown", { name })}
+                            onClick={() => media(index, "volume_down")}
                           >
                             <Minus />
                           </Button>
+                          <span className="level-value">
+                            {m.volume === null ? "—" : Math.round(m.volume * 100)}
+                          </span>
                           <Button
                             variant="eink"
-                            title={`Brighten ${meta.name}`}
-                            aria-label={`Brighten ${meta.name}`}
-                            onClick={() => changeLight(index, 10)}
+                            disabled={idle}
+                            aria-label={t("media.volUp", { name })}
+                            onClick={() => media(index, "volume_up")}
                           >
                             <Plus />
                           </Button>
@@ -734,261 +1004,34 @@ function HomeControl() {
                     </section>
                   );
                 })}
-              </div>
-            </>
+              </>
+            )}
+          </main>
+          <div className="demo-status" role="status">
+            {status}
+          </div>
+          <DeviceActions actions={actions} />
+          {modal && modalLight && modalMeta && modal.kind === "light" && (
+            <LightModal
+              name={localName(lang, modalMeta.name)}
+              room={localName(lang, modalMeta.room)}
+              light={modalLight}
+              actions={modalActions}
+              status={status}
+            />
           )}
-          {tab === "Vacuum" && (
-            <>
-              {(() => {
-                const picked = data.rooms.filter(Boolean).length;
-                const battery = data.vacuum.battery;
-                return (
-                  <>
-                    <div className="section-heading">
-                      <div>
-                        <h1>Vacuum</h1>
-                        <p>{picked ? `${picked} rooms selected` : "Whole home"}</p>
-                      </div>
-                      <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14 }}>
-                        <Battery size={24} />
-                        {battery === null ? "—" : `${battery}%`}
-                      </span>
-                    </div>
-                    <div className="vacuum-summary">
-                      <Bot strokeWidth={1.3} />
-                      <div>
-                        <strong>Roborock Qrevo Edge</strong>
-                        <p>
-                          {locating ? "Locating · sound requested" : vacuumLabel(data.vacuum.state)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="subheading">Rooms</div>
-                    <div className="room-grid">
-                      {ROOMS.map(({ name, id }, index) => {
-                        const Icon = roomIcons[index];
-                        if (!Icon) return null;
-                        return (
-                          <Button
-                            key={id}
-                            variant="eink"
-                            aria-pressed={data.rooms[index]}
-                            onClick={() => act({ type: "room.toggle", entity: id })}
-                          >
-                            <Icon />
-                            {name}
-                          </Button>
-                        );
-                      })}
-                    </div>
-                    <div className="progress-line">
-                      <span>Battery</span>
-                      <strong>{battery === null ? "—" : `${battery}%`}</strong>
-                    </div>
-                    <div className="progress-track">
-                      <span style={{ width: `${battery ?? 0}%` }} />
-                    </div>
-                  </>
-                );
-              })()}
-            </>
+          {modal && modalLight && modalMeta && modal.kind !== "light" && (
+            <PickerModal
+              kind={modal.kind}
+              lightName={localName(lang, modalMeta.name)}
+              cursor={cursor}
+              onPick={(next) => pick(modal.kind as "shade" | "color", modal.index, next)}
+              actions={modalActions}
+              status={status}
+            />
           )}
-          {tab === "Power" && (
-            <>
-              {(() => {
-                const wh = (value: number | null) =>
-                  value === null ? "—" : `${Math.round(value)} Wh`;
-                const known = data.plugs.filter((plug) => plug.energyWh !== null);
-                const total = known.length
-                  ? known.reduce((sum, plug) => sum + (plug.energyWh ?? 0), 0)
-                  : null;
-                return (
-                  <>
-                    <div className="section-heading">
-                      <div>
-                        <h1>Power</h1>
-                        <p>{data.plugs.filter((plug) => plug.on).length} of 3 plugs on</p>
-                      </div>
-                      <Plug size={25} />
-                    </div>
-                    <div className="power-readings">
-                      {PLUGS.map((meta, index) => {
-                        const plug = data.plugs[index];
-                        if (!plug) return null;
-                        return (
-                          <div className="power-row" key={meta.id}>
-                            <div className={`device-icon ${plug.on ? "on" : ""}`}>
-                              <Plug size={28} />
-                            </div>
-                            <div className="device-info">
-                              <strong>{meta.name}</strong>
-                              <p>
-                                {plug.on ? "On" : "Off"} · {wh(plug.energyWh)} today
-                              </p>
-                            </div>
-                            <strong className="watt-reading">
-                              {fmt(plug.power)} <small>W</small>
-                            </strong>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <section className="usage-chart" aria-label="Total power usage">
-                      <div className="chart-heading">
-                        <h2>Total usage</h2>
-                        <strong>
-                          {total === null ? "—" : (total / 1000).toFixed(3)}{" "}
-                          <small>kWh today</small>
-                        </strong>
-                      </div>
-                      {!configured && (
-                        <>
-                          <div className="chart-axis-label">W · demo history</div>
-                          <svg
-                            viewBox="0 0 540 155"
-                            preserveAspectRatio="none"
-                            role="img"
-                            aria-label="Sample total power usage over 24 hours, from 0 to 120 watts"
-                          >
-                            <g className="chart-grid">
-                              <path d="M35 10H530M35 70H530M35 130H530" />
-                            </g>
-                            <g className="chart-labels">
-                              <text x="0" y="15">
-                                120
-                              </text>
-                              <text x="8" y="75">
-                                60
-                              </text>
-                              <text x="15" y="135">
-                                0
-                              </text>
-                            </g>
-                            <path
-                              className="chart-line"
-                              d="M35 128L55 128L76 124L97 127L117 128L138 125L159 98L179 32L200 46L221 86L241 108L262 105L283 110L303 88L324 75L345 92L365 50L386 20L407 62L427 68L448 67L469 68L489 68L510 68L530 68"
-                            />
-                          </svg>
-                          <div className="chart-times">
-                            <span>00:00</span>
-                            <span>06:00</span>
-                            <span>12:00</span>
-                            <span>18:00</span>
-                            <span>24:00</span>
-                          </div>
-                        </>
-                      )}
-                    </section>
-                  </>
-                );
-              })()}
-            </>
-          )}
-          {tab === "Media" && (
-            <>
-              <div className="section-heading">
-                <div>
-                  <h1>Media</h1>
-                  <p>Living room</p>
-                </div>
-                <Music2 size={25} />
-              </div>
-              {MEDIA.map((meta, index) => {
-                const m = data.media[index];
-                if (!m) return null;
-                const off = m.state === "unavailable" || m.state === "unknown";
-                const idle = off || m.state === "off";
-                const name = meta.name;
-                return (
-                  <section className="media-device" key={meta.id}>
-                    <div className="media-title">
-                      {index === 0 ? <Music2 size={27} /> : <Tv size={27} />}
-                      <div>
-                        <strong>{name}</strong>
-                        <p>{vacuumLabel(m.state)}</p>
-                      </div>
-                    </div>
-                    <div className="transport">
-                      {(
-                        [
-                          { icon: SkipBack, label: "Previous", op: "media_previous_track" },
-                          { icon: Play, label: "Play", op: "media_play" },
-                          { icon: Pause, label: "Pause", op: "media_pause" },
-                          { icon: SkipForward, label: "Next", op: "media_next_track" },
-                        ] as const
-                      ).map(({ icon: Icon, label, op }) => (
-                        <Button
-                          variant="eink"
-                          disabled={idle}
-                          key={label}
-                          title={label}
-                          aria-label={`${label} on ${name}`}
-                          onClick={() => media(index, op)}
-                        >
-                          <Icon />
-                        </Button>
-                      ))}
-                    </div>
-                    <div className="source-control">
-                      <span>Source</span>
-                      <span>{m.source ?? "—"}</span>
-                    </div>
-                    <div className="source-control">
-                      <span>
-                        <Volume2 size={16} /> Volume
-                      </span>
-                      <div className="level-control">
-                        <Button
-                          variant="eink"
-                          disabled={idle}
-                          aria-label={`Lower volume on ${name}`}
-                          onClick={() => media(index, "volume_down")}
-                        >
-                          <Minus />
-                        </Button>
-                        <span className="level-value">
-                          {m.volume === null ? "—" : Math.round(m.volume * 100)}
-                        </span>
-                        <Button
-                          variant="eink"
-                          disabled={idle}
-                          aria-label={`Raise volume on ${name}`}
-                          onClick={() => media(index, "volume_up")}
-                        >
-                          <Plus />
-                        </Button>
-                      </div>
-                    </div>
-                  </section>
-                );
-              })}
-            </>
-          )}
-        </main>
-        <div className="demo-status" role="status">
-          {status}
         </div>
-        <DeviceActions actions={actions} />
-        {modal && modalLight && modalMeta && modal.kind === "light" && (
-          <LightModal
-            name={modalMeta.name}
-            room={modalMeta.room}
-            light={modalLight}
-            actions={modalActions}
-            status={status}
-          />
-        )}
-        {modal && modalLight && modalMeta && modal.kind !== "light" && (
-          <PickerModal
-            kind={modal.kind}
-            lightName={modalMeta.name}
-            cursor={cursor}
-            onPick={(next) => pick(modal.kind as "shade" | "color", modal.index, next)}
-            actions={modalActions}
-            status={status}
-          />
-        )}
       </div>
-    </div>
+    </LangContext.Provider>
   );
 }

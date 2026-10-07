@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { DeviceActions, type DeviceAction } from "@/components/device-actions";
-import { COLOR_LABELS, COLORS, SHADE_LABELS, SHADE_NAMES } from "@/lib/home";
+import { COLORS, SHADE_NAMES } from "@/lib/home";
+import { useT } from "@/lib/lang-context";
 import type { LightState } from "@/lib/home";
 
 /** Full 600x800 page with its own soft-key footer; nothing of the main screen shows through. */
@@ -40,36 +41,35 @@ export function LightModal({
   actions: DeviceAction[];
   status: string;
 }) {
+  const t = useT();
   const colored = light.color !== "White";
   const look = colored
-    ? `Farbe · ${COLOR_LABELS[light.color as (typeof COLORS)[number]] ?? light.color}`
-    : `Weißton · ${SHADE_LABELS[light.shade]}`;
+    ? t("modal.lookColor", { value: t(`color.${light.color as (typeof COLORS)[number]}`) })
+    : t("modal.lookShade", { value: t(`shade.${light.shade}`) });
   return (
-    <FullModal label={`Licht ${name}`} actions={actions} status={status}>
+    <FullModal label={t("modal.light", { name })} actions={actions} status={status}>
       <header className="modal-heading">
         <h1>{name}</h1>
         <p>
-          {room} · <strong>{light.on ? "An" : "Aus"}</strong>
+          {room} · <strong>{light.on ? t("modal.on") : t("modal.off")}</strong>
         </p>
       </header>
-      <div className="big-level" data-on={light.on}>
+      <div className="big-level" data-on={light.on} dir="ltr">
         {light.level}
         <small>%</small>
       </div>
-      <div className="progress-track modal-track">
+      <div className="progress-track modal-track" dir="ltr">
         <span style={{ width: `${light.on ? light.level : 0}%` }} />
       </div>
       <p className="modal-look">{look}</p>
-      <p className="modal-hint">Pfeiltasten: Helligkeit ± 10</p>
+      <p className="modal-hint">{t("modal.hint")}</p>
     </FullModal>
   );
 }
 
 export type PickerKind = "shade" | "color";
-export const pickerOptions = (kind: PickerKind) =>
-  kind === "shade"
-    ? SHADE_NAMES.map((value) => ({ value, label: SHADE_LABELS[value] }))
-    : COLORS.map((value) => ({ value: value as string, label: COLOR_LABELS[value] }));
+export const pickerValues = (kind: PickerKind): readonly string[] =>
+  kind === "shade" ? SHADE_NAMES : COLORS;
 
 export function PickerModal({
   kind,
@@ -86,19 +86,20 @@ export function PickerModal({
   actions: DeviceAction[];
   status: string;
 }) {
-  const options = pickerOptions(kind);
+  const t = useT();
+  const title = kind === "shade" ? t("modal.shadeTitle") : t("modal.colorTitle");
   return (
     <FullModal
-      label={`${kind === "shade" ? "Weißton" : "Farbe"} für ${lightName}`}
+      label={t("modal.pickerLabel", { title, name: lightName })}
       actions={actions}
       status={status}
     >
       <header className="modal-heading">
-        <h1>{kind === "shade" ? "Weißton" : "Farbe"}</h1>
+        <h1>{title}</h1>
         <p>{lightName}</p>
       </header>
       <div className="picker-grid" data-kind={kind}>
-        {options.map(({ value, label }, index) => (
+        {pickerValues(kind).map((value, index) => (
           <Button
             key={value}
             variant="eink"
@@ -106,7 +107,7 @@ export function PickerModal({
             onClick={() => onPick(index)}
           >
             {kind === "shade" && <span className={`shade-swatch shade-${value.toLowerCase()}`} />}
-            <span>{label}</span>
+            <span>{t(`${kind}.${value}` as `shade.Warm`)}</span>
           </Button>
         ))}
       </div>
