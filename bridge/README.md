@@ -36,3 +36,11 @@ curl -o screen.png localhost:8790/screen.png
 ```sh
 wget -q -O /tmp/s.png http://HOST:8790/key/next && eips -g /tmp/s.png
 ```
+
+## Soft keys and refresh hints
+
+- The Kindle's bottom button row (Back, Keyboard, Menu, Home) is sent as keyboard keys `F1`..`F4`,
+  matching the app's four footer buttons left to right. `GET /key/back|keyboard|menu|home` or `/key/f1..f4`.
+- `GET /hint` returns `full` or `partial`: the app sets `<html data-eink-refresh="full">` for frames that
+  need a flashing full e-ink refresh (tab change, modal open/close, screensaver picture). The Kindle client
+  reads it after each fetched frame.

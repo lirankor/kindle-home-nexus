@@ -16,9 +16,11 @@ const PAGE_RELOAD_MS = Number(env("PAGE_RELOAD_MS", 0));
 const KEYS = {
   up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight",
   select: "Enter", enter: "Enter", ok: "Enter",
-  back: "Escape", escape: "Escape",
+  escape: "Escape",
   prev: "PageUp", pageup: "PageUp", next: "PageDown", pagedown: "PageDown",
-  home: "Home", menu: "KeyM", keyboard: "KeyK",
+  // Kindle bottom row (Back, Keyboard, Menu, Home) = soft keys F1..F4, matching the app footer left to right.
+  back: "F1", keyboard: "F2", menu: "F3", home: "F4",
+  f1: "F1", f2: "F2", f3: "F3", f4: "F4",
 };
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -86,6 +88,11 @@ async function ensurePage() {
 async function shoot() {
   const p = await ensurePage();
   const png = await p.screenshot({ type: "png" });
+  // The app may request a full e-ink refresh for this frame via <html data-eink-refresh="full">.
+  let hint = "partial";
+  try {
+    hint = (await p.evaluate(() => document.documentElement.dataset.einkRefresh || "partial")) === "full" ? "full" : "partial";
+  } catch {}
   const buf = await sharp(png)
     .resize(WIDTH, HEIGHT, { fit: "fill" })
     .flatten({ background: "#ffffff" })
@@ -95,7 +102,7 @@ async function shoot() {
     .toBuffer();
   const etag = crypto.createHash("sha1").update(buf).digest("hex");
   const changed = !latest || latest.etag !== etag;
-  latest = { buf, etag };
+  latest = { buf, etag, hint };
   lastShotAt = new Date().toISOString();
   if (changed) frames.emit("frame", latest);
   return latest;
@@ -179,8 +186,13 @@ const server = http.createServer(async (req, res) => {
     if (path === "/healthz") {
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       return res.end(JSON.stringify({
-        ok: !!latest, etag: latest?.etag ?? null, lastShotAt, appUrl: APP_URL,
+        ok: !!latest, etag: latest?.etag ?? null, hint: latest?.hint ?? null, lastShotAt, appUrl: APP_URL,
       }));
+    }
+    if (path === "/hint") {
+      // "full" or "partial": how the Kindle should draw the current frame.
+      res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store", ETag: latest?.etag ?? "" });
+      return res.end((latest?.hint ?? "partial") + "\n");
     }
     if (path === "/screen.png") {
       const since = url.searchParams.get("since");

@@ -21,7 +21,8 @@ fetch() { # fetch <path> [full] ; draws if we got a non-empty file that differs 
     sum=$(md5sum $SHOT.tmp | cut -c1-32)
     if [ "$sum" != "$(cat $LAST 2>/dev/null)" ]; then
       n=$(( $(cat $COUNT 2>/dev/null || echo 0) + 1 ))
-      if [ "$2" = "full" ] || [ $n -ge ${FULL_REFRESH_EVERY:-10} ]; then flag="-f"; n=0; else flag=""; fi
+      hint=$(wget -q -O - "$BRIDGE_URL/$BRIDGE_TOKEN/hint" 2>/dev/null)
+      if [ "$2" = "full" ] || [ "$hint" = "full" ] || [ $n -ge ${FULL_REFRESH_EVERY:-10} ]; then flag="-f"; n=0; else flag=""; fi
       echo $n > $COUNT
       mv $SHOT.tmp $SHOT && eips $flag -g $SHOT && echo "$sum" > $LAST
     fi
@@ -46,7 +47,7 @@ keyname() { # keyname <code>
     103) echo up;; 108) echo down;; 105) echo left;; 106) echo right;; 194) echo select;;
     193|191) echo prev;;      # upper side buttons (page back)
     104|109) echo next;;      # lower side buttons (page forward)
-    158) echo back;; 139) echo menu;; 102) echo home;; 29) echo keyboard;;
+    158) echo f1;; 29) echo f2;; 139) echo f3;; 102) echo f4;;   # bottom row = soft keys F1..F4
     *) echo "";;
   esac
 }
@@ -74,7 +75,7 @@ run() {
     k=$(keyname $code)
     [ -n "$k" ] || continue
     log "key $code -> $k"
-    case $k in prev|next|back|home|menu) fetch /key/$k full;; *) fetch /key/$k;; esac
+    case $k in prev|next) fetch /key/$k full;; *) fetch /key/$k;; esac
   done < $FIFO
   log "fifo closed, exiting"
 }
