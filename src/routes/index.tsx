@@ -6,7 +6,6 @@ import {
   Sun,
   Lightbulb,
   LampCeiling,
-  LampDesk,
   Sofa,
   Power,
   Plug,
@@ -31,7 +30,6 @@ import {
   ShowerHead,
   Volume2,
   Battery,
-  Check,
   ArrowLeft,
   Palette,
   X,
@@ -47,8 +45,11 @@ import {
   CloudDrizzle,
   CloudMoon,
   Wind,
+  CalendarDays,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DeviceActions, type DeviceAction } from "@/components/device-actions";
+import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import screensaverPhoto from "@/assets/screensaver-preview.jpg";
 import {
   COLORS,
@@ -95,7 +96,7 @@ const tabs = [
   { name: "Power", icon: Plug },
   { name: "Media", icon: Music2 },
 ];
-const lightIcons = [LampCeiling, LampDesk, LampCeiling, Lightbulb];
+const lightIcons = [LampCeiling, SpotLightIcon, LampCeiling, StripLightIcon];
 const roomIcons = [ShowerHead, Baby, DoorOpen, Utensils, Home, Bath, Bed, Sofa];
 const weatherIcons: Record<string, typeof Sun> = {
   sunny: Sun,
@@ -134,6 +135,7 @@ function HomeControl() {
     year: "2026",
   });
   const screen = useRef<HTMLDivElement>(null);
+  const focusTabAfterChange = useRef(false);
   const queryClient = useQueryClient();
   const loaded = Route.useLoaderData();
   const query = useQuery<SnapshotResult>({
@@ -205,6 +207,12 @@ function HomeControl() {
   );
 
   useEffect(() => {
+    if (!focusTabAfterChange.current) return;
+    screen.current?.querySelector<HTMLButtonElement>('.device-tabs [data-active="true"]')?.focus();
+    focusTabAfterChange.current = false;
+  }, [tab]);
+
+  useEffect(() => {
     const update = () => {
       const now = new Date();
       setDateLabel(
@@ -262,6 +270,7 @@ function HomeControl() {
       if (event.key === "PageUp" || event.key === "PageDown") {
         setLightMenu(null);
         const index = tabs.findIndex((item) => item.name === tab);
+        focusTabAfterChange.current = true;
         setTab(tabs[(index + (event.key === "PageDown" ? 1 : 3)) % 4]?.name ?? "Lights");
         return;
       }
@@ -337,6 +346,99 @@ function HomeControl() {
   const readings = shot?.result.snapshot && configured ? shot.result.snapshot : data;
   const SIcon = weatherIcon(readings.weather.condition);
 
+  const plugOn = (index: number) => data.plugs[index]?.on ?? false;
+  const mediaOff = (index: number) => {
+    const state = data.media[index]?.state;
+    return state === "unavailable" || state === "unknown";
+  };
+  const mediaPower = (index: number) =>
+    media(index, data.media[index]?.state === "off" ? "turn_on" : "turn_off");
+  const cleaning = data.vacuum.state === "cleaning";
+  const actions: DeviceAction[] =
+    tab === "Lights"
+      ? [
+          ...(
+            [
+              { name: "Bright", icon: Sun },
+              { name: "Evening", icon: Moon },
+              { name: "Movie", icon: Film },
+            ] as const
+          ).map(({ name, icon }) => ({
+            label: name,
+            icon,
+            pressed: scene === name || (name === "Movie" && data.movieActive),
+            onClick: () => applyScene(name),
+          })),
+          {
+            label: "All off",
+            icon: Power,
+            onClick: () => {
+              setScene("");
+              act({ type: "lights.off" });
+            },
+          },
+        ]
+      : tab === "Vacuum"
+        ? [
+            {
+              label: cleaning ? "Pause cleaning" : "Start cleaning",
+              icon: cleaning ? Pause : Play,
+              pressed: cleaning,
+              onClick: () => act({ type: "vacuum", op: cleaning ? "pause" : "start" }),
+            },
+            { label: "Dock", icon: Home, onClick: () => act({ type: "vacuum", op: "dock" }) },
+            { label: "Locate", icon: MapPin, pressed: locating, onClick: locate },
+            {
+              label: "Clean all",
+              icon: RotateCcw,
+              onClick: () => {
+                act({ type: "rooms.clear" });
+                act({ type: "vacuum", op: "start" });
+              },
+            },
+          ]
+        : tab === "Power"
+          ? [
+              ...PLUGS.map((meta, index) => ({
+                label: meta.name,
+                icon: Plug,
+                pressed: plugOn(index),
+                onClick: () => act({ type: "switch.toggle", entity: meta.id }),
+              })),
+              {
+                label: "All off",
+                icon: Power,
+                onClick: () => {
+                  PLUGS.forEach((meta, index) => {
+                    if (plugOn(index)) act({ type: "switch.toggle", entity: meta.id });
+                  });
+                },
+              },
+            ]
+          : [
+              {
+                label: "Yamaha power",
+                icon: Music2,
+                disabled: mediaOff(0),
+                onClick: () => mediaPower(0),
+              },
+              { label: "TV power", icon: Tv, disabled: mediaOff(1), onClick: () => mediaPower(1) },
+              {
+                label: "Movie mode",
+                icon: Film,
+                pressed: data.movieActive,
+                onClick: () => applyScene("Movie"),
+              },
+              {
+                label: "End movie",
+                icon: ArrowLeft,
+                onClick: () => {
+                  setScene("");
+                  act({ type: "movie.end" });
+                },
+              },
+            ];
+
   if (screensaver)
     return (
       <div className="screen-stage">
@@ -355,49 +457,40 @@ function HomeControl() {
             }
           />
           <div className="photo-caption">
-            <div className="photo-date" aria-label={dateLabel}>
-              <strong className="photo-date-day">{calendar.day}</strong>
-              <div>
-                <span className="photo-date-weekday">{calendar.weekday}</span>
-                <span className="photo-date-month">
-                  {calendar.month} {calendar.year}
-                </span>
-              </div>
-            </div>
-            <div className="photo-weather">
-              <SIcon size={34} strokeWidth={1.5} />
-              <div>
-                <strong>
-                  {readings.weather.temp === null ? "—" : `${fmt(readings.weather.temp)}°`}
-                </strong>
-                <small>{conditionLabel(readings.weather.condition)} outside</small>
-              </div>
-            </div>
-            <div className="photo-home">
-              <span>
-                <Thermometer size={18} />
-                Home{" "}
-                <strong>
-                  {readings.indoor.temp === null ? "—" : `${fmt(readings.indoor.temp)} °C`}
-                </strong>
+            <section className="photo-block">
+              <h2>Outdoor</h2>
+              <SIcon size={40} strokeWidth={1.5} />
+              <strong className="climate-reading">
+                {readings.weather.temp === null ? "—" : `${fmt(readings.weather.temp)}°`}
+              </strong>
+              <span>{conditionLabel(readings.weather.condition)}</span>
+            </section>
+            <section className="photo-block">
+              <h2>Indoor</h2>
+              <Thermometer size={40} strokeWidth={1.5} />
+              <strong className="climate-reading">
+                {readings.indoor.temp === null ? "—" : `${fmt(readings.indoor.temp)}°`}
+              </strong>
+              <span className="humidity-reading">
+                <Droplets size={22} />
+                {readings.indoor.humidity === null
+                  ? "—"
+                  : `${Math.round(readings.indoor.humidity)}%`}
               </span>
-              <span>
-                <Droplets size={18} />
-                Humidity{" "}
-                <strong>
-                  {readings.indoor.humidity === null
-                    ? "—"
-                    : `${Math.round(readings.indoor.humidity)}%`}
-                </strong>
-              </span>
-              <small>
-                {shot?.image
-                  ? "Immich favorite"
-                  : !configured
-                    ? "Demo readings · " + sampleNote
-                    : sampleNote}
-              </small>
-            </div>
+            </section>
+            <section className="photo-block calendar-block" aria-label={dateLabel}>
+              <span className="calendar-month">{calendar.month.slice(0, 3).toUpperCase()}</span>
+              <CalendarDays size={40} strokeWidth={1.5} />
+              <strong className="calendar-day">{calendar.day}</strong>
+              <span className="calendar-weekday">{calendar.weekday.slice(0, 3).toUpperCase()}</span>
+            </section>
+            <small className="photo-demo">
+              {shot?.image
+                ? "Immich favorite"
+                : !configured
+                  ? "Demo readings · " + sampleNote
+                  : sampleNote}
+            </small>
           </div>
         </div>
       </div>
@@ -406,47 +499,6 @@ function HomeControl() {
   return (
     <div className="screen-stage">
       <div className="kindle-screen" ref={screen}>
-        <header className="weather-header" aria-label="Weather and home conditions">
-          <div className="weather-date">
-            <span>{dateLabel}</span>
-            <Button
-              variant="eink"
-              size="icon"
-              title="Screensaver"
-              aria-label="Screensaver"
-              onClick={() => setScreensaver(true)}
-            >
-              <Moon />
-            </Button>
-          </div>
-          <div className="weather-overview">
-            <WeatherIcon size={64} strokeWidth={1.2} />
-            <strong>
-              {outdoor === "—" ? (
-                "—"
-              ) : (
-                <>
-                  {fmt(data.weather.temp)}
-                  <span>°</span>
-                </>
-              )}
-            </strong>
-            <div>
-              <h2>{conditionLabel(data.weather.condition)}</h2>
-              <p>Outside{configured ? "" : " · demo weather"}</p>
-            </div>
-          </div>
-          <div className="weather-details">
-            <span>
-              <Thermometer size={18} />
-              Indoor <strong>{indoor}</strong>
-            </span>
-            <span>
-              <Droplets size={18} />
-              Humidity <strong>{humidity}</strong>
-            </span>
-          </div>
-        </header>
         <nav className="device-tabs" aria-label="Device categories">
           {tabs.map(({ name, icon: Icon }) => (
             <Button
@@ -474,111 +526,93 @@ function HomeControl() {
                 </div>
                 <Button
                   variant="eink"
-                  onClick={() => {
-                    setScene("");
-                    act({ type: "lights.off" });
-                  }}
+                  size="icon"
+                  title="Screensaver"
+                  aria-label="Screensaver"
+                  onClick={() => setScreensaver(true)}
                 >
-                  <Power />
-                  All off
+                  <Moon />
                 </Button>
               </div>
-              {data.lights.map((light, index) => {
-                const meta = LIGHTS[index];
-                const Icon = lightIcons[index];
-                if (!meta || !Icon) return null;
-                return (
-                  <div key={meta.id}>
-                    {(index === 0 || index === 2) && <div className="group-label">{meta.room}</div>}
-                    <div className="light-row">
-                      <div className={`device-icon ${light.on ? "on" : ""}`}>
-                        <Icon size={24} strokeWidth={1.5} />
-                      </div>
-                      <div className="device-info">
-                        <strong>{meta.name}</strong>
-                        <p>
-                          {light.on ? `${light.level}%` : "Off"} ·{" "}
-                          {light.color === "White"
-                            ? light.shade.toLowerCase()
-                            : light.color.toLowerCase()}
-                        </p>
-                      </div>
-                      <div className="light-adjustments">
+              <div className="light-card-grid">
+                {data.lights.map((light, index) => {
+                  const meta = LIGHTS[index];
+                  const Icon = lightIcons[index];
+                  if (!meta || !Icon) return null;
+                  return (
+                    <section className="light-card" key={meta.id}>
+                      <div className="light-card-heading">
                         <Button
                           variant="eink"
-                          className="shade-button"
-                          title={`${light.shade} white · ${meta.name}`}
-                          aria-label={`White shade for ${meta.name}`}
-                          data-menu-open={lightMenu?.index === index && lightMenu.mode === "shade"}
-                          onClick={() => setLightMenu({ index, mode: "shade" })}
+                          className="device-icon"
+                          title={`${meta.name} ${light.on ? "on" : "off"}`}
+                          aria-label={`Toggle ${meta.name}`}
+                          aria-pressed={light.on}
+                          onClick={() => {
+                            setScene("");
+                            act({ type: "light.toggle", entity: meta.id });
+                          }}
                         >
-                          <span className={`shade-swatch shade-${light.shade.toLowerCase()}`} />
+                          <Icon size={32} strokeWidth={1.6} />
                         </Button>
-                        <Button
-                          variant="eink"
-                          size="icon"
-                          title={`Color · ${meta.name}`}
-                          aria-label={`Color for ${meta.name}`}
-                          data-menu-open={lightMenu?.index === index && lightMenu.mode === "color"}
-                          onClick={() => setLightMenu({ index, mode: "color" })}
-                        >
-                          <Palette />
-                        </Button>
+                        <div className="device-info">
+                          <strong>{meta.name}</strong>
+                          <p>
+                            {light.on ? `${light.level}%` : "Off"} ·{" "}
+                            {light.color === "White"
+                              ? light.shade.toLowerCase()
+                              : light.color.toLowerCase()}
+                          </p>
+                        </div>
                       </div>
-                      <div className="level-control">
-                        <Button
-                          variant="eink"
-                          title={`Dim ${meta.name}`}
-                          aria-label={`Dim ${meta.name}`}
-                          onClick={() => changeLight(index, -10)}
-                        >
-                          <Minus />
-                        </Button>
-                        <Button
-                          variant="eink"
-                          title={`Brighten ${meta.name}`}
-                          aria-label={`Brighten ${meta.name}`}
-                          onClick={() => changeLight(index, 10)}
-                        >
-                          <Plus />
-                        </Button>
+                      <p className="light-room">{meta.room}</p>
+                      <div className="light-card-controls">
+                        <div className="light-adjustments">
+                          <Button
+                            variant="eink"
+                            title={`${light.shade} white · ${meta.name}`}
+                            aria-label={`White shade for ${meta.name}`}
+                            data-menu-open={
+                              lightMenu?.index === index && lightMenu.mode === "shade"
+                            }
+                            onClick={() => setLightMenu({ index, mode: "shade" })}
+                          >
+                            <span className={`shade-swatch shade-${light.shade.toLowerCase()}`} />
+                          </Button>
+                          <Button
+                            variant="eink"
+                            title={`Color · ${meta.name}`}
+                            aria-label={`Color for ${meta.name}`}
+                            data-menu-open={
+                              lightMenu?.index === index && lightMenu.mode === "color"
+                            }
+                            onClick={() => setLightMenu({ index, mode: "color" })}
+                          >
+                            <Palette />
+                          </Button>
+                        </div>
+                        <div className="level-control">
+                          <Button
+                            variant="eink"
+                            title={`Dim ${meta.name}`}
+                            aria-label={`Dim ${meta.name}`}
+                            onClick={() => changeLight(index, -10)}
+                          >
+                            <Minus />
+                          </Button>
+                          <Button
+                            variant="eink"
+                            title={`Brighten ${meta.name}`}
+                            aria-label={`Brighten ${meta.name}`}
+                            onClick={() => changeLight(index, 10)}
+                          >
+                            <Plus />
+                          </Button>
+                        </div>
                       </div>
-                      <Button
-                        variant="eink"
-                        className="toggle-button"
-                        title={`${meta.name} ${light.on ? "on" : "off"}`}
-                        aria-label={`Toggle ${meta.name}`}
-                        aria-pressed={light.on}
-                        onClick={() => {
-                          setScene("");
-                          act({ type: "light.toggle", entity: meta.id });
-                        }}
-                      >
-                        <span className="switch-indicator">{light.on && <Check />}</span>
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-              <div className="subheading">Scenes</div>
-              <div className="scene-grid">
-                {(
-                  [
-                    { name: "Bright", icon: Sun },
-                    { name: "Evening", icon: Moon },
-                    { name: "Movie", icon: Film },
-                  ] as const
-                ).map(({ name, icon: Icon }) => (
-                  <Button
-                    key={name}
-                    variant="eink"
-                    aria-pressed={scene === name || (name === "Movie" && data.movieActive)}
-                    onClick={() => applyScene(name)}
-                  >
-                    <Icon />
-                    {name}
-                  </Button>
-                ))}
+                    </section>
+                  );
+                })}
               </div>
             </>
           )}
@@ -586,7 +620,6 @@ function HomeControl() {
             <>
               {(() => {
                 const picked = data.rooms.filter(Boolean).length;
-                const cleaning = data.vacuum.state === "cleaning";
                 const battery = data.vacuum.battery;
                 return (
                   <>
@@ -609,24 +642,6 @@ function HomeControl() {
                         </p>
                       </div>
                     </div>
-                    <div className="vacuum-actions">
-                      <Button
-                        variant="eink"
-                        aria-pressed={cleaning}
-                        onClick={() => act({ type: "vacuum", op: cleaning ? "pause" : "start" })}
-                      >
-                        {cleaning ? <Pause /> : <Play />}
-                        {cleaning ? "Pause" : "Start cleaning"}
-                      </Button>
-                      <Button variant="eink" onClick={() => act({ type: "vacuum", op: "dock" })}>
-                        <Home />
-                        Dock
-                      </Button>
-                      <Button variant="eink" onClick={locate}>
-                        <MapPin />
-                        Locate
-                      </Button>
-                    </div>
                     <div className="subheading">Rooms</div>
                     <div className="room-grid">
                       {ROOMS.map(({ name, id }, index) => {
@@ -644,10 +659,6 @@ function HomeControl() {
                           </Button>
                         );
                       })}
-                      <Button variant="eink" onClick={() => act({ type: "rooms.clear" })}>
-                        <RotateCcw />
-                        Whole home
-                      </Button>
                     </div>
                     <div className="progress-line">
                       <span>Battery</span>
@@ -665,9 +676,7 @@ function HomeControl() {
             <>
               {(() => {
                 const wh = (value: number | null) =>
-                  value === null ? "—" : String(Math.round(value));
-                const kwh = (value: number | null, digits: number) =>
-                  value === null ? "—" : (value / 1000).toFixed(digits);
+                  value === null ? "—" : `${Math.round(value)} Wh`;
                 const known = data.plugs.filter((plug) => plug.energyWh !== null);
                 const total = known.length
                   ? known.reduce((sum, plug) => sum + (plug.energyWh ?? 0), 0)
@@ -681,66 +690,74 @@ function HomeControl() {
                       </div>
                       <Plug size={25} />
                     </div>
-                    <div className="group-label">Plugs & power</div>
-                    {PLUGS.map((meta, index) => {
-                      const plug = data.plugs[index];
-                      if (!plug) return null;
-                      return (
-                        <div className="light-row" key={meta.id}>
-                          <div className={`device-icon ${plug.on ? "on" : ""}`}>
-                            <Plug size={24} />
+                    <div className="power-readings">
+                      {PLUGS.map((meta, index) => {
+                        const plug = data.plugs[index];
+                        if (!plug) return null;
+                        return (
+                          <div className="power-row" key={meta.id}>
+                            <div className={`device-icon ${plug.on ? "on" : ""}`}>
+                              <Plug size={28} />
+                            </div>
+                            <div className="device-info">
+                              <strong>{meta.name}</strong>
+                              <p>
+                                {plug.on ? "On" : "Off"} · {wh(plug.energyWh)} today
+                              </p>
+                            </div>
+                            <strong className="watt-reading">
+                              {fmt(plug.power)} <small>W</small>
+                            </strong>
                           </div>
-                          <div className="device-info">
-                            <strong>{meta.name}</strong>
-                            <p>{fmt(plug.power)} W</p>
-                          </div>
-                          <Button
-                            variant="eink"
-                            className="toggle-button"
-                            title={`${meta.name} ${plug.on ? "on" : "off"}`}
-                            aria-label={`Toggle ${meta.name}`}
-                            aria-pressed={plug.on}
-                            onClick={() => act({ type: "switch.toggle", entity: meta.id })}
+                        );
+                      })}
+                    </div>
+                    <section className="usage-chart" aria-label="Total power usage">
+                      <div className="chart-heading">
+                        <h2>Total usage</h2>
+                        <strong>
+                          {total === null ? "—" : (total / 1000).toFixed(3)}{" "}
+                          <small>kWh today</small>
+                        </strong>
+                      </div>
+                      {!configured && (
+                        <>
+                          <div className="chart-axis-label">W · demo history</div>
+                          <svg
+                            viewBox="0 0 540 155"
+                            preserveAspectRatio="none"
+                            role="img"
+                            aria-label="Sample total power usage over 24 hours, from 0 to 120 watts"
                           >
-                            <span className="switch-indicator">{plug.on && <Check />}</span>
-                          </Button>
-                        </div>
-                      );
-                    })}
-                    <div className="subheading">Energy today</div>
-                    <div className="power-stats">
-                      <div>
-                        <strong>
-                          {wh(data.plugs[1]?.energyWh ?? null)}
-                          <small> Wh</small>
-                        </strong>
-                        <small>Workstation</small>
-                      </div>
-                      <div>
-                        <strong>
-                          {wh(data.plugs[0]?.energyWh ?? null)}
-                          <small> Wh</small>
-                        </strong>
-                        <small>TV Plug</small>
-                      </div>
-                      <div>
-                        <strong>
-                          {kwh(data.plugs[2]?.energyWh ?? null, 2)}
-                          <small> kWh</small>
-                        </strong>
-                        <small>Kitchen boiler</small>
-                      </div>
-                    </div>
-                    <div className="subheading">Total today</div>
-                    <div className="power-stats">
-                      <div>
-                        <strong>
-                          {kwh(total, 3)}
-                          <small> kWh</small>
-                        </strong>
-                        <small>Across all plugs</small>
-                      </div>
-                    </div>
+                            <g className="chart-grid">
+                              <path d="M35 10H530M35 70H530M35 130H530" />
+                            </g>
+                            <g className="chart-labels">
+                              <text x="0" y="15">
+                                120
+                              </text>
+                              <text x="8" y="75">
+                                60
+                              </text>
+                              <text x="15" y="135">
+                                0
+                              </text>
+                            </g>
+                            <path
+                              className="chart-line"
+                              d="M35 128L55 128L76 124L97 127L117 128L138 125L159 98L179 32L200 46L221 86L241 108L262 105L283 110L303 88L324 75L345 92L365 50L386 20L407 62L427 68L448 67L469 68L489 68L510 68L530 68"
+                            />
+                          </svg>
+                          <div className="chart-times">
+                            <span>00:00</span>
+                            <span>06:00</span>
+                            <span>12:00</span>
+                            <span>18:00</span>
+                            <span>24:00</span>
+                          </div>
+                        </>
+                      )}
+                    </section>
                   </>
                 );
               })()}
@@ -754,26 +771,6 @@ function HomeControl() {
                   <p>Living room</p>
                 </div>
                 <Music2 size={25} />
-              </div>
-              <div className="scene-grid">
-                <Button
-                  variant="eink"
-                  aria-pressed={data.movieActive}
-                  onClick={() => applyScene("Movie")}
-                >
-                  <Film />
-                  Movie mode
-                </Button>
-                <Button
-                  variant="eink"
-                  onClick={() => {
-                    setScene("");
-                    act({ type: "movie.end" });
-                  }}
-                >
-                  <ArrowLeft />
-                  End movie
-                </Button>
               </div>
               {MEDIA.map((meta, index) => {
                 const m = data.media[index];
@@ -789,14 +786,6 @@ function HomeControl() {
                         <strong>{name}</strong>
                         <p>{vacuumLabel(m.state)}</p>
                       </div>
-                      <Button
-                        variant="eink"
-                        disabled={off}
-                        aria-label={`Power ${name}`}
-                        onClick={() => media(index, m.state === "off" ? "turn_on" : "turn_off")}
-                      >
-                        <Power />
-                      </Button>
                     </div>
                     <div className="transport">
                       {(
@@ -855,9 +844,10 @@ function HomeControl() {
             </>
           )}
         </main>
-        <span className="demo-label" role="status">
+        <div className="demo-status" role="status">
           {status}
-        </span>
+        </div>
+        <DeviceActions actions={actions} />
         {lightMenu && (
           <div className="light-menu-backdrop">
             <section

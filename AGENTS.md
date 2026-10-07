@@ -15,3 +15,5 @@
 - Without `HA_TOKEN` the UI runs on demo data and the status line says "Demo · …"; with it, show the real action result or error ("HA unreachable") and never imply success when HA failed. Optimistic state is reverted on failure.
 - The photo screensaver wakes on the first input without activating an underlying control; the bundled sample imagery is labeled until `IMMICH_API_KEY` is set, then a random Immich favorite is shown.
 - Light shade and RGB choices use an in-screen dialog with grayscale swatches and named colors, keeping five-way navigation within the open dialog.
+- Share a four-slot action footer across device tabs, with a central physical-controller gap, so actions maintain consistent hardware alignment.
+- Keep device action definitions separate from their shared footer rendering and use dedicated device icons, so hardware layout remains consistent across views.
