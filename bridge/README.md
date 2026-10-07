@@ -44,3 +44,11 @@ wget -q -O /tmp/s.png http://HOST:8790/key/next && eips -g /tmp/s.png
 - `GET /hint` returns `full` or `partial`: the app sets `<html data-eink-refresh="full">` for frames that
   need a flashing full e-ink refresh (tab change, modal open/close, screensaver picture). The Kindle client
   reads it after each fetched frame.
+
+## Photo region (screensaver)
+
+While the screensaver shows a photo, the app sets `<html data-eink-photo="x,y,w,h">` (CSS pixels).
+The bridge then processes only that region for the e-ink panel: auto-levels, a mild contrast and
+brightness lift, unsharp mask, and Floyd-Steinberg dithering down to the panel's 16 grey levels.
+Tuning env: `PHOTO_CONTRAST` (default 1.12), `PHOTO_BRIGHTNESS` (default 12, added grey levels),
+`PHOTO_SHARPEN` (sigma, default 1.0).

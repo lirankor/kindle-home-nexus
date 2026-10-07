@@ -85,21 +85,52 @@ async function ensurePage() {
   return page;
 }
 
-async function shoot() {
-  const p = await ensurePage();
-  const png = await p.screenshot({ type: "png" });
-  // The app may request a full e-ink refresh for this frame via <html data-eink-refresh="full">.
-  let hint = "partial";
-  try {
-    hint = (await p.evaluate(() => document.documentElement.dataset.einkRefresh || "partial")) === "full" ? "full" : "partial";
-  } catch {}
-  const buf = await sharp(png)
-    .resize(WIDTH, HEIGHT, { fit: "fill" })
-    .flatten({ background: "#ffffff" })
-    .grayscale()
+// E-ink photo pipeline for one region of a grayscale frame: auto-levels, mild contrast/brightness lift,
+// unsharp mask, then Floyd-Steinberg dither down to the panel's 16 grey levels.
+const PHOTO_CONTRAST = Number(process.env.PHOTO_CONTRAST || 1.12);
+const PHOTO_BRIGHTNESS = Number(process.env.PHOTO_BRIGHTNESS || 12);
+const PHOTO_SHARPEN = Number(process.env.PHOTO_SHARPEN || 1.0);
+async function processPhotoRegion(frameBuf, r) {
+  const region = await sharp(frameBuf)
+    .extract({ left: r.x, top: r.y, width: r.w, height: r.h })
+    .normalise()
+    .linear(PHOTO_CONTRAST, PHOTO_BRIGHTNESS - 128 * (PHOTO_CONTRAST - 1))
+    .sharpen({ sigma: PHOTO_SHARPEN })
+    .png({ palette: true, colours: 16, dither: 1.0 })
+    .toBuffer();
+  const raw = await sharp(region).grayscale().toColourspace("b-w").raw().toBuffer();
+  return sharp(frameBuf)
+    .composite([{ input: raw, raw: { width: r.w, height: r.h, channels: 1 }, left: r.x, top: r.y }])
+    .removeAlpha()
     .toColourspace("b-w")
     .png({ palette: false, compressionLevel: 9 })
     .toBuffer();
+}
+
+async function shoot() {
+  const p = await ensurePage();
+  const png = await p.screenshot({ type: "png" });
+  // The app may request a full e-ink refresh via <html data-eink-refresh="full">, and mark a photo
+  // region via data-eink-photo="x,y,w,h" that gets e-ink specific processing (levels, sharpen, dither).
+  let hint = "partial";
+  let photo = null;
+  try {
+    const ds = await p.evaluate(() => ({ r: document.documentElement.dataset.einkRefresh || "", p: document.documentElement.dataset.einkPhoto || "" }));
+    hint = ds.r === "full" ? "full" : "partial";
+    const m = /^(\d+),(\d+),(\d+),(\d+)$/.exec(ds.p || "");
+    if (m) photo = { x: +m[1], y: +m[2], w: +m[3], h: +m[4] };
+  } catch {}
+  let frame = sharp(png)
+    .resize(WIDTH, HEIGHT, { fit: "fill" })
+    .flatten({ background: "#ffffff" })
+    .grayscale()
+    .toColourspace("b-w");
+  if (photo && photo.w > 8 && photo.h > 8 && photo.x + photo.w <= WIDTH && photo.y + photo.h <= HEIGHT) {
+    try {
+      frame = sharp(await processPhotoRegion(await frame.png({ palette: false }).toBuffer(), photo));
+    } catch (e) { log("photo processing failed:", e.message); }
+  }
+  const buf = await frame.png({ palette: false, compressionLevel: 9 }).toBuffer();
   const etag = crypto.createHash("sha1").update(buf).digest("hex");
   const changed = !latest || latest.etag !== etag;
   latest = { buf, etag, hint };
