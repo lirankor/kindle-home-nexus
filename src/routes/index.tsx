@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
-import { Home, Sun, Lightbulb, LampCeiling, Sofa, Power, Plug, Tv, Music2, Bot, Play, Pause, SkipBack, SkipForward, Minus, Plus, Moon, Film, RotateCcw, MapPin, Bed, Utensils, Bath, DoorOpen, Baby, ShowerHead, Volume2, Battery, ArrowLeft, Palette, X, Thermometer, Droplets } from 'lucide-react';
+import { Home, Sun, Lightbulb, LampCeiling, Sofa, Power, Plug, Tv, Music2, Bot, Play, Pause, SkipBack, SkipForward, Minus, Plus, Moon, Film, RotateCcw, MapPin, Bed, Utensils, Bath, DoorOpen, Baby, ShowerHead, Volume2, Battery, ArrowLeft, Palette, X, Thermometer, Droplets, CalendarDays } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DeviceActions, type DeviceAction } from '@/components/device-actions';
 import { SpotLightIcon, StripLightIcon } from '@/components/light-icons';
@@ -157,8 +157,7 @@ function HomeControl() {
     <div className="photo-caption">
       <section className="photo-block"><h2>Outdoor</h2><Sun size={40} strokeWidth={1.5} /><strong className="climate-reading">19.1°</strong><span>Sunny</span></section>
       <section className="photo-block"><h2>Indoor</h2><Thermometer size={40} strokeWidth={1.5} /><strong className="climate-reading">22.0°</strong><span className="humidity-reading"><Droplets size={22} />63%</span></section>
-      <section className="photo-block calendar-block" aria-label={dateLabel}><span className="calendar-month">{calendar.month.slice(0, 3).toUpperCase()}</span><strong className="calendar-day">{calendar.day}</strong><span className="calendar-weekday">{calendar.weekday.slice(0, 3).toUpperCase()}</span></section>
-      <small className="photo-demo">Demo readings</small>
+      <section className="photo-block calendar-block" aria-label={dateLabel}><span className="calendar-month">{calendar.month.slice(0, 3).toUpperCase()}</span><CalendarDays size={40} strokeWidth={1.5} /><strong className="calendar-day">{calendar.day}</strong><span className="calendar-weekday">{calendar.weekday.slice(0, 3).toUpperCase()}</span></section>
     </div>
   </div></div>;
 
