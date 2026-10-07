@@ -21,7 +21,7 @@ export const Route = createFileRoute('/')({
 const tabs = [{ name: 'Lights', icon: Lightbulb }, { name: 'Vacuum', icon: Bot }, { name: 'Power', icon: Plug }, { name: 'Media', icon: Music2 }];
 const initialLights = [
   { name: 'Main light', room: 'Living room', icon: LampCeiling, on: true, level: 96, shade: 'Warm', color: 'White' },
-  { name: 'Spot light', room: 'Living room', icon: on: false, level: 60, shade: 'Neutral', color: 'White' },
+  { name: 'Spot light', room: 'Living room', icon: SpotLightIcon, on: false, level: 60, shade: 'Neutral', color: 'White' },
   { name: 'Dining table', room: 'Dining room', icon: LampCeiling, on: false, level: 80, shade: 'Warm', color: 'White' },
   { name: 'Cabinet strips', room: 'Dining room', icon: StripLightIcon, on: false, level: 50, shade: 'Cool', color: 'White' },
 ];
