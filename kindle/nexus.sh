@@ -13,13 +13,17 @@ SHOT=/tmp/nexus.png
 LAST=/tmp/nexus.last.md5
 log() { echo "$(date '+%H:%M:%S') $*" >> $LOG; }
 
-fetch() { # fetch <path> ; draws if we got a non-empty file that differs from the last frame
+COUNT=/tmp/nexus.count
+fetch() { # fetch <path> [full] ; draws if we got a non-empty file that differs from the last frame
   rm -f $SHOT.tmp
   wget -q -O $SHOT.tmp "$BRIDGE_URL/$BRIDGE_TOKEN$1" 2>/dev/null
   if [ -s $SHOT.tmp ]; then
     sum=$(md5sum $SHOT.tmp | cut -c1-32)
     if [ "$sum" != "$(cat $LAST 2>/dev/null)" ]; then
-      mv $SHOT.tmp $SHOT && eips -g $SHOT && echo "$sum" > $LAST
+      n=$(( $(cat $COUNT 2>/dev/null || echo 0) + 1 ))
+      if [ "$2" = "full" ] || [ $n -ge ${FULL_REFRESH_EVERY:-10} ]; then flag="-f"; n=0; else flag=""; fi
+      echo $n > $COUNT
+      mv $SHOT.tmp $SHOT && eips $flag -g $SHOT && echo "$sum" > $LAST
     fi
     return 0
   fi
@@ -63,14 +67,14 @@ run() {
   P=$!
   echo "$R0 $R1 $P" > $KIDS
   trap "kill $R0 $R1 $P 2>/dev/null; killall dd 2>/dev/null; exit 0" TERM INT
-  fetch /reload || fetch /screen.png
+  fetch /reload full || fetch /screen.png full
   while read sec usec type code value; do
     if [ "$type" = "poll" ]; then fetch /screen.png; continue; fi
     [ "$type" = "1" ] && [ "$value" = "1" ] || continue
     k=$(keyname $code)
     [ -n "$k" ] || continue
     log "key $code -> $k"
-    fetch /key/$k
+    case $k in prev|next|back|home|menu) fetch /key/$k full;; *) fetch /key/$k;; esac
   done < $FIFO
   log "fifo closed, exiting"
 }
