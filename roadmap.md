@@ -1,5 +1,4 @@
 # Tasks
-- [x] Compact screensaver blocks, remove the surrounding white strip and demo label, and align icons beside equally sized readings.
 - [x] Move tabs to top, create four light cards and physical-button action footers, enlarge screensaver blocks, and add power usage graph.
 - [x] Use the reclaimed screen space for larger device labels, readings, and controls.
 - [x] Replace screensaver sample-photo text with a calendar date widget and home temperature/humidity.
