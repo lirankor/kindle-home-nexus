@@ -55,7 +55,7 @@ export function pressSoftKey(actions: (DeviceAction | null | undefined)[], key: 
 }
 
 /** Briefly shows the footer button of a pressed soft key as pressed (an indicator, not a focus change). */
-export function flashSoftKey(key: string, ms = 400) {
+export function flashSoftKey(key: string, ms = 120) {
   const button = document.querySelector<HTMLElement>(`.device-actions [data-soft-key="${key}"]`);
   if (!button || button.hasAttribute("disabled")) return;
   button.setAttribute("data-flash", "true");
