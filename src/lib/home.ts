@@ -22,6 +22,25 @@ export const COLORS = [
   "Purple",
   "Pink",
 ] as const;
+// German UI labels for the full-page light modals; action payloads keep the English names.
+export const SHADE_LABELS: Record<Shade, string> = {
+  Warm: "Warm",
+  Neutral: "Neutral",
+  Cool: "Kalt",
+};
+export const COLOR_LABELS: Record<(typeof COLORS)[number], string> = {
+  White: "Weiß",
+  Red: "Rot",
+  Orange: "Orange",
+  Yellow: "Gelb",
+  Green: "Grün",
+  Cyan: "Türkis",
+  Blue: "Blau",
+  Purple: "Lila",
+  Pink: "Rosa",
+};
+export const SHADE_NAMES = Object.keys(SHADES) as Shade[];
+
 const COLOR_RGB: Record<string, [number, number, number]> = {
   Red: [255, 0, 0],
   Orange: [255, 165, 0],

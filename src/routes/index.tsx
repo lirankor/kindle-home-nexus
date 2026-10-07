@@ -46,9 +46,11 @@ import {
   CloudMoon,
   Wind,
   CalendarDays,
+  Snowflake,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DeviceActions, pressSoftKey, type DeviceAction } from "@/components/device-actions";
+import { LightModal, PickerModal, pickerOptions } from "@/components/light-modals";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import screensaverPhoto from "@/assets/screensaver-preview.jpg";
 import {
@@ -58,6 +60,7 @@ import {
   PLUGS,
   ROOMS,
   SHADES,
+  SHADE_NAMES,
   actionLabel,
   applyOptimistic,
   conditionLabel,
@@ -118,15 +121,18 @@ const weatherIcon = (condition: string | null) =>
   (condition && weatherIcons[condition]) || (condition === null ? CloudDrizzle : CloudMoon);
 const fmt = (value: number | null, digits = 1) => (value === null ? "—" : value.toFixed(digits));
 const SAMPLE_REFRESH_MS = 10 * 60 * 1000;
+const MODAL_IDLE_MS = 30 * 1000;
 
 function HomeControl() {
   const [tab, setTab] = useState("Lights");
   const [scene, setScene] = useState("");
   const [locating, setLocating] = useState(false);
   const [screensaver, setScreensaver] = useState(false);
-  const [lightMenu, setLightMenu] = useState<{ index: number; mode: "shade" | "color" } | null>(
+  const [modal, setModal] = useState<{ kind: "light" | "shade" | "color"; index: number } | null>(
     null,
   );
+  const [cursor, setCursor] = useState(0);
+  const opener = useRef<HTMLElement | null>(null);
   const [dateLabel, setDateLabel] = useState("Tuesday, 6 October");
   const [calendar, setCalendar] = useState({
     weekday: "Tuesday",
@@ -136,7 +142,7 @@ function HomeControl() {
   });
   const screen = useRef<HTMLDivElement>(null);
   const focusTabAfterChange = useRef(false);
-  const latest = useRef<{ actions: DeviceAction[] }>({ actions: [] });
+  const keyHandler = useRef<(event: KeyboardEvent) => void>(() => {});
   const queryClient = useQueryClient();
   const loaded = Route.useLoaderData();
   const query = useQuery<SnapshotResult>({
@@ -256,66 +262,41 @@ function HomeControl() {
   }, [screensaver]);
 
   useEffect(() => {
-    const handleKey = (event: KeyboardEvent) => {
-      if (pressSoftKey(latest.current.actions, event.key)) {
-        event.preventDefault();
-        return;
-      }
-      if (event.key === "Escape") {
-        setLightMenu(null);
-        return;
-      }
-      if (
-        !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"].includes(
-          event.key,
-        )
-      )
-        return;
-      event.preventDefault();
-      if (event.key === "PageUp" || event.key === "PageDown") {
-        setLightMenu(null);
-        const index = tabs.findIndex((item) => item.name === tab);
-        focusTabAfterChange.current = true;
-        setTab(tabs[(index + (event.key === "PageDown" ? 1 : 3)) % 4]?.name ?? "Lights");
-        return;
-      }
-      const container = screen.current?.querySelector('[role="dialog"]') ?? screen.current;
-      const controls = Array.from(
-        container?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
-      );
-      const active = document.activeElement;
-      if (!(active instanceof HTMLElement) || !controls.includes(active as HTMLButtonElement)) {
-        controls[0]?.focus();
-        return;
-      }
-      const origin = active.getBoundingClientRect();
-      const ox = origin.x + origin.width / 2;
-      const oy = origin.y + origin.height / 2;
-      const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
-      const sign = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
-      const target = controls
-        .filter((control) => control !== active)
-        .map((control) => {
-          const rect = control.getBoundingClientRect();
-          const dx = rect.x + rect.width / 2 - ox;
-          const dy = rect.y + rect.height / 2 - oy;
-          const along = horizontal ? dx : dy;
-          const across = horizontal ? dy : dx;
-          return { control, along: along * sign, score: Math.abs(along) + Math.abs(across) * 3 };
-        })
-        .filter((item) => item.along > 2)
-        .sort((a, b) => a.score - b.score)[0];
-      target?.control.focus();
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [tab]);
+    const onKey = (event: KeyboardEvent) => keyHandler.current(event);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
-    if (lightMenu)
-      screen.current?.querySelector<HTMLButtonElement>('[role="dialog"] button')?.focus();
-    else screen.current?.querySelector<HTMLButtonElement>('[data-menu-open="true"]')?.focus();
-  }, [lightMenu]);
+    if (modal) screen.current?.querySelector<HTMLElement>(".full-modal")?.focus();
+  }, [modal]);
+  const modalOpen = modal !== null;
+  useEffect(() => {
+    if (modalOpen) return;
+    const target = opener.current;
+    opener.current = null;
+    if (target?.isConnected) target.focus();
+  }, [modalOpen]);
+
+  // Modals close after 30 s without a key press and as soon as the screensaver starts.
+  useEffect(() => {
+    if (!modalOpen) return;
+    let timer = setTimeout(() => setModal(null), MODAL_IDLE_MS);
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => setModal(null), MODAL_IDLE_MS);
+    };
+    document.addEventListener("keydown", reset, true);
+    document.addEventListener("pointerdown", reset, true);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("keydown", reset, true);
+      document.removeEventListener("pointerdown", reset, true);
+    };
+  }, [modalOpen]);
+  useEffect(() => {
+    if (screensaver) setModal(null);
+  }, [screensaver]);
 
   const changeLight = (index: number, amount: number) => {
     const light = data.lights[index];
@@ -350,6 +331,64 @@ function HomeControl() {
   const sampleNote = shot?.note ?? "Sample photo";
   const readings = shot?.result.snapshot && configured ? shot.result.snapshot : data;
   const SIcon = weatherIcon(readings.weather.condition);
+
+  const modalLight = modal ? data.lights[modal.index] : undefined;
+  const modalMeta = modal ? LIGHTS[modal.index] : undefined;
+  const openModal = (kind: "light" | "shade" | "color", index: number) => {
+    if (!modal) opener.current = document.activeElement as HTMLElement | null;
+    const light = data.lights[index];
+    if (kind === "shade") setCursor(Math.max(0, SHADE_NAMES.indexOf(light?.shade ?? "Neutral")));
+    if (kind === "color")
+      setCursor(Math.max(0, COLORS.indexOf((light?.color ?? "White") as (typeof COLORS)[number])));
+    setModal({ kind, index });
+  };
+  const pick = (kind: "shade" | "color", index: number, next: number) => {
+    const entity = LIGHTS[index]?.id;
+    if (!entity) return;
+    setCursor(next);
+    setScene("");
+    if (kind === "shade")
+      act({ type: "light.kelvin", entity, kelvin: SHADES[SHADE_NAMES[next] ?? "Neutral"] });
+    else act({ type: "light.color", entity, color: COLORS[next] ?? "White" });
+  };
+  const cold = modalLight?.shade === "Cool" && modalLight.color === "White";
+  const modalActions: DeviceAction[] = !modal
+    ? []
+    : modal.kind === "light"
+      ? [
+          { label: "Schließen", icon: X, onClick: () => setModal(null) },
+          { label: "Farbe / Weiß", icon: Palette, onClick: () => openModal("color", modal.index) },
+          {
+            label: "Ein / Aus",
+            icon: Power,
+            pressed: modalLight?.on ?? false,
+            onClick: () => {
+              const entity = modalMeta?.id;
+              if (!entity) return;
+              setScene("");
+              act({ type: "light.toggle", entity });
+            },
+          },
+          {
+            label: "Warm / Kalt",
+            icon: cold ? Snowflake : Sun,
+            pressed: cold,
+            onClick: () => {
+              const entity = modalMeta?.id;
+              if (!entity) return;
+              setScene("");
+              act({ type: "light.kelvin", entity, kelvin: cold ? SHADES.Warm : SHADES.Cool });
+            },
+          },
+        ]
+      : [
+          { label: "Schließen", icon: X, onClick: () => setModal(null) },
+          {
+            label: "Zurück",
+            icon: ArrowLeft,
+            onClick: () => setModal({ kind: "light", index: modal.index }),
+          },
+        ];
 
   const plugOn = (index: number) => data.plugs[index]?.on ?? false;
   const mediaOff = (index: number) => {
@@ -444,7 +483,77 @@ function HomeControl() {
               },
             ];
 
-  latest.current = { actions };
+  keyHandler.current = (event) => {
+    if (pressSoftKey(modal ? modalActions : actions, event.key)) {
+      event.preventDefault();
+      return;
+    }
+    if (modal) {
+      if (event.key === "Escape" || (event.key === "Enter" && modal.kind !== "light")) {
+        event.preventDefault();
+        setModal(null);
+        return;
+      }
+      const keys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"];
+      if (!keys.includes(event.key)) return;
+      event.preventDefault();
+      if (modal.kind === "light") {
+        const up = ["ArrowUp", "ArrowRight", "PageDown"].includes(event.key);
+        changeLight(modal.index, up ? 10 : -10);
+        return;
+      }
+      const count = pickerOptions(modal.kind).length;
+      const step = modal.kind === "shade" ? 1 : 3;
+      const delta =
+        event.key === "ArrowLeft" || event.key === "PageUp"
+          ? -1
+          : event.key === "ArrowRight" || event.key === "PageDown"
+            ? 1
+            : event.key === "ArrowUp"
+              ? -step
+              : step;
+      const next = Math.max(0, Math.min(count - 1, cursor + delta));
+      if (next !== cursor) pick(modal.kind, modal.index, next);
+      return;
+    }
+    if (
+      !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"].includes(event.key)
+    )
+      return;
+    event.preventDefault();
+    if (event.key === "PageUp" || event.key === "PageDown") {
+      const index = tabs.findIndex((item) => item.name === tab);
+      focusTabAfterChange.current = true;
+      setTab(tabs[(index + (event.key === "PageDown" ? 1 : 3)) % 4]?.name ?? "Lights");
+      return;
+    }
+    const controls = Array.from(
+      screen.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
+    );
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !controls.includes(active as HTMLButtonElement)) {
+      controls[0]?.focus();
+      return;
+    }
+    const origin = active.getBoundingClientRect();
+    const ox = origin.x + origin.width / 2;
+    const oy = origin.y + origin.height / 2;
+    const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
+    const sign = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+    const target = controls
+      .filter((control) => control !== active)
+      .map((control) => {
+        const rect = control.getBoundingClientRect();
+        const dx = rect.x + rect.width / 2 - ox;
+        const dy = rect.y + rect.height / 2 - oy;
+        const along = horizontal ? dx : dy;
+        const across = horizontal ? dy : dx;
+        return { control, along: along * sign, score: Math.abs(along) + Math.abs(across) * 3 };
+      })
+      .filter((item) => item.along > 2)
+      .sort((a, b) => a.score - b.score)[0];
+    target?.control.focus();
+  };
 
   if (screensaver)
     return (
@@ -515,7 +624,7 @@ function HomeControl() {
               aria-current={tab === name ? "page" : undefined}
               onClick={() => {
                 setTab(name);
-                setLightMenu(null);
+                setModal(null);
               }}
             >
               <Icon />
@@ -562,7 +671,13 @@ function HomeControl() {
                         >
                           <Icon size={32} strokeWidth={1.6} />
                         </Button>
-                        <div className="device-info">
+                        <Button
+                          variant="eink"
+                          className="light-open device-info"
+                          title={`Open ${meta.name}`}
+                          aria-label={`Open ${meta.name}`}
+                          onClick={() => openModal("light", index)}
+                        >
                           <strong>{meta.name}</strong>
                           <p>
                             {light.on ? `${light.level}%` : "Off"} ·{" "}
@@ -570,7 +685,7 @@ function HomeControl() {
                               ? light.shade.toLowerCase()
                               : light.color.toLowerCase()}
                           </p>
-                        </div>
+                        </Button>
                       </div>
                       <p className="light-room">{meta.room}</p>
                       <div className="light-card-controls">
@@ -579,10 +694,7 @@ function HomeControl() {
                             variant="eink"
                             title={`${light.shade} white · ${meta.name}`}
                             aria-label={`White shade for ${meta.name}`}
-                            data-menu-open={
-                              lightMenu?.index === index && lightMenu.mode === "shade"
-                            }
-                            onClick={() => setLightMenu({ index, mode: "shade" })}
+                            onClick={() => openModal("shade", index)}
                           >
                             <span className={`shade-swatch shade-${light.shade.toLowerCase()}`} />
                           </Button>
@@ -590,10 +702,7 @@ function HomeControl() {
                             variant="eink"
                             title={`Color · ${meta.name}`}
                             aria-label={`Color for ${meta.name}`}
-                            data-menu-open={
-                              lightMenu?.index === index && lightMenu.mode === "color"
-                            }
-                            onClick={() => setLightMenu({ index, mode: "color" })}
+                            onClick={() => openModal("color", index)}
                           >
                             <Palette />
                           </Button>
@@ -855,71 +964,24 @@ function HomeControl() {
           {status}
         </div>
         <DeviceActions actions={actions} />
-        {lightMenu && (
-          <div className="light-menu-backdrop">
-            <section
-              role="dialog"
-              aria-modal="true"
-              aria-label={`${lightMenu.mode === "shade" ? "White shade" : "Color"} for ${LIGHTS[lightMenu.index]?.name}`}
-              className="light-menu"
-            >
-              <div className="menu-heading">
-                <div>
-                  <h2>{lightMenu.mode === "shade" ? "White shade" : "Color"}</h2>
-                  <p>{LIGHTS[lightMenu.index]?.name}</p>
-                </div>
-                <Button
-                  variant="eink"
-                  size="icon"
-                  aria-label="Close light menu"
-                  onClick={() => setLightMenu(null)}
-                >
-                  <X />
-                </Button>
-              </div>
-              <div className="color-options">
-                {(lightMenu.mode === "shade" ? (["Warm", "Neutral", "Cool"] as const) : COLORS).map(
-                  (value) => (
-                    <Button
-                      key={value}
-                      variant="eink"
-                      aria-pressed={
-                        lightMenu.mode === "shade"
-                          ? data.lights[lightMenu.index]?.shade === value &&
-                            data.lights[lightMenu.index]?.color === "White"
-                          : data.lights[lightMenu.index]?.color === value
-                      }
-                      onClick={() => {
-                        const entity = LIGHTS[lightMenu.index]?.id ?? "";
-                        act(
-                          lightMenu.mode === "shade"
-                            ? {
-                                type: "light.kelvin",
-                                entity,
-                                kelvin: SHADES[value as keyof typeof SHADES],
-                              }
-                            : {
-                                type: "light.color",
-                                entity,
-                                color: value as (typeof COLORS)[number],
-                              },
-                        );
-                        setScene("");
-                        setLightMenu(null);
-                      }}
-                    >
-                      {lightMenu.mode === "shade" ? (
-                        <span className={`shade-swatch shade-${value.toLowerCase()}`} />
-                      ) : (
-                        <Palette />
-                      )}
-                      <span>{value}</span>
-                    </Button>
-                  ),
-                )}
-              </div>
-            </section>
-          </div>
+        {modal && modalLight && modalMeta && modal.kind === "light" && (
+          <LightModal
+            name={modalMeta.name}
+            room={modalMeta.room}
+            light={modalLight}
+            actions={modalActions}
+            status={status}
+          />
+        )}
+        {modal && modalLight && modalMeta && modal.kind !== "light" && (
+          <PickerModal
+            kind={modal.kind}
+            lightName={modalMeta.name}
+            cursor={cursor}
+            onPick={(next) => pick(modal.kind as "shade" | "color", modal.index, next)}
+            actions={modalActions}
+            status={status}
+          />
         )}
       </div>
     </div>
