@@ -52,6 +52,7 @@ import { Button } from "@/components/ui/button";
 import { DeviceActions, pressSoftKey, type DeviceAction } from "@/components/device-actions";
 import { LightModal, PickerModal, pickerOptions } from "@/components/light-modals";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
+import { useFullRefresh } from "@/lib/eink";
 import screensaverPhoto from "@/assets/screensaver-preview.jpg";
 import {
   COLORS,
@@ -271,6 +272,10 @@ function HomeControl() {
     if (modal) screen.current?.querySelector<HTMLElement>(".full-modal")?.focus();
   }, [modal]);
   const modalOpen = modal !== null;
+  useFullRefresh(tab);
+  useFullRefresh(modal ? `${modal.kind}:${modal.index}` : "");
+  useFullRefresh(screensaver ? "saver" : "");
+  useFullRefresh(photo.dataUpdatedAt);
   useEffect(() => {
     if (modalOpen) return;
     const target = opener.current;
