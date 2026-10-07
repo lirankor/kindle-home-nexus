@@ -11,10 +11,10 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 export function requestFullRefresh(ms = FULL_MS) {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  root.dataset.einkRefresh = "full";
+  root.setAttribute("data-eink-refresh", "full");
   clearTimeout(timer);
   timer = setTimeout(() => {
-    root.dataset.einkRefresh = "partial";
+    root.setAttribute("data-eink-refresh", "partial");
   }, ms);
 }
 
