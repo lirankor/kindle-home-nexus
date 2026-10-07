@@ -13,6 +13,8 @@ import {
   nearestColor,
   nearestShade,
 } from "@/lib/home";
+import { cropToScreen, pickAsset } from "@/lib/photo.server";
+import type { PhotoAsset } from "@/lib/photo.server";
 import type { Action, LightState, Shade, Snapshot } from "@/lib/home";
 
 type HaAttrs = {
@@ -199,27 +201,36 @@ export const errorMessage = (e: unknown) => (e instanceof HomeError ? e.message 
 // ---- Immich ----
 export const immichConfigured = () => env("IMMICH_API_KEY") !== "" && env("IMMICH_URL") !== "";
 
+let previousPhoto: string | null = null;
+
 export async function randomFavorite(): Promise<string> {
   const base = env("IMMICH_URL");
   const headers = { "x-api-key": env("IMMICH_API_KEY") };
   const search = await fetch(`${base}/api/search/metadata`, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ isFavorite: true, type: "IMAGE", size: 250, page: 1 }),
+    body: JSON.stringify({ isFavorite: true, type: "IMAGE", size: 250, page: 1, withExif: true }),
     signal: AbortSignal.timeout(10000),
   });
   if (!search.ok) throw new Error(`Immich search ${search.status}`);
   const items =
-    ((await search.json()) as { assets?: { items?: { id: string }[] } }).assets?.items ?? [];
+    ((await search.json()) as { assets?: { items?: PhotoAsset[] } }).assets?.items ?? [];
   if (!items.length) throw new Error("No favorites");
-  const id = items[Math.floor(Math.random() * items.length)]?.id;
-  if (!id) throw new Error("No favorites");
-  const img = await fetch(`${base}/api/assets/${id}/thumbnail?size=preview`, {
+  const asset = pickAsset(items, previousPhoto);
+  if (!asset) throw new Error("No favorites");
+  previousPhoto = asset.id;
+  const img = await fetch(`${base}/api/assets/${asset.id}/thumbnail?size=preview`, {
     headers,
     signal: AbortSignal.timeout(15000),
   });
   if (!img.ok) throw new Error(`Immich thumbnail ${img.status}`);
-  const type = img.headers.get("content-type")?.split(";")[0] || "image/jpeg";
-  // Grayscale conversion happens in CSS (.photo-screen > img) and in the bridge's PNG step.
-  return `data:${type};base64,${Buffer.from(await img.arrayBuffer()).toString("base64")}`;
+  const raw = Buffer.from(await img.arrayBuffer());
+  try {
+    // Exactly the screen size, so the page never letterboxes or re-crops it.
+    return `data:image/jpeg;base64,${(await cropToScreen(raw)).toString("base64")}`;
+  } catch (e) {
+    console.error("Screensaver crop failed, sending the uncropped preview:", e);
+    const type = img.headers.get("content-type")?.split(";")[0] || "image/jpeg";
+    return `data:${type};base64,${raw.toString("base64")}`;
+  }
 }
