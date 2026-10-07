@@ -451,3 +451,14 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .battery-tabs { padding: 0 10px; font-size: 20px; color: var(--muted-foreground); }
 .battery-photo { position: absolute; top: 12px; left: 12px; z-index: 5; padding: 4px 10px; font-size: 24px; background: color-mix(in oklab, var(--background) 80%, transparent); }
 .battery-badge[data-low="true"] { background: var(--primary); color: var(--primary-foreground); font-weight: 700; }
+
+/* Round 4: bigger type on the card screens. */
+.device-tabs .eink-button { font-size: 24px; }
+.light-card .device-info strong, .power-row .device-info strong { font-size: 36px; line-height: 1.05; }
+.light-state { font-size: 26px; margin-top: 6px; }
+.light-card .light-room { font-size: 24px; }
+.light-card .light-card-heading { gap: 10px; align-items: flex-start; }
+.light-card .shade-swatch { width: 32px; height: 32px; }
+.power-row.eink-button { height: 108px; }
+.watt-reading { font-size: 42px; }
+.watt-reading small { font-size: 24px; }
