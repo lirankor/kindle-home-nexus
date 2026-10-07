@@ -55,7 +55,7 @@ import {
   pressSoftKey,
   type DeviceAction,
 } from "@/components/device-actions";
-import { LightModal, PickerModal, pickerValues } from "@/components/light-modals";
+import { LightModal, PickerModal, PlugModal, pickerValues } from "@/components/light-modals";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import { useFullRefresh } from "@/lib/eink";
 import { dateLocale, isRtl, makeT } from "@/lib/i18n";
@@ -78,7 +78,7 @@ import {
   emptySnapshot,
   vacuumLabel,
 } from "@/lib/home";
-import type { Action, MediaOp, Snapshot, SnapshotResult } from "@/lib/home";
+import type { Action, LightState, MediaOp, Snapshot, SnapshotResult } from "@/lib/home";
 import { getScreensaver, getSnapshot, runAction } from "@/lib/home.functions";
 
 export const Route = createFileRoute("/")({
@@ -140,11 +140,22 @@ function HomeControl() {
   const [scene, setScene] = useState("");
   const [locating, setLocating] = useState(false);
   const [screensaver, setScreensaver] = useState(false);
-  const [modal, setModal] = useState<{ kind: "light" | "shade" | "color"; index: number } | null>(
-    null,
-  );
+  const [modal, setModal] = useState<{
+    kind: "light" | "shade" | "color" | "plug";
+    index: number;
+  } | null>(null);
   const [cursor, setCursor] = useState(0);
   const opener = useRef<HTMLElement | null>(null);
+  const photoRef = useRef<HTMLImageElement>(null);
+  // Tell the bridge where the photo is (x,y,w,h in CSS pixels) so it can dither only that region.
+  const publishPhotoRegion = () => {
+    const box = photoRef.current?.getBoundingClientRect();
+    if (box)
+      document.documentElement.setAttribute(
+        "data-eink-photo",
+        [box.x, box.y, box.width, box.height].map(Math.round).join(","),
+      );
+  };
   const [now, setNow] = useState(() => new Date(2026, 9, 6));
   const screen = useRef<HTMLDivElement>(null);
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => {});
@@ -169,8 +180,8 @@ function HomeControl() {
   });
   const calendar = {
     day: String(now.getDate()),
-    month: now.toLocaleDateString(locale, { month: "short" }),
-    weekday: now.toLocaleDateString(locale, { weekday: "short" }),
+    month: now.toLocaleDateString(locale, { month: "long" }),
+    weekday: now.toLocaleDateString(locale, { weekday: "long" }),
   };
   const configured = result.configured;
   const lastGood = useRef<Snapshot | null>(null);
@@ -320,6 +331,13 @@ function HomeControl() {
   useEffect(() => {
     if (screensaver) setModal(null);
   }, [screensaver]);
+  const photoSrc = photo.data?.image ?? "";
+  useEffect(() => {
+    if (!screensaver) return;
+    publishPhotoRegion();
+    return () => document.documentElement.removeAttribute("data-eink-photo");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screensaver, photoSrc]);
 
   const changeLight = (index: number, amount: number) => {
     const light = data.lights[index];
@@ -351,9 +369,18 @@ function HomeControl() {
   const readings = shot?.result.snapshot && configured ? shot.result.snapshot : data;
   const SIcon = weatherIcon(readings.weather.condition);
 
+  /** "96% · Warm"; colour names only for lights that can do colour. */
+  const lightLine = (light: LightState) => (
+    <>
+      {light.on ? <Ltr>{light.level}%</Ltr> : t("lights.off")} ·{" "}
+      {light.canColor && light.color !== "White"
+        ? t(`color.${light.color as (typeof COLORS)[number]}`)
+        : t(`shade.${light.shade}`)}
+    </>
+  );
   const modalLight = modal ? data.lights[modal.index] : undefined;
   const modalMeta = modal ? LIGHTS[modal.index] : undefined;
-  const openModal = (kind: "light" | "shade" | "color", index: number) => {
+  const openModal = (kind: "light" | "shade" | "color" | "plug", index: number) => {
     if (!modal) opener.current = document.activeElement as HTMLElement | null;
     const light = data.lights[index];
     if (kind === "shade") setCursor(Math.max(0, SHADE_NAMES.indexOf(light?.shade ?? "Neutral")));
@@ -371,47 +398,64 @@ function HomeControl() {
     else act({ type: "light.color", entity, color: COLORS[next] ?? "White" });
   };
   const cold = modalLight?.shade === "Cool" && modalLight.color === "White";
-  const modalActions: DeviceAction[] = !modal
+  const modalPlug = modal?.kind === "plug" ? data.plugs[modal.index] : undefined;
+  const modalActions: (DeviceAction | null)[] = !modal
     ? []
-    : modal.kind === "light"
+    : modal.kind === "plug"
       ? [
           { label: t("modal.close"), icon: X, onClick: () => setModal(null) },
-          {
-            label: t("modal.colorWhite"),
-            icon: Palette,
-            onClick: () => openModal("color", modal.index),
-          },
+          null,
           {
             label: t("modal.power"),
             icon: Power,
-            pressed: modalLight?.on ?? false,
+            pressed: modalPlug?.on ?? false,
             onClick: () => {
-              const entity = modalMeta?.id;
-              if (!entity) return;
-              setScene("");
-              act({ type: "light.toggle", entity });
+              const entity = PLUGS[modal.index]?.id;
+              if (entity) act({ type: "switch.toggle", entity });
             },
           },
-          {
-            label: t("modal.warmCold"),
-            icon: cold ? Snowflake : Sun,
-            pressed: cold,
-            onClick: () => {
-              const entity = modalMeta?.id;
-              if (!entity) return;
-              setScene("");
-              act({ type: "light.kelvin", entity, kelvin: cold ? SHADES.Warm : SHADES.Cool });
-            },
-          },
+          null,
         ]
-      : [
-          { label: t("modal.close"), icon: X, onClick: () => setModal(null) },
-          {
-            label: t("modal.back"),
-            icon: ArrowLeft,
-            onClick: () => setModal({ kind: "light", index: modal.index }),
-          },
-        ];
+      : modal.kind === "light"
+        ? [
+            { label: t("modal.close"), icon: X, onClick: () => setModal(null) },
+            {
+              // Only colour-capable lights get the colour picker; the others go straight to white tones.
+              label: modalLight?.canColor ? t("modal.colorWhite") : t("modal.shadeTitle"),
+              icon: Palette,
+              onClick: () => openModal(modalLight?.canColor ? "color" : "shade", modal.index),
+            },
+            {
+              label: t("modal.power"),
+              icon: Power,
+              pressed: modalLight?.on ?? false,
+              onClick: () => {
+                const entity = modalMeta?.id;
+                if (!entity) return;
+                setScene("");
+                act({ type: "light.toggle", entity });
+              },
+            },
+            {
+              label: t("modal.warmCold"),
+              icon: cold ? Snowflake : Sun,
+              pressed: cold,
+              onClick: () => {
+                const entity = modalMeta?.id;
+                if (!entity) return;
+                setScene("");
+                act({ type: "light.kelvin", entity, kelvin: cold ? SHADES.Warm : SHADES.Cool });
+              },
+            },
+          ]
+        : [
+            { label: t("modal.close"), icon: X, onClick: () => setModal(null) },
+            {
+              label: t("modal.back"),
+              icon: ArrowLeft,
+              onClick: () => setModal({ kind: "light", index: modal.index }),
+            },
+          ];
 
   const plugOn = (index: number) => data.plugs[index]?.on ?? false;
   const mediaOff = (index: number) => {
@@ -523,6 +567,7 @@ function HomeControl() {
       const keys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"];
       if (!keys.includes(event.key)) return;
       event.preventDefault();
+      if (modal.kind === "plug") return;
       if (modal.kind === "light") {
         const up = ["ArrowUp", "ArrowRight", "PageDown"].includes(event.key);
         changeLight(modal.index, up ? 10 : -10);
@@ -593,6 +638,8 @@ function HomeControl() {
         <div className="screen-stage">
           <div className="kindle-screen photo-screen" aria-label={t("photo.label")}>
             <img
+              ref={photoRef}
+              onLoad={publishPhotoRegion}
               src={shot?.image ?? screensaverPhoto}
               width={600}
               height={800}
@@ -623,10 +670,10 @@ function HomeControl() {
                 </span>
               </section>
               <section className="photo-block calendar-block" aria-label={dateLabel}>
-                <span className="calendar-month">{calendar.month.toUpperCase()}</span>
-                <CalendarDays size={40} strokeWidth={1.5} />
+                <span className="calendar-month">{calendar.month}</span>
+                <CalendarDays size={26} strokeWidth={1.25} />
                 <strong className="calendar-day">{calendar.day}</strong>
-                <span className="calendar-weekday">{calendar.weekday.toUpperCase()}</span>
+                <span className="calendar-weekday">{calendar.weekday}</span>
               </section>
               <small className="photo-demo">
                 {shot?.image
@@ -689,77 +736,29 @@ function HomeControl() {
                     if (!meta || !Icon) return null;
                     const name = localName(lang, meta.name);
                     return (
-                      <section className="light-card" key={meta.id}>
-                        <div className="light-card-heading">
-                          <Button
-                            variant="eink"
-                            className="device-icon"
-                            title={name}
-                            aria-label={t("lights.toggle", { name })}
-                            aria-pressed={light.on}
-                            onClick={() => {
-                              setScene("");
-                              act({ type: "light.toggle", entity: meta.id });
-                            }}
-                          >
-                            <Icon size={32} strokeWidth={1.6} />
-                          </Button>
-                          <Button
-                            variant="eink"
-                            className="light-open device-info"
-                            title={t("lights.open", { name })}
-                            aria-label={t("lights.open", { name })}
-                            onClick={() => openModal("light", index)}
-                          >
+                      <Button
+                        variant="eink"
+                        className="light-card"
+                        key={meta.id}
+                        data-on={light.on}
+                        title={t("lights.open", { name })}
+                        aria-label={`${name}, ${lightLine(light)}`}
+                        onClick={() => openModal("light", index)}
+                      >
+                        <span className="light-card-heading">
+                          <span className={`device-icon ${light.on ? "on" : ""}`}>
+                            <Icon size={34} strokeWidth={1.6} />
+                          </span>
+                          <span className="device-info">
                             <strong>{name}</strong>
-                            <p>
-                              {light.on ? <Ltr>{light.level}%</Ltr> : t("lights.off")} ·{" "}
-                              {light.color === "White"
-                                ? t(`shade.${light.shade}`)
-                                : t(`color.${light.color as (typeof COLORS)[number]}`)}
-                            </p>
-                          </Button>
-                        </div>
-                        <p className="light-room">{localName(lang, meta.room)}</p>
-                        <div className="light-card-controls">
-                          <div className="light-adjustments">
-                            <Button
-                              variant="eink"
-                              title={t("lights.shade", { name })}
-                              aria-label={t("lights.shade", { name })}
-                              onClick={() => openModal("shade", index)}
-                            >
-                              <span className={`shade-swatch shade-${light.shade.toLowerCase()}`} />
-                            </Button>
-                            <Button
-                              variant="eink"
-                              title={t("lights.color", { name })}
-                              aria-label={t("lights.color", { name })}
-                              onClick={() => openModal("color", index)}
-                            >
-                              <Palette />
-                            </Button>
-                          </div>
-                          <div className="level-control">
-                            <Button
-                              variant="eink"
-                              title={t("lights.dim", { name })}
-                              aria-label={t("lights.dim", { name })}
-                              onClick={() => changeLight(index, -10)}
-                            >
-                              <Minus />
-                            </Button>
-                            <Button
-                              variant="eink"
-                              title={t("lights.brighten", { name })}
-                              aria-label={t("lights.brighten", { name })}
-                              onClick={() => changeLight(index, 10)}
-                            >
-                              <Plus />
-                            </Button>
-                          </div>
-                        </div>
-                      </section>
+                            <span className="light-state">{lightLine(light)}</span>
+                          </span>
+                        </span>
+                        <span className="light-card-foot">
+                          <span className="light-room">{localName(lang, meta.room)}</span>
+                          <span className={`shade-swatch shade-${light.shade.toLowerCase()}`} />
+                        </span>
+                      </Button>
                     );
                   })}
                 </div>
@@ -847,75 +846,44 @@ function HomeControl() {
                         {PLUGS.map((meta, index) => {
                           const plug = data.plugs[index];
                           if (!plug) return null;
+                          const name = localName(lang, meta.name);
                           return (
-                            <div className="power-row" key={meta.id}>
-                              <div className={`device-icon ${plug.on ? "on" : ""}`}>
-                                <Plug size={28} />
-                              </div>
-                              <div className="device-info">
-                                <strong>{localName(lang, meta.name)}</strong>
-                                <p>
+                            <Button
+                              variant="eink"
+                              className="power-row"
+                              key={meta.id}
+                              data-on={plug.on}
+                              title={t("lights.open", { name })}
+                              onClick={() => openModal("plug", index)}
+                            >
+                              <span className={`device-icon ${plug.on ? "on" : ""}`}>
+                                <Plug size={32} />
+                              </span>
+                              <span className="device-info">
+                                <strong>{name}</strong>
+                                <span className="light-state">
                                   {t("power.today", {
                                     state: plug.on ? t("state.on") : t("state.off"),
                                     wh: wh(plug.energyWh),
                                   })}
-                                </p>
-                              </div>
+                                </span>
+                              </span>
                               <strong className="watt-reading">
                                 <Ltr>
                                   {fmt(plug.power)} <small>W</small>
                                 </Ltr>
                               </strong>
-                            </div>
+                            </Button>
                           );
                         })}
                       </div>
-                      <section className="usage-chart" aria-label={t("power.total")}>
-                        <div className="chart-heading">
-                          <h2>{t("power.total")}</h2>
-                          <strong>
-                            <Ltr>{total === null ? "—" : (total / 1000).toFixed(3)}</Ltr>{" "}
-                            <small>{t("power.kwhToday")}</small>
-                          </strong>
-                        </div>
-                        {!configured && (
-                          <div dir="ltr">
-                            <div className="chart-axis-label">{t("power.demoHistory")}</div>
-                            <svg
-                              viewBox="0 0 540 155"
-                              preserveAspectRatio="none"
-                              role="img"
-                              aria-label={t("power.chartLabel")}
-                            >
-                              <g className="chart-grid">
-                                <path d="M35 10H530M35 70H530M35 130H530" />
-                              </g>
-                              <g className="chart-labels">
-                                <text x="0" y="15">
-                                  120
-                                </text>
-                                <text x="8" y="75">
-                                  60
-                                </text>
-                                <text x="15" y="135">
-                                  0
-                                </text>
-                              </g>
-                              <path
-                                className="chart-line"
-                                d="M35 128L55 128L76 124L97 127L117 128L138 125L159 98L179 32L200 46L221 86L241 108L262 105L283 110L303 88L324 75L345 92L365 50L386 20L407 62L427 68L448 67L469 68L489 68L510 68L530 68"
-                              />
-                            </svg>
-                            <div className="chart-times">
-                              <span>00:00</span>
-                              <span>06:00</span>
-                              <span>12:00</span>
-                              <span>18:00</span>
-                              <span>24:00</span>
-                            </div>
-                          </div>
-                        )}
-                      </section>
+                      <div className="power-total">
+                        <h2>{t("power.total")}</h2>
+                        <strong>
+                          <Ltr>{total === null ? "—" : (total / 1000).toFixed(3)}</Ltr>{" "}
+                          <small>{t("power.kwhToday")}</small>
+                        </strong>
+                      </div>
                     </>
                   );
                 })()}
@@ -1010,6 +978,14 @@ function HomeControl() {
             {status}
           </div>
           <DeviceActions actions={actions} />
+          {modal && modal.kind === "plug" && modalPlug && (
+            <PlugModal
+              name={localName(lang, PLUGS[modal.index]?.name ?? "")}
+              plug={modalPlug}
+              actions={modalActions}
+              status={status}
+            />
+          )}
           {modal && modalLight && modalMeta && modal.kind === "light" && (
             <LightModal
               name={localName(lang, modalMeta.name)}
@@ -1019,7 +995,7 @@ function HomeControl() {
               status={status}
             />
           )}
-          {modal && modalLight && modalMeta && modal.kind !== "light" && (
+          {modal && modalLight && modalMeta && modal.kind !== "light" && modal.kind !== "plug" && (
             <PickerModal
               kind={modal.kind}
               lightName={localName(lang, modalMeta.name)}

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { DeviceActions, type DeviceAction } from "@/components/device-actions";
 import { COLORS, SHADE_NAMES } from "@/lib/home";
 import { useT } from "@/lib/lang-context";
-import type { LightState } from "@/lib/home";
+import type { LightState, Snapshot } from "@/lib/home";
 
 /** Full 600x800 page with its own soft-key footer; nothing of the main screen shows through. */
 function FullModal({
@@ -13,7 +13,7 @@ function FullModal({
   children,
 }: {
   label: string;
-  actions: DeviceAction[];
+  actions: (DeviceAction | null)[];
   status: string;
   children: ReactNode;
 }) {
@@ -38,7 +38,7 @@ export function LightModal({
   name: string;
   room: string;
   light: LightState;
-  actions: DeviceAction[];
+  actions: (DeviceAction | null)[];
   status: string;
 }) {
   const t = useT();
@@ -83,7 +83,7 @@ export function PickerModal({
   lightName: string;
   cursor: number;
   onPick: (index: number) => void;
-  actions: DeviceAction[];
+  actions: (DeviceAction | null)[];
   status: string;
 }) {
   const t = useT();
@@ -111,6 +111,38 @@ export function PickerModal({
           </Button>
         ))}
       </div>
+    </FullModal>
+  );
+}
+
+export function PlugModal({
+  name,
+  plug,
+  actions,
+  status,
+}: {
+  name: string;
+  plug: Snapshot["plugs"][number];
+  actions: (DeviceAction | null)[];
+  status: string;
+}) {
+  const t = useT();
+  return (
+    <FullModal label={name} actions={actions} status={status}>
+      <header className="modal-heading">
+        <h1>{name}</h1>
+        <p>
+          <strong>{plug.on ? t("modal.on") : t("modal.off")}</strong>
+        </p>
+      </header>
+      <div className="big-level" data-on={plug.on} dir="ltr">
+        {plug.power === null ? "—" : plug.power.toFixed(1)}
+        <small>W</small>
+      </div>
+      <p className="modal-look" dir="ltr">
+        {plug.energyWh === null ? "—" : `${Math.round(plug.energyWh)} Wh`}
+      </p>
+      <p className="modal-hint">{t("power.todayLabel")}</p>
     </FullModal>
   );
 }
