@@ -4,3 +4,4 @@ POLL_SECONDS=20                            # how often to re-fetch the screen wh
 STOP_FRAMEWORK=1                           # 1 = stop the Kindle reader UI while running (frees RAM, frees buttons)
 BRIDGE_TOKEN=""                           # must match BRIDGE_TOKEN in the server .env
 FULL_REFRESH_EVERY=10                     # full (flashing) e-ink refresh every N drawn frames; tab/back/home keys always full
+FLIP_SIDE_BUTTONS=1                       # 1 = upper side buttons go to the next tab (RTL layout), 0 = previous

@@ -47,8 +47,8 @@ poller() { while :; do sleep $POLL_SECONDS; echo "0 0 poll 0 0"; done; }
 keyname() { # keyname <code>
   case $1 in
     103) echo up;; 108) echo down;; 105) echo left;; 106) echo right;; 194) echo select;;
-    193|191) echo prev;;      # upper side buttons (page back)
-    104|109) echo next;;      # lower side buttons (page forward)
+    193|191) [ "$FLIP_SIDE_BUTTONS" = "1" ] && echo next || echo prev;;   # upper side buttons
+    104|109) [ "$FLIP_SIDE_BUTTONS" = "1" ] && echo prev || echo next;;   # lower side buttons
     158) echo f1;; 29) echo f2;; 139) echo f3;; 102) echo f4;;   # bottom row = soft keys F1..F4
     *) echo "";;
   esac
