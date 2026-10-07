@@ -41,6 +41,13 @@ function HomeControl() {
   const [dateLabel, setDateLabel] = useState('Tuesday, 6 October');
   const [calendar, setCalendar] = useState({ weekday: 'Tuesday', day: '6', month: 'October', year: '2026' });
   const screen = useRef<HTMLDivElement>(null);
+  const focusTabAfterChange = useRef(false);
+
+  useEffect(() => {
+    if (!focusTabAfterChange.current) return;
+    screen.current?.querySelector<HTMLButtonElement>('.device-tabs [data-active="true"]')?.focus();
+    focusTabAfterChange.current = false;
+  }, [tab]);
 
   useEffect(() => {
     const update = () => {
@@ -81,6 +88,7 @@ function HomeControl() {
       if (event.key === 'PageUp' || event.key === 'PageDown') {
         setLightMenu(null);
         const index = tabs.findIndex(item => item.name === tab);
+        focusTabAfterChange.current = true;
         setTab(tabs[(index + (event.key === 'PageDown' ? 1 : 3)) % 4]?.name ?? 'Lights');
         return;
       }
@@ -135,7 +143,7 @@ function HomeControl() {
     { label: 'Locate', icon: MapPin, pressed: locating, onClick: () => { setLocating(!locating); demo('locate vacuum'); } },
     { label: 'Clean all', icon: RotateCcw, onClick: () => { setSelectedRooms([]); setVacuum('Cleaning'); demo('whole home cleaning started'); } },
   ] : tab === 'Power' ? [
-    ...plugNames.map((name, index) => ({ label: name, icon: Plug, pressed: plugs[index], onClick: () => togglePlug(index) })),
+    ...plugNames.map((name, index) => ({ label: name, icon: Plug, pressed: plugs[index] ?? false, onClick: () => togglePlug(index) })),
     { label: 'All off', icon: Power, onClick: () => { setPlugs([false, false, false]); demo('all plugs off'); } },
   ] : [
     { label: 'Yamaha power', icon: Music2, disabled: true, onClick: () => {} },
