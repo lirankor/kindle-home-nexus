@@ -1282,10 +1282,18 @@ async function queueTick() {
 // ---- Action dispatch ----
 export async function performMediaAction(a: MediaAction): Promise<void> {
   switch (a.type) {
-    case "amp.power":
+    case "amp.power": {
+      // The panel's snapshot can be up to 10 s old: decide from the amp's live state so that F4 on an
+      // amp that is really in standby always powers it on (seen 2026-10-08: "off" sent to a standby amp).
+      const live = ampConfigured() ? await amp.basicStatus().catch(() => null) : null;
+      if (live && !live.power) {
+        await startPowerOn();
+        break;
+      }
       if (a.on) await haMedia.turnOn();
       else await haMedia.turnOff();
       break;
+    }
     case "amp.source":
       await haMedia.selectSource(a.source);
       break;
