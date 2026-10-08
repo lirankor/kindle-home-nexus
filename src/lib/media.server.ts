@@ -792,9 +792,10 @@ export function buildMediaSnapshot(
     nowPlaying = {
       ...NO_PLAY,
       kind: "music",
-      title: attrStr(a["media_title"]) ?? queue?.track?.title ?? null,
-      artist: attrStr(a["media_artist"]) ?? queue?.track?.artist ?? null,
-      album: attrStr(a["media_album_name"]) ?? queue?.track?.album ?? null,
+      // While our queue plays, its track is the truth: HA's title lags a few seconds after next/advance.
+      title: (queue?.playing ? queue.track?.title : null) ?? attrStr(a["media_title"]) ?? queue?.track?.title ?? null,
+      artist: (queue?.playing ? queue.track?.artist : null) ?? attrStr(a["media_artist"]) ?? queue?.track?.artist ?? null,
+      album: (queue?.playing ? queue.track?.album : null) ?? attrStr(a["media_album_name"]) ?? queue?.track?.album ?? null,
       artItemId: queue?.track?.artItemId ?? null,
     };
   } else if (on && source === "TUNER") {
@@ -1139,7 +1140,7 @@ async function pushTrack(t: QueueTrack, next: QueueTrack | undefined, seekMs = 0
       await avTransport.setUri(t.streamUrl, didl);
       break;
     } catch (e) {
-      if (!(e instanceof UpnpError) || attempt >= 8) throw e;
+      if (!(e instanceof UpnpError) || attempt >= 15) throw e; // input switch can take 3–6 s, longer after power-on
       await sleep(1000);
     }
   }
