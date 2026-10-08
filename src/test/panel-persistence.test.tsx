@@ -3,7 +3,7 @@ import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/rea
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { demoMediaSnapshot } from "@/lib/media";
+import { demoMediaSnapshot, demoRadioLists } from "@/lib/media";
 import { routeTree } from "@/routeTree.gen";
 
 // The whole shell, with the server functions mocked: demo home data, a live-looking media snapshot.
@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   runMediaAction: vi.fn(),
   startAmpPowerOn: vi.fn(),
   getPowerOnStatus: vi.fn(),
+  getRadioLists: vi.fn(),
+  tuneRadioStation: vi.fn(),
 }));
 vi.mock("@/lib/home.functions", () => ({
   getSnapshot: mocks.getSnapshot,
@@ -26,6 +28,8 @@ vi.mock("@/lib/media.functions", () => ({
   runMediaAction: mocks.runMediaAction,
   startAmpPowerOn: mocks.startAmpPowerOn,
   getPowerOnStatus: mocks.getPowerOnStatus,
+  getRadioLists: mocks.getRadioLists,
+  tuneRadioStation: mocks.tuneRadioStation,
 }));
 
 const KEY = "kindle-panel-state";
@@ -66,6 +70,8 @@ describe("Panel idle behaviour and persistence", () => {
     });
     mocks.runMediaAction.mockResolvedValue({ ok: true });
     mocks.getPowerOnStatus.mockResolvedValue(null);
+    mocks.getRadioLists.mockResolvedValue(demoRadioLists());
+    mocks.tuneRadioStation.mockResolvedValue({ ok: true });
   });
   afterEach(() => {
     cleanup();
@@ -125,6 +131,53 @@ describe("Panel idle behaviour and persistence", () => {
     await renderApp();
     await waitFor(() => expect(dialog()).toBe("תצוגת המגבר"));
     expect(activeTab()).toBe("מדיה");
+  });
+
+  it("remembers the radio band and index and restores the dial there", async () => {
+    await renderApp();
+    press("PageUp");
+    press("F3");
+    expect(dialog()).toBe("תצוגת המגבר");
+    press("F3"); // source list
+    press("Enter"); // cursor is on רדיו (the current source) → radio screen
+    await waitFor(() => expect(dialog()).toBe("רדיו"));
+    await waitFor(() => expect(document.querySelector(".radio-dial")).not.toBeNull());
+    press("ArrowRight"); // tune to station 2 of the local band (demo: no server call needed)
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toEqual({
+        tab: "Media",
+        mediaScreen: "radio",
+        radio: { list: "local", indexByList: { local: 1 } },
+      }),
+    );
+    cleanup();
+    // With the amp off nothing is playing, so the dial comes back where the user left it.
+    const off = demoMediaSnapshot();
+    off.amp.on = false;
+    off.amp.state = "off";
+    off.nowPlaying = { ...off.nowPlaying, kind: "none", station: null, stationId: null };
+    off.radio = null;
+    mocks.getMediaSnapshot.mockResolvedValue({
+      configured: true,
+      amp: true,
+      jellyfin: false,
+      snapshot: off,
+      lang: "he",
+    });
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        tab: "Media",
+        mediaScreen: "radio",
+        radio: { list: "english", indexByList: { english: 3 } },
+      }),
+    );
+    await renderApp();
+    await waitFor(() => expect(dialog()).toBe("רדיו"));
+    await waitFor(() =>
+      expect(document.querySelector(".radio-dial")?.getAttribute("data-list")).toBe("english"),
+    );
+    expect(document.querySelector(".radio-dial")?.getAttribute("data-index")).toBe("3");
   });
 
   it("ignores a broken or foreign localStorage value", async () => {

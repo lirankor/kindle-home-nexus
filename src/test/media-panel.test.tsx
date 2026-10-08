@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DeviceActions, pressSoftKey } from "@/components/device-actions";
 import { MediaCards, MediaModal } from "@/components/media-screens";
 import { LangContext } from "@/lib/lang-context";
-import { demoMediaSnapshot } from "@/lib/media";
+import { demoMediaSnapshot, demoRadioLists } from "@/lib/media";
 import { useMediaPanel } from "@/lib/media-panel";
 import type { MediaSnapshotResult } from "@/lib/media";
 
@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   runMediaAction: vi.fn(),
   startAmpPowerOn: vi.fn(),
   getPowerOnStatus: vi.fn(),
+  getRadioLists: vi.fn(),
+  tuneRadioStation: vi.fn(),
 }));
 vi.mock("@/lib/media.functions", () => mocks);
 
@@ -70,6 +72,8 @@ describe("Media tab and amp view", () => {
     mocks.getMediaSnapshot.mockResolvedValue(liveResult());
     mocks.runMediaAction.mockResolvedValue({ ok: true });
     mocks.getPowerOnStatus.mockResolvedValue(null);
+    mocks.getRadioLists.mockResolvedValue(demoRadioLists());
+    mocks.tuneRadioStation.mockResolvedValue({ ok: true });
   });
 
   it("renders the TV and amp cards from the demo snapshot with the all-off footer", async () => {
@@ -185,7 +189,8 @@ describe("Media tab and amp view", () => {
         data: { type: "amp.source", source: "NET RADIO" },
       }),
     );
-    expect(screen.getByRole("dialog", { name: "רדיו" }).textContent).toContain("בקרוב");
+    expect(screen.getByRole("dialog", { name: "רדיו" })).toBeVisible();
+    await waitFor(() => expect(document.querySelector(".radio-dial")).not.toBeNull());
     press("F1");
     expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
   });

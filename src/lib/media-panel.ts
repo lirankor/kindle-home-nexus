@@ -7,6 +7,8 @@ import {
   ArrowLeft,
   Check,
   Film,
+  Heart,
+  List,
   ListMusic,
   Music2,
   Power,
@@ -26,10 +28,14 @@ import type {
   MediaSnapshot,
   MediaSnapshotResult,
   PowerOnStatus,
+  RadioListsResult,
+  RadioPosition,
+  RadioStationView,
 } from "@/lib/media";
 import {
   SOURCE_ROWS,
   applyMediaOptimistic,
+  applyRadioTune,
   mediaActionLabel,
   stepAction,
   toggleAction,
@@ -37,9 +43,24 @@ import {
 import {
   getMediaSnapshot,
   getPowerOnStatus,
+  getRadioLists,
   runMediaAction,
   startAmpPowerOn,
+  tuneRadioStation,
 } from "@/lib/media.functions";
+import type { RadioPanelState } from "@/lib/panel-state";
+import {
+  RADIO_BANDS,
+  bandKey,
+  dialPosition,
+  isCatalogStationId,
+  listById,
+  playingPosition,
+  stationAt,
+  toggleFavouriteInLists,
+  withPosition,
+  wrapIndex,
+} from "@/lib/radio-dial";
 
 const POLL_MS = 10000;
 const POWER_ON_POLL_MS = 2000;
@@ -47,7 +68,12 @@ const FAILED_SHOWN_MS = 2 * 60 * 1000;
 const NAV_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"];
 
 export type MediaScreen = "now" | "source" | "radio" | "music" | "tv";
+/** Sub-views of the radio screen: the dial, the station list of the band, the band picker. */
+export type RadioView = "dial" | "stations" | "bands";
 export type MediaNotice = { text: string; error?: boolean };
+export const RADIO_PAGE_SIZE = 8;
+/** Not under ["media"]: a volume step must not refetch the YTuner lists. */
+const RADIO_LISTS_KEY = ["radioLists"] as const;
 
 export function useMediaPanel({
   active,
@@ -70,6 +96,8 @@ export function useMediaPanel({
   const [demo, setDemo] = useState<MediaSnapshot>(demoMediaSnapshot);
   const [optimistic, setOptimistic] = useState<MediaSnapshot | null>(null);
   const [localPowerOn, setLocalPowerOn] = useState<PowerOnStatus | null>(null);
+  const [radio, setRadio] = useState<RadioPanelState | null>(null);
+  const [radioView, setRadioView] = useState<RadioView>("dial");
   const lastGood = useRef<MediaSnapshot | null>(null);
   const inFlight = useRef(0);
   const opener = useRef<HTMLElement | null>(null);
@@ -107,6 +135,8 @@ export function useMediaPanel({
     poQuery.data && base && poQuery.data.startedAt >= base.startedAt ? poQuery.data : base;
   const step = powerOn?.step;
   const prevStep = useRef(step);
+  /** Station chosen on the dial while the amp was off: tuned once the power-on routine is done. */
+  const tuneAfterPowerOn = useRef<RadioPosition | null>(null);
   useEffect(() => {
     if (prevStep.current === step) return;
     prevStep.current = step;
@@ -116,6 +146,9 @@ export function useMediaPanel({
         text: step === "done" ? t("poweron.done") : (powerOn?.error ?? t("poweron.failed")),
         error: step === "failed",
       });
+      const pending = tuneAfterPowerOn.current;
+      tuneAfterPowerOn.current = null;
+      if (step === "done" && pending) void sendTune(pending);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
@@ -160,6 +193,8 @@ export function useMediaPanel({
         inFlight.current -= 1;
         if (inFlight.current === 0) setOptimistic(null);
         void queryClient.invalidateQueries({ queryKey: ["media"] });
+        if (action.type === "radio.favourite")
+          void queryClient.invalidateQueries({ queryKey: RADIO_LISTS_KEY });
         if (action.type === "movie" || action.type === "tv") onHomeChanged?.();
       }
     },
@@ -199,9 +234,10 @@ export function useMediaPanel({
     });
     if (next === "source")
       setCursor(Math.max(0, SOURCE_ROWS.indexOf(latest.current?.amp.source ?? "SERVER")));
+    if (next === "radio") setRadioView("dial");
   }, []);
   const close = useCallback(() => setScreenState(null), []);
-  useFullRefresh(screen ?? "");
+  useFullRefresh(`${screen ?? ""}/${screen === "radio" ? radioView : ""}`);
   useEffect(() => {
     if (screen) {
       document.querySelector<HTMLElement>(".full-modal")?.focus();
@@ -218,6 +254,145 @@ export function useMediaPanel({
     if (s && !s.amp.on && configuredRef.current) void startPowerOn(source);
     else void act({ type: "amp.source", source });
     open(source === "NET RADIO" ? "radio" : source === "SERVER" ? "music" : "now");
+  };
+
+  // ---- Radio screen: lists, the dial position, tuning by index, favourites ----
+  const listsQuery = useQuery<RadioListsResult>({
+    queryKey: RADIO_LISTS_KEY,
+    queryFn: () => getRadioLists(),
+    enabled: screen === "radio",
+    staleTime: 5 * 60_000,
+  });
+  const radioLists = listsQuery.data?.lists ?? null;
+  const radioListsError = listsQuery.isError ? t("err.server") : (listsQuery.data?.error ?? null);
+  const dialPos = dialPosition(radio, radioLists, data);
+  const dialList = listById(radioLists, dialPos.list);
+  const dialStation = stationAt(radioLists, dialPos) ?? null;
+  const radioRef = useRef(radio);
+  radioRef.current = radio;
+  const dialRef = useRef(dialPos);
+  dialRef.current = dialPos;
+  const listsRef = useRef(radioLists);
+  listsRef.current = radioLists;
+
+  // Follow what the amp plays: when the playing station changes (as reported by the server, not by
+  // our optimistic state) move the needle to it, preferring the band the user is on. Skipped while a
+  // tune of ours is in flight so a stale poll cannot drag the needle back.
+  const tuneBusy = useRef(false);
+  const pendingTune = useRef<RadioPosition | null>(null);
+  /** Dial state before the current run of tunes; restored when the server says no. */
+  const revertTo = useRef<RadioPanelState | null>(null);
+  const reported = result?.configured ? (result.snapshot ?? null) : demo;
+  const playingKey = reported
+    ? `${reported.nowPlaying.stationId ?? ""}|${reported.radio?.list ?? ""}:${reported.radio?.index ?? ""}`
+    : "";
+  const syncedKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!radioLists || tuneBusy.current || syncedKey.current === playingKey) return;
+    syncedKey.current = playingKey;
+    const pos = playingPosition(radioLists, reported, radioRef.current?.list ?? null);
+    if (pos) setRadio((r) => withPosition(r, pos));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playingKey, radioLists]);
+
+  /** Restores the persisted band / indexes (index route, on mount). */
+  const restoreRadio = useCallback((saved: RadioPanelState) => {
+    setRadio((r) => r ?? saved);
+  }, []);
+
+  /** The request itself; coalesces presses so the amp walks its menu once per settled target. */
+  const sendTune = async (pos: RadioPosition) => {
+    const station = stationAt(listsRef.current, pos);
+    if (!station) return;
+    if (tuneBusy.current) {
+      pendingTune.current = pos;
+      return;
+    }
+    tuneBusy.current = true;
+    inFlight.current += 1;
+    try {
+      await queryClient.cancelQueries({ queryKey: ["media"] });
+      const res = await tuneRadioStation({ data: pos });
+      if (res.ok) notify({ text: t("act.tuned", { station: station.name }) });
+      else {
+        notify({ text: res.error ?? t("err.failed"), error: true });
+        if (!pendingTune.current) setRadio(revertTo.current);
+      }
+    } catch {
+      notify({ text: t("err.server"), error: true });
+      if (!pendingTune.current) setRadio(revertTo.current);
+    } finally {
+      inFlight.current -= 1;
+      if (inFlight.current === 0) setOptimistic(null);
+      tuneBusy.current = false;
+      const next = pendingTune.current;
+      pendingTune.current = null;
+      if (next) void sendTune(next);
+      else void queryClient.invalidateQueries({ queryKey: ["media"] });
+    }
+  };
+
+  /** Moves the needle and tunes the amp; an amp that is off is powered on into NET RADIO first. */
+  const tuneTo = (pos: RadioPosition) => {
+    const station = stationAt(listsRef.current, pos);
+    if (!station) return;
+    if (!tuneBusy.current) revertTo.current = radioRef.current;
+    setRadio((r) => withPosition(r, pos));
+    const before = latest.current ?? demoMediaSnapshot();
+    if (!configuredRef.current) {
+      const on = before.amp.on
+        ? before
+        : applyMediaOptimistic(before, { type: "amp.power", on: true });
+      setDemo(applyRadioTune(on, station, pos));
+      notify({ text: t("act.tuned", { station: station.name }) });
+      return;
+    }
+    if (!before.amp.on) {
+      tuneAfterPowerOn.current = pos;
+      if (!powerOn?.running) void startPowerOn("NET RADIO");
+      return;
+    }
+    setOptimistic(applyRadioTune(before, station, pos));
+    void sendTune(pos);
+  };
+
+  /** Left / right on the dial: the neighbour in the current band, wrapping at the ends. */
+  const stepStation = (delta: 1 | -1) => {
+    const pos = dialRef.current;
+    const size = listById(listsRef.current, pos.list)?.stations.length ?? 0;
+    const index = wrapIndex(pos.index + delta, size);
+    if (index < 0) return;
+    tuneTo({ list: pos.list, index });
+  };
+
+  /** Band picker: shows the band on the dial (remembered index or its first station); nothing is tuned. */
+  const selectBand = (list: string) => {
+    setRadio((r) => ({ list, indexByList: r?.indexByList ?? {} }));
+    setRadioView("dial");
+    notify({ text: t("act.band", { band: t(bandKey(list)) }) });
+  };
+  const openStations = () => {
+    setCursor(Math.max(0, dialRef.current.index));
+    setRadioView("stations");
+  };
+  const openBands = () => {
+    setCursor(
+      Math.max(0, RADIO_BANDS.indexOf(dialRef.current.list as (typeof RADIO_BANDS)[number])),
+    );
+    setRadioView("bands");
+  };
+
+  const isFavourite = !!dialStation && (dialPos.list === RADIO_BANDS[0] || dialStation.favourite);
+  const canFavourite = !!dialStation && isCatalogStationId(dialStation.id);
+  /** F3: add the station under the needle to the YTuner bookmarks, or remove it when it is one. */
+  const toggleFavourite = () => {
+    const station = dialStation;
+    if (!station || !isCatalogStationId(station.id)) return;
+    const add = !isFavourite;
+    queryClient.setQueryData<RadioListsResult>(RADIO_LISTS_KEY, (old) =>
+      old ? toggleFavouriteInLists(old, station, add) : old,
+    );
+    void act({ type: "radio.favourite", stationId: station.id, add });
   };
 
   const tvOn =
@@ -291,13 +466,50 @@ export function useMediaPanel({
                 onClick: () => void act({ type: "tv", op: "toggle" }),
               },
             ]
-          : screen === "radio" || screen === "music"
-            ? [backToNow, null, null, powerKey]
-            : [];
+          : screen === "radio"
+            ? radioView === "dial"
+              ? [
+                  backToNow,
+                  { label: t("radio.bands"), icon: List, onClick: openBands },
+                  {
+                    label: t("radio.favKey"),
+                    icon: Heart,
+                    pressed: isFavourite,
+                    disabled: !canFavourite,
+                    onClick: toggleFavourite,
+                  },
+                  powerKey,
+                ]
+              : [
+                  {
+                    label: radioView === "stations" ? t("amp.back") : t("source.cancel"),
+                    icon: radioView === "stations" ? ArrowLeft : X,
+                    onClick: () => setRadioView("dial"),
+                  },
+                  null,
+                  null,
+                  {
+                    label: t("source.apply"),
+                    icon: Check,
+                    onClick: () => {
+                      if (radioView === "stations") {
+                        setRadioView("dial");
+                        tuneTo({ list: dialPos.list, index: cursor });
+                      } else {
+                        const band = RADIO_BANDS[cursor];
+                        if (band) selectBand(band);
+                      }
+                    },
+                  },
+                ]
+            : screen === "music"
+              ? [backToNow, null, null, powerKey]
+              : [];
 
   /** Keys while a media screen is open (soft keys are handled by the shell first). Returns handled. */
   const onKey = (event: KeyboardEvent): boolean => {
     if (!screen) return false;
+    if (screen === "radio" && radioView !== "dial") return onRadioListKey(event);
     if (event.key === "Escape") {
       event.preventDefault();
       if (screen === "now" || screen === "tv") close();
@@ -313,11 +525,19 @@ export function useMediaPanel({
         const source = SOURCE_ROWS[cursor];
         if (source) applySource(source);
       } else if (screen === "tv") close();
+      else if (screen === "radio") openStations();
       return true;
     }
     if (!NAV_KEYS.includes(event.key)) return false;
     event.preventDefault();
-    if (screen === "now") {
+    if (screen === "radio") {
+      const s = latest.current;
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        if (s?.amp.on)
+          void act({ type: "amp.volume.step", delta: event.key === "ArrowUp" ? 1 : -1 });
+      } else if (event.key === "ArrowRight" || event.key === "ArrowLeft")
+        stepStation(event.key === "ArrowRight" ? 1 : -1);
+    } else if (screen === "now") {
       const s = latest.current;
       if (!s || !s.amp.on) return true;
       if (event.key === "ArrowUp" || event.key === "ArrowDown")
@@ -332,6 +552,34 @@ export function useMediaPanel({
       else if (event.key === "ArrowDown" || event.key === "PageDown")
         setCursor((c) => Math.min(SOURCE_ROWS.length - 1, c + 1));
     }
+    return true;
+  };
+
+  /** Keys in the station list and the band picker: up/down (page keys jump a page), Enter picks, Escape backs out. */
+  const onRadioListKey = (event: KeyboardEvent): boolean => {
+    const size = radioView === "stations" ? (dialList?.stations.length ?? 0) : RADIO_BANDS.length;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setRadioView("dial");
+      return true;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (radioView === "stations") {
+        setRadioView("dial");
+        if (cursor < size) tuneTo({ list: dialPos.list, index: cursor });
+      } else {
+        const band = RADIO_BANDS[cursor];
+        if (band) selectBand(band);
+      }
+      return true;
+    }
+    if (!NAV_KEYS.includes(event.key)) return false;
+    event.preventDefault();
+    const by = event.key === "PageUp" || event.key === "PageDown" ? RADIO_PAGE_SIZE : 1;
+    if (event.key === "ArrowUp" || event.key === "PageUp") setCursor((c) => Math.max(0, c - by));
+    else if (event.key === "ArrowDown" || event.key === "PageDown")
+      setCursor((c) => Math.min(Math.max(0, size - 1), c + by));
     return true;
   };
 
@@ -353,6 +601,21 @@ export function useMediaPanel({
     applySource,
     lang,
     t,
+    // Radio screen
+    radioView,
+    radioLists,
+    radioListsError,
+    radioListsLoading: listsQuery.isPending,
+    dialPos,
+    dialStation,
+    isFavourite,
+    radioState: radio,
+    restoreRadio,
+    tuneTo,
+    selectBand,
+    openStations,
+    openBands,
+    toggleFavourite,
   };
 }
 export type MediaPanel = ReturnType<typeof useMediaPanel>;

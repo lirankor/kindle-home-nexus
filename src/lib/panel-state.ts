@@ -5,7 +5,24 @@ export const TAB_NAMES = ["Lights", "Vacuum", "Power", "Media"] as const;
 export type TabName = (typeof TAB_NAMES)[number];
 export const PERSISTED_MEDIA_SCREENS = ["now", "source", "radio", "music"] as const;
 export type PersistedMediaScreen = (typeof PERSISTED_MEDIA_SCREENS)[number];
-export type PanelState = { tab: TabName; mediaScreen: PersistedMediaScreen | null };
+/** Radio screen: the band the dial shows and the remembered needle index per band. */
+export type RadioPanelState = { list: string; indexByList: Record<string, number> };
+export type PanelState = {
+  tab: TabName;
+  mediaScreen: PersistedMediaScreen | null;
+  radio?: RadioPanelState;
+};
+
+const parseRadio = (value: unknown): RadioPanelState | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const { list, indexByList } = value as Record<string, unknown>;
+  if (typeof list !== "string" || !list) return undefined;
+  const indexes: Record<string, number> = {};
+  if (indexByList && typeof indexByList === "object")
+    for (const [k, v] of Object.entries(indexByList as Record<string, unknown>))
+      if (typeof v === "number" && Number.isInteger(v) && v >= 0) indexes[k] = v;
+  return { list, indexByList: indexes };
+};
 
 const KEY = "kindle-panel-state";
 
@@ -15,12 +32,17 @@ export function loadPanelState(): PanelState | null {
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
-    const { tab, mediaScreen } = parsed as Record<string, unknown>;
+    const { tab, mediaScreen, radio } = parsed as Record<string, unknown>;
     if (!(TAB_NAMES as readonly unknown[]).includes(tab)) return null;
     const screen = (PERSISTED_MEDIA_SCREENS as readonly unknown[]).includes(mediaScreen)
       ? (mediaScreen as PersistedMediaScreen)
       : null;
-    return { tab: tab as TabName, mediaScreen: tab === "Media" ? screen : null };
+    const parsedRadio = parseRadio(radio);
+    return {
+      tab: tab as TabName,
+      mediaScreen: tab === "Media" ? screen : null,
+      ...(parsedRadio ? { radio: parsedRadio } : {}),
+    };
   } catch {
     return null;
   }

@@ -9,6 +9,8 @@ import type {
   NowPlaying,
   NowPlayingKind,
   PowerOnStep,
+  RadioPosition,
+  RadioStationView,
 } from "./media";
 import { makeT } from "./i18n";
 import type { Key, Lang } from "./i18n";
@@ -131,6 +133,25 @@ export function applyMediaOptimistic(s: MediaSnapshot, action: MediaAction): Med
   return next;
 }
 
+/** What the snapshot will say once the amp has tuned `station` (radio screen left/right, list Enter). */
+export function applyRadioTune(
+  s: MediaSnapshot,
+  station: Pick<RadioStationView, "id" | "name">,
+  pos: RadioPosition,
+): MediaSnapshot {
+  return {
+    ...s,
+    amp: { ...s.amp, source: "NET RADIO", state: s.amp.on ? "playing" : s.amp.state },
+    nowPlaying: {
+      ...EMPTY_PLAY,
+      kind: "radio",
+      station: station.name,
+      stationId: station.id.startsWith("yt:") ? null : station.id,
+    },
+    radio: pos,
+  };
+}
+
 /** Left/right in the amp view: the server decides how, the kind decides what. Null = nothing to do. */
 export function stepAction(s: MediaSnapshot | null, delta: 1 | -1): MediaAction | null {
   if (!s || !s.amp.on) return null;
@@ -174,6 +195,8 @@ export function mediaActionLabel(action: MediaAction, lang: Lang, after?: MediaS
       return t(action.delta > 0 ? "act.next" : "act.prev");
     case "fm.preset":
       return t("act.preset", { n: action.preset });
+    case "radio.favourite":
+      return t(action.add ? "act.favAdded" : "act.favRemoved");
     case "all_off":
       return t("act.allOff");
     case "queue":
