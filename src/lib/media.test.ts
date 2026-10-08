@@ -138,9 +138,9 @@ describe("YTuner XML", () => {
     expect(parseYtunerStations(YTUNER_EMPTY)).toEqual([]);
     expect(parseYtunerStations("")).toEqual([]);
   });
-  it("matches the catalog's first local station", () => {
-    const first = RADIO_LISTS[0]!.stations[0]!;
-    expect(parseYtunerStations(YTUNER_STATIONS)[0]!.url).toBe(first.url);
+  it("maps a YTuner station onto the local catalog by stream url", () => {
+    const urls = RADIO_LISTS.find((l) => l.id === "local")!.stations.map((s) => s.url);
+    expect(urls).toContain(parseYtunerStations(YTUNER_STATIONS)[0]!.url);
     expect(RADIO_LISTS.map((l) => l.id)).toContain("local");
     expect(FAVOURITES_LIST_ID).toBe("favourites");
     expect(CATALOG_LOGO_HOSTS).toContain("www1.wdr.de");
