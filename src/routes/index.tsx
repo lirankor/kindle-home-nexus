@@ -264,6 +264,7 @@ function HomeControl() {
   const mediaClose = media.close;
   const mediaOpen = media.open;
   const mediaRestoreRadio = media.restoreRadio;
+  const mediaRestoreMusic = media.restoreMusic;
   const mediaStatus =
     configured && media.pollError
       ? `${t("status.disconnected")} · ${serverText(media.pollError)}`
@@ -354,19 +355,22 @@ function HomeControl() {
       setTab(saved.tab);
       if (saved.mediaScreen) mediaOpen(saved.mediaScreen);
       if (saved.radio) mediaRestoreRadio(saved.radio);
+      if (saved.music) mediaRestoreMusic(saved.music);
     }
     restored.current = true;
-  }, [mediaOpen, mediaRestoreRadio]);
+  }, [mediaOpen, mediaRestoreRadio, mediaRestoreMusic]);
   const mediaScreenToSave = persistableScreen(media.screen);
   const radioToSave = media.radioState;
+  const musicToSave = media.musicState;
   useEffect(() => {
     if (restored.current)
       savePanelState({
         tab,
         mediaScreen: mediaScreenToSave,
         ...(radioToSave ? { radio: radioToSave } : {}),
+        ...(musicToSave ? { music: musicToSave } : {}),
       });
-  }, [tab, mediaScreenToSave, radioToSave]);
+  }, [tab, mediaScreenToSave, radioToSave, musicToSave]);
   const photoSrc = photo.data?.image ?? "";
   useEffect(() => {
     if (!screensaver) return;

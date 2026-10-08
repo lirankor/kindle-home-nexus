@@ -302,6 +302,21 @@ export function demoRadioLists(): RadioListsResult {
   };
 }
 
+/** Demo mode: Enter on a list item "plays" the demo tracks from the first one, without a server. */
+export function demoQueue(title: string): QueueProgress {
+  const tracks = demoTracks();
+  const track = tracks[0]!;
+  return {
+    title,
+    index: 0,
+    count: tracks.length,
+    track,
+    positionMs: 0,
+    durationMs: track.durationMs,
+    status: "playing",
+  };
+}
+
 export function demoMusicList(tab: MusicTab, page: number): MusicListResult {
   const tracks = demoTracks();
   const items: MusicListItem[] =

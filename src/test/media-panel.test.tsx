@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DeviceActions, pressSoftKey } from "@/components/device-actions";
 import { MediaCards, MediaModal } from "@/components/media-screens";
 import { LangContext } from "@/lib/lang-context";
-import { demoMediaSnapshot, demoRadioLists } from "@/lib/media";
+import { demoMediaSnapshot, demoMusicList, demoRadioLists } from "@/lib/media";
+import type { MusicTab } from "@/lib/media";
 import { useMediaPanel } from "@/lib/media-panel";
 import type { MediaSnapshotResult } from "@/lib/media";
 
@@ -17,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   getPowerOnStatus: vi.fn(),
   getRadioLists: vi.fn(),
   tuneRadioStation: vi.fn(),
+  getMusicLists: vi.fn(),
+  playMusic: vi.fn(),
 }));
 vi.mock("@/lib/media.functions", () => mocks);
 
@@ -74,6 +77,9 @@ describe("Media tab and amp view", () => {
     mocks.getPowerOnStatus.mockResolvedValue(null);
     mocks.getRadioLists.mockResolvedValue(demoRadioLists());
     mocks.tuneRadioStation.mockResolvedValue({ ok: true });
+    mocks.getMusicLists.mockImplementation(({ data }: { data: { tab: MusicTab; page: number } }) =>
+      Promise.resolve({ ...demoMusicList(data.tab, data.page), configured: true }),
+    );
   });
   afterEach(() => {
     vi.useRealTimers();

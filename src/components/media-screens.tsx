@@ -1,19 +1,24 @@
 // Media tab cards, the full-page amp view (volume on the 5-way, power-on routine), the source list,
-// the TV modal, the radio screen (dial bar, station list, band picker) and the music placeholder
-// (milestone 4 drops in here). State and keys live in `useMediaPanel` (src/lib/media-panel.ts).
-import { useState } from "react";
+// the TV modal, the radio screen (dial bar, station list, band picker) and the music screen (Jellyfin
+// lists in tabs, Enter plays). State and keys live in `useMediaPanel` (src/lib/media-panel.ts).
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Check,
   ChevronDown,
   ChevronUp,
+  Compass,
   Disc3,
-  ListMusic,
+  Leaf,
+  MicVocal,
+  Moon,
   Music2,
   Power,
   Radio,
   RadioTower,
   Server,
+  Sparkles,
+  Sun,
   Tv,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,8 +26,23 @@ import { RadioDial, VolumeDial } from "@/components/dial-bar";
 import { FullModal } from "@/components/light-modals";
 import { tryT } from "@/lib/i18n";
 import type { Key, Lang } from "@/lib/i18n";
-import type { AmpSource, MediaSnapshot, PowerOnStep, RadioStationView } from "@/lib/media";
-import { SOURCE_ROWS, displayDb, formatDb, powerOnStepKey } from "@/lib/media-ui";
+import { MUSIC_TABS } from "@/lib/media";
+import type {
+  AmpSource,
+  MediaSnapshot,
+  MusicListItem,
+  PowerOnStep,
+  QueueProgress,
+  RadioStationView,
+} from "@/lib/media";
+import {
+  SOURCE_ROWS,
+  displayDb,
+  formatDb,
+  musicItemDetail,
+  musicItemTitle,
+  powerOnStepKey,
+} from "@/lib/media-ui";
 import { RADIO_PAGE_SIZE } from "@/lib/media-panel";
 import type { MediaPanel } from "@/lib/media-panel";
 import { RADIO_BANDS, bandKey, listById, stationDetail } from "@/lib/radio-dial";
@@ -192,6 +212,27 @@ function PowerOnBlock({ panel }: { panel: MediaPanel }) {
   );
 }
 
+/** Position inside the current track, counted on from the last snapshot while it plays (the snapshot
+ *  arrives every 10 s; a 1 s ticker runs only while music plays in the amp view). */
+function useTrackPosition(queue: QueueProgress | null): number {
+  const playing = queue?.status === "playing";
+  const [anchor, setAnchor] = useState<{ queue: QueueProgress | null; at: number }>({
+    queue: null,
+    at: 0,
+  });
+  if (anchor.queue !== queue) setAnchor({ queue, at: Date.now() });
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!playing) return;
+    const timer = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [playing]);
+  if (!queue) return 0;
+  if (!playing || anchor.queue !== queue) return queue.positionMs;
+  const raw = queue.positionMs + (Date.now() - anchor.at);
+  return queue.durationMs > 0 ? Math.min(queue.durationMs, raw) : raw;
+}
+
 function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
   const { t, data: s } = panel;
   const [line1, line2, line3] = nowPlayingLines(panel, s);
@@ -199,6 +240,7 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
   const art = on && s?.nowPlaying.artItemId ? s.nowPlaying.artItemId : null;
   const Glyph = on && s?.amp.source ? SOURCE_ICONS[s.amp.source] : Power;
   const queue = on && s?.nowPlaying.kind === "music" ? s.queue : null;
+  const position = useTrackPosition(queue);
   const db = on && s ? displayDb(s.amp) : null;
   return (
     <FullModal label={t("amp.label")} actions={panel.modalActions} status={status}>
@@ -229,17 +271,20 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
         </header>
       )}
       {queue && queue.track && (
-        <div className="amp-progress" dir="ltr">
+        <div className="amp-progress" dir="ltr" data-status={queue.status}>
           <div className="progress-track">
             <span
               style={{
-                width: `${queue.durationMs ? Math.min(100, (queue.positionMs / queue.durationMs) * 100) : 0}%`,
+                width: `${queue.durationMs ? Math.min(100, (position / queue.durationMs) * 100) : 0}%`,
               }}
             />
           </div>
           <div className="amp-times">
-            <span>{mmss(queue.positionMs)}</span>
-            <span>{t("media.queuePos", { index: queue.index + 1, count: queue.count })}</span>
+            <span className="amp-time-pos">{mmss(position)}</span>
+            <span className="amp-queue-pos">
+              {t("media.queuePos", { index: queue.index + 1, count: queue.count })}
+              {queue.status === "paused" ? ` · ${t("act.pause")}` : ""}
+            </span>
             <span>{mmss(queue.durationMs)}</span>
           </div>
         </div>
@@ -259,7 +304,9 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
           </div>
         </div>
         <p className="modal-hint">{t("amp.volHint")}</p>
-        <p className="modal-hint amp-nav-hint">{t("amp.navHint")}</p>
+        <p className="modal-hint amp-nav-hint">
+          {queue ? t("amp.musicNavHint") : t("amp.navHint")}
+        </p>
       </div>
     </FullModal>
   );
@@ -486,20 +533,116 @@ function RadioScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   }
 }
 
-/** Milestone 4 replaces this with the music screen. */
-function SoonScreen({ panel, status }: { panel: MediaPanel; status: string }) {
-  const { t } = panel;
+// ---- Music screen (Jellyfin) ----
+
+const MIX_ICONS: Record<string, typeof Sparkles> = {
+  daily: Sun,
+  discover: Compass,
+  relaxed: Leaf,
+  evening: Moon,
+};
+const KIND_ICONS: Record<MusicListItem["kind"], typeof Sparkles> = {
+  mix: Sparkles,
+  artist: MicVocal,
+  album: Disc3,
+  track: Music2,
+};
+
+/** Cover art from the image route (grayscale PNG); a glyph for the kind when there is none (404). */
+function MusicArt({ item, size, alt }: { item: MusicListItem; size: number; alt: string }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  const id = item.artItemId;
+  const show = !!id && failed !== id;
+  const Icon = (item.kind === "mix" && MIX_ICONS[item.id]) || KIND_ICONS[item.kind];
+  return (
+    <span
+      className="radio-logo music-art"
+      style={{ width: size, height: size }}
+      aria-hidden={!show}
+    >
+      {show ? (
+        <img
+          src={`/media/img?item=${encodeURIComponent(id)}&w=${size}`}
+          alt={alt}
+          width={size}
+          height={size}
+          onError={() => setFailed(id)}
+        />
+      ) : (
+        <Icon size={Math.round(size * 0.55)} strokeWidth={1.4} />
+      )}
+    </span>
+  );
+}
+
+/** Tabs (left / right), 8 rows per page (up / down, F2 / F3 page), Enter plays the highlighted row. */
+function MusicScreen({ panel, status }: { panel: MediaPanel; status: string }) {
+  const { t, data: s, musicTab, musicPage, musicPages, musicRows, musicCursor } = panel;
+  const on = s?.amp.on ?? false;
+  const loading = panel.musicListLoading && !panel.musicListError;
   return (
     <FullModal label={t("music.title")} actions={panel.modalActions} status={status}>
-      <header className="modal-heading">
-        <h1>{t("music.title")}</h1>
-        <p>{t("media.amp")}</p>
-      </header>
-      <div className="soon-block">
-        <ListMusic size={120} strokeWidth={1.1} />
-        <strong>{t("soon.title")}</strong>
-        <p>{t("soon.music")}</p>
-      </div>
+      {panel.showPowerOn ? (
+        <PowerOnBlock panel={panel} />
+      ) : (
+        <>
+          <div className="music-tabs" role="tablist" aria-label={t("music.tabsLabel")}>
+            {MUSIC_TABS.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                className="music-tab"
+                aria-selected={tab === musicTab}
+                tabIndex={-1}
+                onClick={() => panel.selectMusicTab(tab)}
+              >
+                {t(`music.tab.${tab}` as Key)}
+              </button>
+            ))}
+          </div>
+          <div
+            className="source-rows music-rows"
+            role="listbox"
+            aria-label={t(`music.tab.${musicTab}` as Key)}
+            aria-busy={loading}
+          >
+            {loading && <p className="music-note">{t("music.loading")}</p>}
+            {panel.musicListError && <p className="radio-error">{panel.musicListError}</p>}
+            {!loading && !panel.musicListError && musicRows.length === 0 && (
+              <p className="music-note">{t("music.empty")}</p>
+            )}
+            {musicRows.map((item, index) => (
+              <Button
+                key={`${item.kind}:${item.id}`}
+                variant="eink"
+                className="source-row music-row"
+                role="option"
+                aria-selected={index === musicCursor}
+                aria-pressed={index === musicCursor}
+                data-kind={item.kind}
+                onClick={() => panel.playItem(item)}
+              >
+                <MusicArt item={item} size={56} alt="" />
+                <span className="source-row-text">
+                  <strong>{musicItemTitle(item, t)}</strong>
+                  <span>{musicItemDetail(item, t) || "\u00a0"}</span>
+                </span>
+              </Button>
+            ))}
+          </div>
+          <div className="music-foot">
+            <span className="modal-hint music-hint">
+              {on ? t("music.hint") : t("music.offHint")}
+            </span>
+            <strong className="music-page">
+              <Ltr>
+                {Math.min(musicPage, musicPages - 1) + 1}/{musicPages}
+              </Ltr>
+            </strong>
+          </div>
+        </>
+      )}
     </FullModal>
   );
 }
@@ -515,7 +658,7 @@ export function MediaModal({ panel, status }: { panel: MediaPanel; status: strin
     case "radio":
       return <RadioScreen panel={panel} status={status} />;
     case "music":
-      return <SoonScreen panel={panel} status={status} />;
+      return <MusicScreen panel={panel} status={status} />;
     default:
       return null;
   }

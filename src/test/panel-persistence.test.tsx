@@ -3,7 +3,8 @@ import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/rea
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { demoMediaSnapshot, demoRadioLists } from "@/lib/media";
+import { demoMediaSnapshot, demoMusicList, demoRadioLists } from "@/lib/media";
+import type { MusicTab } from "@/lib/media";
 import { routeTree } from "@/routeTree.gen";
 
 // The whole shell, with the server functions mocked: demo home data, a live-looking media snapshot.
@@ -17,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   getPowerOnStatus: vi.fn(),
   getRadioLists: vi.fn(),
   tuneRadioStation: vi.fn(),
+  getMusicLists: vi.fn(),
+  playMusic: vi.fn(),
 }));
 vi.mock("@/lib/home.functions", () => ({
   getSnapshot: mocks.getSnapshot,
@@ -30,6 +33,8 @@ vi.mock("@/lib/media.functions", () => ({
   getPowerOnStatus: mocks.getPowerOnStatus,
   getRadioLists: mocks.getRadioLists,
   tuneRadioStation: mocks.tuneRadioStation,
+  getMusicLists: mocks.getMusicLists,
+  playMusic: mocks.playMusic,
 }));
 
 const KEY = "kindle-panel-state";
@@ -178,6 +183,49 @@ describe("Panel idle behaviour and persistence", () => {
       expect(document.querySelector(".radio-dial")?.getAttribute("data-list")).toBe("english"),
     );
     expect(document.querySelector(".radio-dial")?.getAttribute("data-index")).toBe("3");
+  });
+
+  it("remembers the music tab and page and reopens the screen there", async () => {
+    mocks.getMusicLists.mockImplementation(({ data }: { data: { tab: MusicTab; page: number } }) =>
+      Promise.resolve({
+        ...demoMusicList(data.tab, data.page),
+        configured: true,
+        page: data.page,
+        pages: 2,
+      }),
+    );
+    await renderApp();
+    press("PageUp");
+    press("F3");
+    expect(dialog()).toBe("תצוגת המגבר");
+    press("F2"); // music screen
+    await waitFor(() => expect(dialog()).toBe("מוזיקה"));
+    press("ArrowLeft"); // Hebrew: the next tab (מומלצים)
+    await waitFor(() => expect(document.querySelector(".music-page")?.textContent).toBe("1/2"));
+    press("F3"); // next page
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toEqual({
+        tab: "Media",
+        mediaScreen: "music",
+        music: { tab: "suggested", pageByTab: { suggested: 1 } },
+      }),
+    );
+    cleanup();
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        tab: "Media",
+        mediaScreen: "music",
+        music: { tab: "albums", pageByTab: { albums: 1 } },
+      }),
+    );
+    await renderApp();
+    await waitFor(() => expect(dialog()).toBe("מוזיקה"));
+    expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe(
+      "אלבומים",
+    );
+    await waitFor(() => expect(document.querySelector(".music-page")?.textContent).toBe("2/2"));
+    expect(mocks.getMusicLists).toHaveBeenLastCalledWith({ data: { tab: "albums", page: 1 } });
   });
 
   it("ignores a broken or foreign localStorage value", async () => {

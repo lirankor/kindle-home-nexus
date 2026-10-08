@@ -1,19 +1,22 @@
 // Pure helpers for the media screens: volume display rule, optimistic reducer for MediaAction,
 // next/previous dispatch by what is playing, and status-line labels. No React, no network.
-import { AMP } from "./media";
+import { AMP, MIX_IDS } from "./media";
 import type {
   AmpSource,
   AmpStatus,
   MediaAction,
   MediaSnapshot,
+  MixId,
+  MusicListItem,
   NowPlaying,
   NowPlayingKind,
   PowerOnStep,
+  QueueProgress,
   RadioPosition,
   RadioStationView,
 } from "./media";
 import { makeT } from "./i18n";
-import type { Key, Lang } from "./i18n";
+import type { Key, Lang, TFn } from "./i18n";
 
 /** dB to show: the number entity when known, else derived from the 0..1 level, else null. */
 export const displayDb = (amp: Pick<AmpStatus, "volumeDb" | "volume">): number | null =>
@@ -156,6 +159,46 @@ export function applyRadioTune(
   };
 }
 
+/** What the snapshot will say once the server has started `item` (music list Enter): source SERVER,
+ *  the first track (or the item itself until the queue is known) as now playing. */
+export function applyMusicPlay(
+  s: MediaSnapshot,
+  item: Pick<MusicListItem, "kind" | "title" | "detail" | "artItemId">,
+  queue: QueueProgress | null,
+): MediaSnapshot {
+  const track = queue?.track ?? null;
+  return {
+    ...s,
+    amp: { ...s.amp, on: true, source: "SERVER", state: "playing" },
+    nowPlaying: {
+      ...EMPTY_PLAY,
+      kind: "music",
+      title: track?.title ?? item.title,
+      artist:
+        track?.artist ?? (item.kind === "track" ? (item.detail.split(" · ")[0] ?? null) : null),
+      album: track?.album ?? (item.kind === "album" ? item.title : null),
+      artItemId: track?.artItemId ?? item.artItemId,
+    },
+    queue: queue ?? s.queue,
+  };
+}
+
+export const isMixId = (id: string): id is MixId => (MIX_IDS as readonly string[]).includes(id);
+/** Row title: the four mixes are named here, everything else comes from Jellyfin as is. */
+export const musicItemTitle = (item: Pick<MusicListItem, "kind" | "id" | "title">, t: TFn) =>
+  item.kind === "mix" && isMixId(item.id) ? t(`music.mix.${item.id}` as Key) : item.title;
+/** Row detail: mixes get their one-line description and track count; a bare number on an artist is
+ *  an album count; anything else ("artist · year", "artist · album") is shown as it came. */
+export function musicItemDetail(item: Pick<MusicListItem, "kind" | "id" | "detail">, t: TFn) {
+  const n = /^\d+$/.test(item.detail) ? Number(item.detail) : null;
+  if (item.kind === "mix") {
+    const desc = isMixId(item.id) ? t(`music.mix.${item.id}.desc` as Key) : "";
+    return [desc, n !== null ? t("music.tracks", { n }) : item.detail].filter(Boolean).join(" · ");
+  }
+  if (n !== null) return t(item.kind === "artist" ? "music.albums" : "music.tracks", { n });
+  return item.detail;
+}
+
 /** Left/right in the amp view: the server decides how, the kind decides what. Null = nothing to do. */
 export function stepAction(s: MediaSnapshot | null, delta: 1 | -1): MediaAction | null {
   if (!s || !s.amp.on) return null;
@@ -175,9 +218,13 @@ export function stepAction(s: MediaSnapshot | null, delta: 1 | -1): MediaAction 
   }
 }
 
-/** Enter in the amp view: play/pause only means something for the Jellyfin queue. */
+/** Enter in the amp view: play/pause only means something for the Jellyfin queue. Pause is explicit
+ *  (the amp cannot pause a pushed stream: the server stops and later re-pushes with a seek), resume
+ *  covers paused, stopped and ended queues. */
 export const toggleAction = (s: MediaSnapshot | null): MediaAction | null =>
-  s?.amp.on && s.nowPlaying.kind === "music" ? { type: "queue", op: "toggle" } : null;
+  s?.amp.on && s.nowPlaying.kind === "music" && s.queue
+    ? { type: "queue", op: s.queue.status === "playing" ? "pause" : "resume" }
+    : null;
 
 /** Status-line text after an action; `after` is the optimistic snapshot (for the new volume). */
 export function mediaActionLabel(action: MediaAction, lang: Lang, after?: MediaSnapshot): string {
@@ -208,7 +255,11 @@ export function mediaActionLabel(action: MediaAction, lang: Lang, after?: MediaS
         ? t("act.next")
         : action.op === "prev"
           ? t("act.prev")
-          : t("act.playPause");
+          : action.op === "pause"
+            ? t("act.pause")
+            : action.op === "resume"
+              ? t("act.resume")
+              : t("act.playPause");
     default:
       return t("act.done");
   }

@@ -113,6 +113,19 @@ artist → random album of the artist). Mixes generated server-side on load: Dai
 Discover (random tracks never played), Relaxed (genres Ambient/Classical/Jazz/Acoustic), Evening (Blues/Jazz/Vocal/Lounge). No keyboard.
 Playing: select SERVER if needed → push track 1 with metadata → SetNext track 2 → our queue state (server-side, in-memory + JSON file
 in `/data` volume) drives progress and advance. F4 on this screen = back to amp view.
+Implemented (M4, 2026-10-08): `MusicScreen` in `src/components/media-screens.tsx`, state in `useMediaPanel` (music section).
+Tabs row at the top (active filled black; left/right in reading order, so in Hebrew the first tab is at the right end), 8 rows
+per page (cover from `/media/img?item=…&w=56`, glyph per kind when there is none), F2/F3 = previous/next page (greyed at the
+ends, page counter "n/m" bottom-left), up/down cross page edges, Enter plays, F1 back to the amp view, F4 power (not "back":
+the footer stays the same as the other screens). Mix ids are named client-side (`music.mix.*` in i18n) with a one-line
+description; a bare number in `detail` is a track count (mix) or album count (artist). Lists are fetched per tab and page
+(`["musicList", tab, page]`, 5 min stale) so returning to a tab is instant. Tab + page per tab persist in `kindle-panel-state`
+(`music`). Play: optimistic "מנגן: …" status line, `playMusic`, then the amp view opens with the returned queue written into
+the snapshot cache until the next poll. Amp off: the power-on routine starts with SERVER and the choice plays when it reaches
+"done". Amp view with music: Enter sends queue `pause` while playing and `resume` otherwise (never `toggle`), left/right =
+queue previous/next, the progress bar counts on client-side from `positionMs` with a 1 s ticker that only runs while the amp
+view shows playing music; "n of N" sits under the bar, "· paused" appended while paused. Demo mode plays the four demo tracks
+locally without any server call.
 
 ### Pickers rework (existing light modals)
 Replace card grids with lists (icon – title – detail). Colour/shade lists apply immediately on up/down. Up/down replaces left/right.

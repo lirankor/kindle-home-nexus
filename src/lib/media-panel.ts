@@ -20,14 +20,17 @@ import {
 } from "lucide-react";
 import type { DeviceAction } from "@/components/device-actions";
 import { useFullRefresh } from "@/lib/eink";
-import { makeT } from "@/lib/i18n";
+import { isRtl, makeT } from "@/lib/i18n";
 import type { Lang } from "@/lib/i18n";
-import { demoMediaSnapshot } from "@/lib/media";
+import { MUSIC_PAGE_SIZE, MUSIC_TABS, demoMediaSnapshot, demoQueue } from "@/lib/media";
 import type {
   AmpSource,
   MediaAction,
   MediaSnapshot,
   MediaSnapshotResult,
+  MusicListItem,
+  MusicListResult,
+  MusicTab,
   PowerOnStatus,
   RadioListsResult,
   RadioPosition,
@@ -36,21 +39,25 @@ import type {
 import {
   SOURCE_ROWS,
   applyMediaOptimistic,
+  applyMusicPlay,
   applyRadioTune,
   mediaActionLabel,
+  musicItemTitle,
   screenForSource,
   stepAction,
   toggleAction,
 } from "@/lib/media-ui";
 import {
   getMediaSnapshot,
+  getMusicLists,
   getPowerOnStatus,
   getRadioLists,
+  playMusic,
   runMediaAction,
   startAmpPowerOn,
   tuneRadioStation,
 } from "@/lib/media.functions";
-import type { RadioPanelState } from "@/lib/panel-state";
+import type { MusicPanelState, RadioPanelState } from "@/lib/panel-state";
 import {
   RADIO_BANDS,
   bandKey,
@@ -78,6 +85,9 @@ export type MediaNotice = { text: string; error?: boolean };
 export const RADIO_PAGE_SIZE = 8;
 /** Not under ["media"]: a volume step must not refetch the YTuner lists. */
 const RADIO_LISTS_KEY = ["radioLists"] as const;
+/** Jellyfin lists, one entry per tab and page; kept for a while so tabs come back instantly. */
+const MUSIC_LIST_KEY = "musicList";
+const MUSIC_LIST_STALE_MS = 5 * 60_000;
 
 export function useMediaPanel({
   active,
@@ -102,6 +112,7 @@ export function useMediaPanel({
   const [localPowerOn, setLocalPowerOn] = useState<PowerOnStatus | null>(null);
   const [radio, setRadio] = useState<RadioPanelState | null>(null);
   const [radioView, setRadioView] = useState<RadioView>("dial");
+  const [music, setMusic] = useState<MusicPanelState | null>(null);
   const lastGood = useRef<MediaSnapshot | null>(null);
   const inFlight = useRef(0);
   const opener = useRef<HTMLElement | null>(null);
@@ -163,6 +174,8 @@ export function useMediaPanel({
   const prevStep = useRef(step);
   /** Station chosen on the dial while the amp was off: tuned once the power-on routine is done. */
   const tuneAfterPowerOn = useRef<RadioPosition | null>(null);
+  /** Music item chosen while the amp was off: played once the power-on routine (source SERVER) is done. */
+  const playAfterPowerOn = useRef<MusicListItem | null>(null);
   useEffect(() => {
     if (prevStep.current === step) return;
     prevStep.current = step;
@@ -175,6 +188,9 @@ export function useMediaPanel({
       const pending = tuneAfterPowerOn.current;
       tuneAfterPowerOn.current = null;
       if (step === "done" && pending) void sendTune(pending);
+      const pendingPlay = playAfterPowerOn.current;
+      playAfterPowerOn.current = null;
+      if (step === "done" && pendingPlay) void sendPlay(pendingPlay);
       // The screen must match the source the amp ended on: never the music placeholder for NET RADIO.
       // The amp view ("now") shows any source and stays; a closed panel stays closed.
       const want = screenForSource(powerOn?.source ?? null);
@@ -269,6 +285,7 @@ export function useMediaPanel({
     if (next === "source")
       setCursor(Math.max(0, SOURCE_ROWS.indexOf(latest.current?.amp.source ?? "SERVER")));
     if (next === "radio") setRadioView("dial");
+    if (next === "music") setCursor(0);
   }, []);
   const close = useCallback(() => setScreenState(null), []);
   useFullRefresh(`${screen ?? ""}/${screen === "radio" ? radioView : ""}`);
@@ -442,6 +459,116 @@ export function useMediaPanel({
     void act({ type: "radio.favourite", stationId: station.id, add });
   };
 
+  // ---- Music screen: Jellyfin lists per tab and page, the highlighted row, playing a selection ----
+  const musicTab: MusicTab = music?.tab ?? "mixes";
+  const musicPage = music?.pageByTab[musicTab] ?? 0;
+  const musicQuery = useQuery<MusicListResult>({
+    queryKey: [MUSIC_LIST_KEY, musicTab, musicPage],
+    queryFn: () => getMusicLists({ data: { tab: musicTab, page: musicPage } }),
+    enabled: screen === "music",
+    staleTime: MUSIC_LIST_STALE_MS,
+  });
+  const musicList = musicQuery.data ?? null;
+  const musicListError = musicQuery.isError ? t("err.server") : (musicList?.error ?? null);
+  const musicPages = musicList?.pages ?? 1;
+  const musicRows = musicList?.items ?? [];
+  const musicCursor = Math.min(cursor, Math.max(0, musicRows.length - 1));
+  const musicRef = useRef(music);
+  musicRef.current = music;
+  const setMusicPage = useCallback(
+    (tab: MusicTab, page: number) =>
+      setMusic((m) => ({ tab, pageByTab: { ...(m?.pageByTab ?? {}), [tab]: page } })),
+    [],
+  );
+  // The lists change daily: a remembered page past the end comes back clamped by the server.
+  useEffect(() => {
+    if (musicList && musicList.tab === musicTab && musicList.page !== musicPage)
+      setMusicPage(musicTab, musicList.page);
+  }, [musicList, musicTab, musicPage, setMusicPage]);
+  /** Restores the persisted tab / pages (index route, on mount). */
+  const restoreMusic = useCallback((saved: MusicPanelState) => {
+    setMusic((m) => m ?? saved);
+  }, []);
+  const selectMusicTab = (tab: MusicTab) => {
+    setMusic((m) => ({ tab, pageByTab: m?.pageByTab ?? {} }));
+    setCursor(0);
+  };
+  /** Left / right: the neighbouring tab in reading order (the row is laid out right-to-left in Hebrew). */
+  const stepMusicTab = (delta: 1 | -1) => {
+    const i = MUSIC_TABS.indexOf(musicTab) + delta;
+    const tab = MUSIC_TABS[i];
+    if (tab) selectMusicTab(tab);
+  };
+  /** F2 / F3 (and page keys): previous / next page, cursor on its first row. */
+  const pageMusic = (delta: 1 | -1) => {
+    const page = musicPage + delta;
+    if (page < 0 || page >= musicPages) return;
+    setMusicPage(musicTab, page);
+    setCursor(0);
+  };
+  /** Up / down: the neighbouring row, crossing into the previous / next page at the ends. */
+  const stepMusicRow = (delta: 1 | -1) => {
+    const next = musicCursor + delta;
+    if (next < 0) {
+      if (musicPage > 0) {
+        setMusicPage(musicTab, musicPage - 1);
+        setCursor(MUSIC_PAGE_SIZE - 1);
+      }
+    } else if (next >= musicRows.length) {
+      if (musicPage < musicPages - 1) {
+        setMusicPage(musicTab, musicPage + 1);
+        setCursor(0);
+      }
+    } else setCursor(next);
+  };
+
+  /** The request itself: the server builds the queue, switches to SERVER and pushes the first track. */
+  const sendPlay = async (item: MusicListItem) => {
+    const title = musicItemTitle(item, t);
+    const before = latest.current ?? demoMediaSnapshot();
+    setOptimistic(applyMusicPlay(before, item, null));
+    notify({ text: t("music.playing", { title }) });
+    inFlight.current += 1;
+    try {
+      await queryClient.cancelQueries({ queryKey: ["media"] });
+      const res = await playMusic({ data: { kind: item.kind, id: item.id } });
+      if (res.ok) {
+        // Shown until the next snapshot arrives (invalidated below), so the amp view never flashes
+        // the previous source in between.
+        const snapshot = applyMusicPlay(before, item, res.queue ?? null);
+        queryClient.setQueryData<MediaSnapshotResult>(["media"], (old) =>
+          old ? { ...old, snapshot } : old,
+        );
+        notify({ text: t("music.playing", { title }) });
+        open("now");
+      } else notify({ text: res.error ?? t("err.failed"), error: true });
+    } catch {
+      notify({ text: t("err.server"), error: true });
+    } finally {
+      inFlight.current -= 1;
+      if (inFlight.current === 0) setOptimistic(null);
+      void queryClient.invalidateQueries({ queryKey: ["media"] });
+      refetchSnapshotSoon();
+    }
+  };
+  /** Enter on a row: plays it; an amp that is off is powered on into SERVER first and plays when ready. */
+  const playItem = (item: MusicListItem) => {
+    const before = latest.current ?? demoMediaSnapshot();
+    if (!configuredRef.current) {
+      const title = musicItemTitle(item, t);
+      setDemo(applyMusicPlay(before, item, demoQueue(title)));
+      notify({ text: t("music.playing", { title }) });
+      open("now");
+      return;
+    }
+    if (!before.amp.on) {
+      playAfterPowerOn.current = item;
+      if (!powerOn?.running) void startPowerOn("SERVER");
+      return;
+    }
+    void sendPlay(item);
+  };
+
   const tvOn =
     data?.tv.state !== undefined && !["off", "unavailable", "unknown"].includes(data.tv.state);
   const tvUnavailable = !data || data.tv.state === "unavailable" || data.tv.state === "unknown";
@@ -555,13 +682,29 @@ export function useMediaPanel({
                   },
                 ]
             : screen === "music"
-              ? [backToNow, null, null, powerKey]
+              ? [
+                  backToNow,
+                  {
+                    label: t("radio.prevPage"),
+                    icon: ChevronLeft,
+                    disabled: musicPage === 0,
+                    onClick: () => pageMusic(-1),
+                  },
+                  {
+                    label: t("radio.nextPage"),
+                    icon: ChevronRight,
+                    disabled: musicPage >= musicPages - 1,
+                    onClick: () => pageMusic(1),
+                  },
+                  powerKey,
+                ]
               : [];
 
   /** Keys while a media screen is open (soft keys are handled by the shell first). Returns handled. */
   const onKey = (event: KeyboardEvent): boolean => {
     if (!screen) return false;
     if (screen === "radio" && radioView !== "dial") return onRadioListKey(event);
+    if (screen === "music") return onMusicKey(event);
     if (event.key === "Escape") {
       event.preventDefault();
       if (screen === "now" || screen === "tv") close();
@@ -603,6 +746,34 @@ export function useMediaPanel({
       if (event.key === "ArrowUp" || event.key === "PageUp") setCursor((c) => Math.max(0, c - 1));
       else if (event.key === "ArrowDown" || event.key === "PageDown")
         setCursor((c) => Math.min(SOURCE_ROWS.length - 1, c + 1));
+    }
+    return true;
+  };
+
+  /** Keys on the music screen: left/right switch the tab, up/down move (across pages; page keys jump a
+   *  page), Enter plays the highlighted row, Escape backs out to the amp view. */
+  const onMusicKey = (event: KeyboardEvent): boolean => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      open("now");
+      return true;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const item = musicRows[musicCursor];
+      if (item) playItem(item);
+      return true;
+    }
+    if (!NAV_KEYS.includes(event.key)) return false;
+    event.preventDefault();
+    if (event.key === "ArrowUp") stepMusicRow(-1);
+    else if (event.key === "ArrowDown") stepMusicRow(1);
+    else if (event.key === "PageUp") pageMusic(-1);
+    else if (event.key === "PageDown") pageMusic(1);
+    else {
+      // Physical direction: in Hebrew the first tab sits at the right end, so right goes back.
+      const forward = event.key === "ArrowRight" ? !isRtl(lang) : isRtl(lang);
+      stepMusicTab(forward ? 1 : -1);
     }
     return true;
   };
@@ -665,6 +836,18 @@ export function useMediaPanel({
     stationPage,
     stationPages,
     toggleFavourite,
+    // Music screen
+    musicTab,
+    musicPage,
+    musicPages,
+    musicRows,
+    musicCursor,
+    musicListLoading: musicQuery.isPending,
+    musicListError,
+    musicState: music,
+    restoreMusic,
+    selectMusicTab,
+    playItem,
   };
 }
 export type MediaPanel = ReturnType<typeof useMediaPanel>;

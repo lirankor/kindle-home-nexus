@@ -528,9 +528,6 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .source-rows + .modal-hint { margin-top: 14px; }
 .tv-glyph { display: flex; justify-content: center; margin-top: 70px; }
 .tv-glyph[data-on="false"] { color: var(--muted-foreground); }
-.soon-block { display: flex; flex-direction: column; align-items: center; text-align: center; margin-top: 90px; gap: 16px; color: var(--muted-foreground); }
-.soon-block strong { font-size: 44px; color: var(--foreground); }
-.soon-block p { font-size: 22px; margin: 0; }
 
 /* Media rework M3: radio screen — the dial bar (SVG, shared with the amp volume), now playing, station list. */
 .radio-dial { display: block; width: 100%; height: auto; margin: 6px 0 10px; fill: #000; }
@@ -555,3 +552,18 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .radio-row .source-row-text strong { font-size: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .radio-row-detail { font-size: 18px; flex-shrink: 0; opacity: 0.85; }
 .radio-empty { font-size: 24px; text-align: center; color: var(--muted-foreground); margin: 40px 0; }
+
+/* Media rework M4: music screen — five tabs (active filled), 8 cover + title + detail rows, page counter. */
+.music-tabs { display: flex; gap: 6px; }
+.music-tab { flex: 1; min-width: 0; height: 50px; padding: 0 4px; font: inherit; font-size: 22px; font-weight: 700; background: var(--background); color: var(--foreground); border: 2px solid var(--foreground); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-tab[aria-selected="true"] { background: var(--primary); color: var(--primary-foreground); }
+.music-rows { gap: 6px; margin-top: 14px; min-height: 490px; }
+.source-row.music-row.eink-button { height: 56px; padding: 0 12px; gap: 14px; }
+.music-row .radio-logo { width: 46px !important; height: 46px !important; border-color: currentColor; background: transparent; }
+.music-row .source-row-text strong { font-size: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-row .source-row-text span { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-note { font-size: 24px; text-align: center; color: var(--muted-foreground); margin: 40px 0; }
+.music-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; }
+.music-foot .music-hint { margin: 0; text-align: start; font-size: 18px; flex: 1; min-width: 0; }
+.music-page { font-size: 22px; font-weight: 700; flex-shrink: 0; }
+.amp-progress[data-status="paused"] .progress-track span { background: var(--muted-foreground); }
