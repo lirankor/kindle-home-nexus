@@ -6,7 +6,7 @@ import { useT } from "@/lib/lang-context";
 import type { LightState, Snapshot } from "@/lib/home";
 
 /** Full 600x800 page with its own soft-key footer; nothing of the main screen shows through. */
-function FullModal({
+export function FullModal({
   label,
   actions,
   status,

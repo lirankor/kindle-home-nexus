@@ -9,15 +9,10 @@ import {
   Sofa,
   Power,
   Plug,
-  Tv,
   Music2,
   Bot,
   Play,
   Pause,
-  SkipBack,
-  SkipForward,
-  Minus,
-  Plus,
   Moon,
   Film,
   RotateCcw,
@@ -28,7 +23,6 @@ import {
   DoorOpen,
   Baby,
   ShowerHead,
-  Volume2,
   Battery,
   ArrowLeft,
   Palette,
@@ -56,6 +50,8 @@ import {
   type DeviceAction,
 } from "@/components/device-actions";
 import { LightModal, PickerModal, PlugModal, pickerValues } from "@/components/light-modals";
+import { MediaCards, MediaModal } from "@/components/media-screens";
+import { useMediaPanel } from "@/lib/media-panel";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import { useFullRefresh } from "@/lib/eink";
 import { BatteryBadge } from "@/components/battery-badge";
@@ -68,7 +64,6 @@ import {
   COLORS,
   LIGHTS,
   localName,
-  MEDIA,
   PLUGS,
   ROOMS,
   SHADES,
@@ -80,7 +75,7 @@ import {
   emptySnapshot,
   vacuumLabel,
 } from "@/lib/home";
-import type { Action, LightState, MediaOp, Snapshot, SnapshotResult } from "@/lib/home";
+import type { Action, LightState, Snapshot, SnapshotResult } from "@/lib/home";
 import { getScreensaver, getSnapshot, runAction } from "@/lib/home.functions";
 
 export const Route = createFileRoute("/")({
@@ -258,6 +253,19 @@ function HomeControl() {
     [configured, queryClient, lang],
   );
 
+  const media = useMediaPanel({
+    active: tab === "Media",
+    lang,
+    notify: ({ text, error }) =>
+      setNotice(error ? { text: serverText(text), error: true } : { text }),
+    onHomeChanged: () => void queryClient.invalidateQueries({ queryKey: ["snapshot"] }),
+  });
+  const mediaClose = media.close;
+  const mediaStatus =
+    configured && media.pollError
+      ? `${t("status.disconnected")} · ${serverText(media.pollError)}`
+      : status;
+
   useEffect(() => {
     setNow(new Date());
     const timer = setInterval(() => setNow(new Date()), 60000);
@@ -304,6 +312,7 @@ function HomeControl() {
     if (modal) screen.current?.querySelector<HTMLElement>(".full-modal")?.focus();
   }, [modal]);
   const modalOpen = modal !== null;
+  const anyModalOpen = modalOpen || media.screen !== null;
   useFullRefresh(tab);
   useFullRefresh(modal ? `${modal.kind}:${modal.index}` : "");
   useFullRefresh(screensaver ? "saver" : "");
@@ -317,11 +326,15 @@ function HomeControl() {
 
   // Modals close after 30 s without a key press and as soon as the screensaver starts.
   useEffect(() => {
-    if (!modalOpen) return;
-    let timer = setTimeout(() => setModal(null), MODAL_IDLE_MS);
+    if (!anyModalOpen) return;
+    const closeAll = () => {
+      setModal(null);
+      mediaClose();
+    };
+    let timer = setTimeout(closeAll, MODAL_IDLE_MS);
     const reset = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => setModal(null), MODAL_IDLE_MS);
+      timer = setTimeout(closeAll, MODAL_IDLE_MS);
     };
     document.addEventListener("keydown", reset, true);
     document.addEventListener("pointerdown", reset, true);
@@ -330,10 +343,13 @@ function HomeControl() {
       document.removeEventListener("keydown", reset, true);
       document.removeEventListener("pointerdown", reset, true);
     };
-  }, [modalOpen]);
+  }, [anyModalOpen, mediaClose]);
   useEffect(() => {
-    if (screensaver) setModal(null);
-  }, [screensaver]);
+    if (screensaver) {
+      setModal(null);
+      mediaClose();
+    }
+  }, [screensaver, mediaClose]);
   const photoSrc = photo.data?.image ?? "";
   useEffect(() => {
     if (!screensaver) return;
@@ -356,10 +372,6 @@ function HomeControl() {
   const applyScene = (name: "Bright" | "Evening" | "Movie") => {
     setScene(name === "Movie" ? "" : name);
     act({ type: "scene", name });
-  };
-  const media = (index: number, op: MediaOp) => {
-    const meta = MEDIA[index];
-    if (meta) act({ type: "media", entity: meta.id, op });
   };
   const locate = () => {
     setLocating(true);
@@ -461,12 +473,6 @@ function HomeControl() {
           ];
 
   const plugOn = (index: number) => data.plugs[index]?.on ?? false;
-  const mediaOff = (index: number) => {
-    const state = data.media[index]?.state;
-    return state === "unavailable" || state === "unknown";
-  };
-  const mediaPower = (index: number) =>
-    media(index, data.media[index]?.state === "off" ? "turn_on" : "turn_off");
   const cleaning = data.vacuum.state === "cleaning";
   const actions: (DeviceAction | null)[] =
     tab === "Lights"
@@ -533,32 +539,18 @@ function HomeControl() {
                 },
               },
             ]
-          : [
-              {
-                label: t("media.movie"),
-                icon: Film,
-                pressed: data.movieActive,
-                onClick: () => applyScene("Movie"),
-              },
-              {
-                label: t("media.tv"),
-                icon: Tv,
-                disabled: mediaOff(1),
-                onClick: () => mediaPower(1),
-              },
-              {
-                label: t("media.yamaha"),
-                icon: Music2,
-                disabled: mediaOff(0),
-                onClick: () => mediaPower(0),
-              },
-              null,
-            ];
+          : media.actions;
 
   keyHandler.current = (event) => {
-    if (pressSoftKey(modal ? modalActions : actions, event.key)) {
+    const footer = media.screen ? media.modalActions : modal ? modalActions : actions;
+    if (pressSoftKey(footer, event.key)) {
       event.preventDefault();
       flashSoftKey(event.key);
+      return;
+    }
+    if (media.screen) {
+      // The amp view, source list and TV modal own every other key while they are open.
+      media.onKey(event);
       return;
     }
     if (modal) {
@@ -706,6 +698,7 @@ function HomeControl() {
                 onClick={() => {
                   setTab(name);
                   setModal(null);
+                  mediaClose();
                 }}
               >
                 <Icon />
@@ -881,90 +874,7 @@ function HomeControl() {
                 })()}
               </>
             )}
-            {tab === "Media" && (
-              <>
-                <div className="section-heading">
-                  <div>
-                    <h1>{t("media.title")}</h1>
-                    <p>{t("media.room")}</p>
-                  </div>
-                  <Music2 size={25} />
-                </div>
-                {MEDIA.map((meta, index) => {
-                  const m = data.media[index];
-                  if (!m) return null;
-                  const off = m.state === "unavailable" || m.state === "unknown";
-                  const idle = off || m.state === "off";
-                  const name = localName(lang, meta.name);
-                  return (
-                    <section className="media-device" key={meta.id}>
-                      <div className="media-title">
-                        {index === 0 ? <Music2 size={27} /> : <Tv size={27} />}
-                        <div>
-                          <strong>{name}</strong>
-                          <p>{vacuumLabel(m.state, lang)}</p>
-                        </div>
-                      </div>
-                      <div className="transport">
-                        {(
-                          [
-                            {
-                              icon: SkipBack,
-                              label: t("media.previous"),
-                              op: "media_previous_track",
-                            },
-                            { icon: Play, label: t("media.play"), op: "media_play" },
-                            { icon: Pause, label: t("media.pause"), op: "media_pause" },
-                            { icon: SkipForward, label: t("media.next"), op: "media_next_track" },
-                          ] as const
-                        ).map(({ icon: Icon, label, op }) => (
-                          <Button
-                            variant="eink"
-                            disabled={idle}
-                            key={label}
-                            title={label}
-                            aria-label={t("media.op", { label, name })}
-                            onClick={() => media(index, op)}
-                          >
-                            <Icon />
-                          </Button>
-                        ))}
-                      </div>
-                      <div className="source-control">
-                        <span>{t("media.source")}</span>
-                        <span>{m.source ?? "—"}</span>
-                      </div>
-                      <div className="source-control">
-                        <span>
-                          <Volume2 size={16} /> {t("media.volume")}
-                        </span>
-                        <div className="level-control">
-                          <Button
-                            variant="eink"
-                            disabled={idle}
-                            aria-label={t("media.volDown", { name })}
-                            onClick={() => media(index, "volume_down")}
-                          >
-                            <Minus />
-                          </Button>
-                          <span className="level-value">
-                            {m.volume === null ? "—" : Math.round(m.volume * 100)}
-                          </span>
-                          <Button
-                            variant="eink"
-                            disabled={idle}
-                            aria-label={t("media.volUp", { name })}
-                            onClick={() => media(index, "volume_up")}
-                          >
-                            <Plus />
-                          </Button>
-                        </div>
-                      </div>
-                    </section>
-                  );
-                })}
-              </>
-            )}
+            {tab === "Media" && <MediaCards panel={media} />}
           </main>
           <div className="demo-status" role="status">
             {status}
@@ -987,6 +897,7 @@ function HomeControl() {
               status={status}
             />
           )}
+          {media.screen && <MediaModal panel={media} status={mediaStatus} />}
           {modal && modalLight && modalMeta && modal.kind !== "light" && modal.kind !== "plug" && (
             <PickerModal
               kind={modal.kind}
