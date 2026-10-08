@@ -242,9 +242,9 @@ function useTrackPosition(queue: QueueProgress | null): number {
 type TransportMode = "playing" | "paused" | "radio" | "stopped" | "off";
 
 /**
- * The 5-way as a picture: a rounded square (the Kindle's button) with volume up on top, volume down at
- * the bottom and the play state in the centre; previous / next outside it (physical left / right in
- * both languages); the dB readout underneath. The 5-way keys do the work, this only shows it.
+ * The 5-way as a picture: a rounded square (the Kindle's button) with the play state inside and four
+ * satellites outside it — volume up above, volume down below, previous / next left / right (physical
+ * directions in both languages); the dB readout underneath. The keys do the work, this only shows it.
  */
 function TransportControl({
   db,
@@ -257,8 +257,8 @@ function TransportControl({
   mode: TransportMode;
   small?: boolean;
 }) {
-  const inner = small ? 28 : 34;
-  const outer = small ? 36 : 42;
+  const sat = small ? 36 : 42;
+  const centre = small ? 60 : 90;
   const Centre =
     mode === "playing"
       ? Pause
@@ -277,25 +277,26 @@ function TransportControl({
       data-mode={mode}
       data-db={db ?? ""}
     >
-      <div className="transport-row">
-        <SkipBack size={outer} aria-hidden="true" className="transport-skip" />
+      <div className="transport-grid">
+        <span className="transport-sat transport-vol transport-up" aria-hidden="true">
+          <Volume2 size={sat} />
+          <b>+</b>
+        </span>
+        <SkipBack size={sat} aria-hidden="true" className="transport-sat transport-prev" />
         <div className="transport-pad">
-          <span className="transport-vol" aria-hidden="true">
-            <Volume2 size={inner} />
-            <b>+</b>
-          </span>
           <Centre
-            size={inner}
+            size={centre}
+            strokeWidth={1.6}
             aria-hidden="true"
             className="transport-centre"
             fill={mode === "playing" || mode === "radio" ? "currentColor" : "none"}
           />
-          <span className="transport-vol" aria-hidden="true">
-            <Volume1 size={inner} />
-            <b>−</b>
-          </span>
         </div>
-        <SkipForward size={outer} aria-hidden="true" className="transport-skip" />
+        <SkipForward size={sat} aria-hidden="true" className="transport-sat transport-next" />
+        <span className="transport-sat transport-vol transport-down" aria-hidden="true">
+          <Volume1 size={sat} />
+          <b>−</b>
+        </span>
       </div>
       <div className="transport-db" role="meter" aria-label={label}>
         <Ltr>

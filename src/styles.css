@@ -499,26 +499,30 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .amp-progress { margin-top: 16px; }
 .amp-progress .progress-track { height: 14px; margin-top: 0; }
 .amp-times { display: flex; justify-content: space-between; font-size: 18px; color: var(--muted-foreground); margin-top: 6px; }
-/* Transport control: the 5-way as a rounded square (volume up / play state / volume down), previous and
-   next outside it, dB underneath. Full size in the amp view, small on the radio screen. */
-.amp-transport { margin-top: 16px; }
-.transport { display: flex; flex-direction: column; align-items: center; }
-.transport-row { display: flex; align-items: center; gap: 20px; direction: ltr; color: var(--foreground); }
-.transport-pad { width: 150px; height: 150px; box-sizing: border-box; border: 6px solid var(--foreground); border-radius: 28px; background: var(--background); display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 7px 0; }
+/* Transport control: the 5-way as a rounded square with the play state inside and four satellites
+   outside (volume up above, volume down below, previous / next left / right), dB underneath. */
+.amp-transport { margin-top: 12px; }
+.transport { display: flex; flex-direction: column; align-items: center; color: var(--foreground); }
+.transport-grid { display: grid; grid-template-columns: auto auto auto; grid-template-areas: ". up ." "prev pad next" ". down ."; align-items: center; justify-items: center; gap: 4px 16px; direction: ltr; }
+.transport-up { grid-area: up; }
+.transport-down { grid-area: down; }
+.transport-prev { grid-area: prev; }
+.transport-next { grid-area: next; }
+.transport-pad { grid-area: pad; width: 150px; height: 150px; box-sizing: border-box; border: 6px solid var(--foreground); border-radius: 28px; background: var(--background); display: flex; align-items: center; justify-content: center; }
 .transport-vol { display: flex; align-items: center; gap: 1px; line-height: 1; }
-.transport-vol b { font-size: 22px; font-weight: 700; }
-.transport-db { margin-top: 8px; font-size: 22px; line-height: 1; }
+.transport-vol b { font-size: 24px; font-weight: 700; }
+.transport-db { margin-top: 6px; font-size: 22px; line-height: 1; }
 .transport-db bdi { display: inline-flex; align-items: baseline; gap: 5px; }
 .transport-db small { font-size: 16px; color: var(--muted-foreground); }
-[data-on="false"] .transport-row { color: var(--muted-foreground); }
+[data-on="false"] .transport { color: var(--muted-foreground); }
 [data-on="false"] .transport-pad { border-color: var(--border); }
-.transport-small .transport-row { gap: 12px; }
-.transport-small .transport-pad { width: 100px; height: 100px; border-width: 4px; border-radius: 20px; padding: 3px 0; }
-.transport-small .transport-vol b { font-size: 18px; }
+.transport-small .transport-grid { gap: 2px 12px; }
+.transport-small .transport-pad { width: 100px; height: 100px; border-width: 4px; border-radius: 20px; }
+.transport-small .transport-vol b { font-size: 20px; }
 .transport-small .transport-db { margin-top: 4px; font-size: 18px; }
 .transport-small .transport-db small { font-size: 14px; }
-/* One key hint per media screen, just above the status line. */
-.modal-foot-hint { flex-shrink: 0; margin: 0 28px 4px; font-size: 16px; line-height: 1.2; text-align: center; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* One key hint per media screen: the last line above the footer buttons, below the status line. */
+.modal-foot-hint { flex-shrink: 0; margin: 2px 26px 4px; font-size: 15px; line-height: 1.2; text-align: center; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .poweron h2 { font-size: 34px; margin: 0 0 16px; font-weight: 700; }
 .poweron-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .poweron-steps li { display: flex; align-items: center; gap: 14px; font-size: 25px; color: var(--muted-foreground); }
@@ -541,7 +545,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 /* Media rework M3: radio screen — the dial bar (SVG, shared with the amp volume), now playing, station list. */
 .radio-dial { display: block; width: 100%; height: auto; margin: 6px 0 10px; fill: #000; }
 .radio-dial text { font-family: inherit; fill: #000; }
-.radio-transport-row { display: flex; justify-content: center; margin-top: 10px; }
+.radio-transport-row { display: flex; justify-content: center; margin-top: 6px; }
 .radio-now { display: flex; gap: 18px; align-items: center; margin-top: 20px; min-height: 110px; }
 .radio-logo { flex-shrink: 0; border: 1px solid var(--foreground); display: flex; align-items: center; justify-content: center; background: var(--background); overflow: hidden; box-sizing: content-box; }
 .radio-logo img { width: 100%; height: 100%; object-fit: contain; filter: grayscale(1) contrast(1.15); display: block; }

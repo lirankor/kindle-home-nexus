@@ -16,17 +16,17 @@ export function FullModal({
   label: string;
   actions: (DeviceAction | null)[];
   status: string;
-  /** One short key hint just above the status line (media screens). */
+  /** One short key hint as the last line above the footer buttons (media screens). */
   hint?: string | undefined;
   children: ReactNode;
 }) {
   return (
     <div className="full-modal" role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
       <div className="full-modal-body">{children}</div>
-      {hint && <p className="modal-foot-hint">{hint}</p>}
       <div className="demo-status" role="status">
         {status}
       </div>
+      {hint && <p className="modal-foot-hint">{hint}</p>}
       <DeviceActions actions={actions} />
     </div>
   );

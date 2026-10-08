@@ -138,11 +138,14 @@ describe("Radio screen", () => {
     expect(knob()?.textContent).toBe("-44.5dB");
     const pad = document.querySelector(".radio-transport-row .transport");
     expect(pad?.getAttribute("data-mode")).toBe("radio");
-    expect(pad?.querySelectorAll(".transport-pad svg")).toHaveLength(3);
-    expect(pad?.querySelectorAll(".transport-skip")).toHaveLength(2);
+    expect(pad?.querySelectorAll(".transport-pad svg")).toHaveLength(1);
+    expect(pad?.querySelectorAll(".transport-sat")).toHaveLength(4);
     expect(document.querySelectorAll(".radio-dial")).toHaveLength(1);
-    // The single key hint sits above the status line, no hint inside the body.
-    expect(document.querySelector(".modal-foot-hint")?.textContent).toContain("רשימת תחנות");
+    // The single key hint is the last line before the footer (after the status line), none in the body.
+    const hint = document.querySelector(".modal-foot-hint");
+    expect(hint?.textContent).toContain("רשימת תחנות");
+    expect(hint?.previousElementSibling?.className).toBe("demo-status");
+    expect(hint?.nextElementSibling?.tagName).toBe("FOOTER");
     expect(document.querySelector(".full-modal-body .modal-hint")).toBeNull();
     // Footer: back, favourite toggle, next band (Israel after Düsseldorf), power.
     expect(footerLabels()).toEqual(["חזרה", "הוסף למועדפים", "ישראל", "הפעלה / כיבוי"]);
