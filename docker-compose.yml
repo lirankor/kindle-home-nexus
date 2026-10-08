@@ -8,6 +8,9 @@ services:
         required: false
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Media state (Jellyfin queue, radio position) and resized-image cache survive rebuilds.
+    volumes:
+      - app-data:/data
     # The bridge shares this network namespace, so its port is published here.
     ports:
       - "192.168.1.15:8790:8790"
@@ -45,6 +48,7 @@ services:
       - ytuner-db:/app/db
 
 volumes:
+  app-data:
   ytuner-cache:
   ytuner-db:
 
