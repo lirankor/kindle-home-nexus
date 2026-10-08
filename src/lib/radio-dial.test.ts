@@ -70,7 +70,8 @@ describe("radio dial helpers", () => {
       index: 3,
     });
     // Out-of-range remembered index is clamped; unknown band falls back to the playing station.
-    expect(dialPosition({ list: "israel", indexByList: { israel: 99 } }, lists, s).index).toBe(5);
+    const israelLast = lists.find((l) => l.id === "israel")!.stations.length - 1;
+    expect(dialPosition({ list: "israel", indexByList: { israel: 99 } }, lists, s).index).toBe(israelLast);
     expect(dialPosition({ list: "music", indexByList: {} }, lists, s)).toEqual({
       list: "local",
       index: 0,

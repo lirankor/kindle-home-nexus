@@ -5,13 +5,15 @@ Input:  the LISTS below (name -> plain http stream URL, verified by hand / this 
 Output: src/data/radio-stations.json   (used by the app: lists, names, bitrate, codec, logo, FM freq)
         ytuner/config/stations.yaml     (served to the amp's NET RADIO by YTuner; NO comment lines!)
 
-Every URL is checked (HTTP 200, audio/* content type, no https redirect) because the Yamaha R-N500
-only plays plain http MP3/AAC. Bitrate/codec/logo come from the Radio Browser API when it knows the URL.
+Every URL is checked (HTTP 200, audio/* content type). The Yamaha R-N500 only plays plain http MP3/AAC, so
+https sources are marked relay=true and served to the amp through relay/ (RELAY_BASE). HLS is not supported. Bitrate/codec/logo come from the Radio Browser API when it knows the URL.
 Run:  python3 scripts/radio-stations.py   (needs internet; stdlib only)
 """
-import json, re, sys, urllib.parse, urllib.request, pathlib
+import json, re, ssl, sys, urllib.parse, urllib.request, pathlib
 
 UA = {"User-Agent": "kindle-home-nexus/1.0"}
+# Stations whose stream is https (or redirects to https) are played through relay/ (plain http for the amp).
+RELAY_BASE = "http://192.168.1.15:8792/s/"
 RB = "http://de1.api.radio-browser.info/json/stations/"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -33,11 +35,26 @@ LISTS = [
   ]},
   {"id": "israel", "ytuner": "Israel", "stations": [
     ("Galgalatz", "http://glzwizzlv.bynetcdn.com/glglz_mp3", 91.8),
-    ("Galei Zahal", "http://glzwizzlv.bynetcdn.com/glz_mp3", 96.6),
-    ("100FM Oldies", "http://gb25.streamgates.net/radios-audio/100Oldies/icecast.audio", None),
-    ("100FM Movies", "http://gb25.streamgates.net/radios-audio/100Movies/icecast.audio", None),
     ("Kol Barama", "http://kb.cdnwz.net/kol_barama", 92.1),
+    ("Kol Chai", "https://media2.93fm.co.il/live-new", 93.0),
+    ("Kan Bet", "https://28563.live.streamtheworld.com/KAN_BET.mp3", 95.5),
+    ("Galei Zahal", "http://glzwizzlv.bynetcdn.com/glz_mp3", 96.6),
+    ("Radio Darom", "https://cdn.cybercdn.live/Darom_97FM/Live/icecast.audio", 97.0),
+    ("Kan Gimel", "https://27873.live.streamtheworld.com/KAN_GIMMEL.mp3", 97.8),
+    ("Eco 99", "https://eco01.livecdn.biz/ecolive/99fm_aac/icecast.audio", 99.0),
+    ("Radios 100FM", "https://cdn.cybercdn.live/Radios_100FM/Audio/icecast.audio", 100.0),
+    ("Radio Tel Aviv 102", "http://102.livecdn.biz/102fm_aac", 102.0),
+    ("Galey Yisrael", "https://cdn.cybercdn.live/Galei_Israel/Live/icecast.audio", 102.5),
+    ("103FM", "https://cdn.cybercdn.live/103FM/Live/icecast.audio", 103.0),
     ("Kol Hashfela", "http://1036kh.cdnwz.net/1036kh", 103.6),
+    ("Kan Tarbut", "https://playerservices.streamtheworld.com/api/livestream-redirect/KAN_TARBUT.mp3", 106.5),
+    ("Radio Haifa", "https://1075.livecdn.biz/radiohaifa", 107.5),
+    ("Kan Kol HaMusica", "https://playerservices.streamtheworld.com/api/livestream-redirect/KAN_KOL_HAMUSICA.mp3", None),
+    ("Radio Lev Hamedina", "http://cdn.cybercdn.live/Lev_Hamedina/Audio/icecast.audio", None),
+    ("Hakatze", "http://kzradio.mediacast.co.il/kzradio_live/kzradio/icecast.audio", None),
+    ("100FM Oldies", "http://gb25.streamgates.net/radios-audio/100Oldies/icecast.audio", None),
+    ("100FM 80s", "http://gb25.streamgates.net/radios-audio/10080s/icecast.audio", None),
+    ("100FM Movies", "http://gb25.streamgates.net/radios-audio/100Movies/icecast.audio", None),
   ]},
   {"id": "english", "ytuner": "English", "stations": [
     ("BBC World Service", "http://stream.live.vc.bbcmedia.co.uk/bbc_world_service", None),
@@ -65,17 +82,27 @@ LISTS = [
   ]},
 ]
 
+# macOS python often lacks a CA bundle; the stream check then falls back to an unverified context
+# (this only checks that a stream exists; the relay container verifies TLS itself).
+_ctx = ssl.create_default_context()
 def get(url, **kw):
-    return urllib.request.urlopen(urllib.request.Request(url, headers={**UA, **kw.pop("headers", {})}), timeout=kw.pop("timeout", 15))
+    req = urllib.request.Request(url, headers={**UA, **kw.pop("headers", {})})
+    timeout = kw.pop("timeout", 15)
+    try:
+        return urllib.request.urlopen(req, timeout=timeout, context=_ctx)
+    except urllib.error.URLError as e:
+        if "CERTIFICATE_VERIFY_FAILED" not in str(e): raise
+        return urllib.request.urlopen(req, timeout=timeout, context=ssl._create_unverified_context())
 
 def check(url):
     try:
         r = get(url, headers={"Range": "bytes=0-255", "Icy-MetaData": "1"}, timeout=12)
         ct = r.headers.get("Content-Type", ""); br = r.headers.get("icy-br"); fin = r.geturl(); r.close()
-        ok = ("audio" in ct or "mpeg" in ct or "aac" in ct) and fin.startswith("http://")
-        return ok, ct, br, fin
+        audio = "audio" in ct or "mpeg" in ct or "aac" in ct
+        # ok = playable directly; relay = playable but only via the https->http relay
+        return audio and fin.startswith("http://"), ct, br, fin, audio
     except Exception as e:
-        return False, "ERR " + str(e)[:40], None, url
+        return False, "ERR " + str(e)[:40], None, url, False
 
 def rb_lookup(url, name):
     """Codec/bitrate/logo from Radio Browser: by exact URL, else by name (best-voted, same host)."""
@@ -101,17 +128,19 @@ for lst in LISTS:
     entry = {"id": lst["id"], "ytunerCategory": lst["ytuner"], "stations": []}
     yaml_lines.append(f"{lst['ytuner']}:")
     for name, url, fm in lst["stations"]:
-        ok, ct, icy_br, fin = check(url)
-        if not ok:
+        ok, ct, icy_br, fin, audio = check(url)
+        relay = (not ok) and audio
+        if not ok and not relay:
             bad.append((lst["id"], name, ct, fin)); print(f"  DROP {lst['id']:8} {name:28} {ct} {fin[:60]}"); continue
         meta = rb_lookup(url, name)
         codec = (meta.get("codec") or ("AAC" if "aac" in ct else "MP3")).upper().replace("AAC+", "AAC")
         bitrate = meta.get("bitrate") or (int(icy_br) if icy_br and icy_br.isdigit() else None)
         sid = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-        st = {"id": sid, "name": name, "url": url, "codec": codec, "bitrate": bitrate, "fm": fm, "logo": meta.get("logo")}
+        play_url = RELAY_BASE + sid if relay else url
+        st = {"id": sid, "name": name, "url": url, "playUrl": play_url, "relay": relay, "codec": codec, "bitrate": bitrate, "fm": fm, "logo": meta.get("logo")}
         entry["stations"].append(st)
-        print(f"  ok   {lst['id']:8} {name:28} {codec:4} {str(bitrate):>4}k logo={'yes' if st['logo'] else 'no '}")
-        yaml_lines.append(f"  {name}: {url}" + (f"|{st['logo']}" if st["logo"] else ""))
+        print(f"  {'relay' if relay else 'ok   '} {lst['id']:8} {name:28} {codec:4} {str(bitrate):>4}k logo={'yes' if st['logo'] else 'no '}")
+        yaml_lines.append(f"  {name}: {play_url}" + (f"|{st['logo']}" if st["logo"] else ""))
     yaml_lines.append("")
     catalog["lists"].append(entry)
 

@@ -47,6 +47,15 @@ services:
       - ytuner-cache:/app/cache
       - ytuner-db:/app/db
 
+  # https -> http stream relay for the amp's NET RADIO (see relay/README.md).
+  relay:
+    build: ./relay
+    restart: unless-stopped
+    ports:
+      - "192.168.1.15:8792:8792"
+    volumes:
+      - ./src/data/radio-stations.json:/app/radio-stations.json:ro
+
 volumes:
   app-data:
   ytuner-cache:
