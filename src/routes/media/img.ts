@@ -1,4 +1,4 @@
-// GET /media/img?station=<catalog id>|item=<jellyfin id>|src=<allowlisted url>&w=<px>
+// GET /media/img?station=<catalog id>|item=<jellyfin id>&w=<px>  (no free-form URLs: SSRF)
 // Returns a square grayscale PNG for <img src> on the e-ink panel (resized server-side, cached on disk).
 import { createFileRoute } from "@tanstack/react-router";
 import { imageFor } from "@/lib/media.server";
@@ -12,7 +12,6 @@ export const Route = createFileRoute("/media/img")({
         const png = await imageFor({
           station: q.get("station"),
           item: q.get("item"),
-          src: q.get("src"),
           width: Number.isFinite(width) ? width : 96,
         });
         if (!png) return new Response(null, { status: 404 });

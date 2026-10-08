@@ -498,8 +498,22 @@ export async function grayscalePng(src: string, width: number): Promise<Buffer |
       if (r.status !== 200) return null;
       raw = r.body;
     } else {
-      const res = await fetch(src, { redirect: "follow", signal: AbortSignal.timeout(10000) });
-      if (!res.ok) return null;
+      // Follow redirects by hand so every hop is re-checked against the allowlist (no SSRF via a redirect).
+      let current = url;
+      let res: Response | null = null;
+      for (let hop = 0; hop < 4; hop++) {
+        const r = await fetch(current, { redirect: "manual", signal: AbortSignal.timeout(10000) });
+        if (r.status >= 300 && r.status < 400) {
+          const loc = r.headers.get("location");
+          if (!loc) return null;
+          current = new URL(loc, current);
+          if (!imageHostAllowed(current)) return null;
+          continue;
+        }
+        res = r;
+        break;
+      }
+      if (!res || !res.ok) return null;
       raw = Buffer.from(await res.arrayBuffer());
     }
   } catch {
@@ -522,11 +536,10 @@ export async function grayscalePng(src: string, width: number): Promise<Buffer |
     .catch(() => undefined);
   return png;
 }
-/** Resolves what the /media/img route accepts: a catalog station id, a Jellyfin item id or an allowlisted URL. */
+/** Resolves what the /media/img route accepts: a catalog station id or a Jellyfin item id (no free-form URLs). */
 export async function imageFor(q: {
   station?: string | null;
   item?: string | null;
-  src?: string | null;
   width: number;
 }): Promise<Buffer | null> {
   const width = Math.max(16, Math.min(400, Math.round(q.width)));
@@ -537,13 +550,6 @@ export async function imageFor(q: {
   if (q.item) {
     if (!/^[0-9a-fA-F-]{8,40}$/.test(q.item) || !jellyfinConfigured()) return null;
     return grayscalePng(jellyfin.artUrl(q.item, Math.max(200, width)), width);
-  }
-  if (q.src) {
-    try {
-      return await grayscalePng(q.src, width);
-    } catch {
-      return null;
-    }
   }
   return null;
 }
