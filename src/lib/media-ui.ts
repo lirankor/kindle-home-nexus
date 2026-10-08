@@ -108,6 +108,14 @@ export function applyMediaOptimistic(s: MediaSnapshot, action: MediaAction): Med
     case "fm.preset":
       next.nowPlaying.preset = action.preset;
       break;
+    case "all_off":
+      next.amp.on = false;
+      next.amp.state = "off";
+      next.nowPlaying = { ...EMPTY_PLAY };
+      next.tv.state = "off";
+      next.plugOn = false;
+      if (next.queue) next.queue.status = "stopped";
+      break;
     case "queue":
       if (next.queue) {
         if (action.op === "pause") next.queue.status = "paused";
@@ -166,6 +174,8 @@ export function mediaActionLabel(action: MediaAction, lang: Lang, after?: MediaS
       return t(action.delta > 0 ? "act.next" : "act.prev");
     case "fm.preset":
       return t("act.preset", { n: action.preset });
+    case "all_off":
+      return t("act.allOff");
     case "queue":
       return action.op === "next"
         ? t("act.next")

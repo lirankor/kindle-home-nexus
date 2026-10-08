@@ -72,24 +72,34 @@ describe("Media tab and amp view", () => {
     mocks.getPowerOnStatus.mockResolvedValue(null);
   });
 
-  it("renders the TV, amp and movie cards from the demo snapshot", async () => {
+  it("renders the TV and amp cards from the demo snapshot with the all-off footer", async () => {
     renderPanel();
     await waitFor(() =>
       expect(screen.getByText("1LIVE · Zara Larsson - Memory Lane")).toBeVisible(),
     );
     const cards = Array.from(document.querySelectorAll<HTMLElement>(".media-cards button"));
-    expect(cards.map((c) => c.textContent)).toEqual([
-      expect.stringContaining("טלוויזיה"),
-      expect.stringContaining("מגבר"),
-      expect.stringContaining("מצב סרט"),
-    ]);
-    expect(cards[1]?.textContent).toContain("-44.5 dB");
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.textContent).toContain("טלוויזיה");
+    expect(cards[0]?.textContent).toContain("כבוי");
+    expect(cards[1]?.textContent).toContain("מגבר");
     expect(cards[1]?.textContent).toContain("רדיו");
-    // Footer: F1 movie, F2 TV, F3 amp, F4 blank.
+    expect(cards[1]?.textContent).toContain("-44.5 dB");
+    // Footer: F1 movie mode, F2 TV, F3 amp, F4 all off.
     const footer = screen.getByRole("contentinfo");
-    expect(footer.querySelectorAll("[data-soft-key]")[3]).toHaveAttribute("data-blank", "true");
-    expect(footer.textContent).toContain("מצב סרט");
-    expect(footer.textContent).toContain("מגבר");
+    const slots = Array.from(footer.querySelectorAll("[data-soft-key]")).map((b) => b.textContent);
+    expect(slots).toEqual(["מצב סרט", "טלוויזיה", "מגבר", "כבה הכל"]);
+    let settle: (value: { ok: boolean }) => void = () => {};
+    mocks.runMediaAction.mockImplementationOnce(
+      () => new Promise<{ ok: boolean }>((resolve) => (settle = resolve)),
+    );
+    press("F4");
+    await waitFor(() =>
+      expect(mocks.runMediaAction).toHaveBeenLastCalledWith({ data: { type: "all_off" } }),
+    );
+    // Optimistic: the amp shows off (no dB) while the server works.
+    expect(cards[1]?.textContent).toContain("כבוי");
+    expect(cards[1]?.textContent).not.toContain("dB");
+    await act(async () => settle({ ok: true }));
   });
 
   it("opens the amp view from the amp card and steps the volume on up/down", async () => {

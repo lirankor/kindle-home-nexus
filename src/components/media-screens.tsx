@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronUp,
   Disc3,
-  Film,
   ListMusic,
   Music2,
   Power,
@@ -104,15 +103,18 @@ export function MediaCards({ panel }: { panel: MediaPanel }) {
           title={t("media.openTv")}
           onClick={() => panel.open("tv")}
         >
-          <span className={`device-icon ${tvOn ? "on" : ""}`}>
-            <Tv size={32} />
-          </span>
-          <span className="device-info">
-            <strong>{t("media.tvName")}</strong>
-            <span className="light-state">
-              {tvState}
-              {s?.tv.source ? ` · ${s.tv.source}` : ""}
+          <span className="media-card-heading">
+            <span className={`device-icon ${tvOn ? "on" : ""}`}>
+              <Tv size={34} />
             </span>
+            <span className="device-info">
+              <strong>{t("media.tvName")}</strong>
+              <span className="light-state">{tvState}</span>
+            </span>
+          </span>
+          <span className="media-card-body">{s?.tv.source ?? "\u00a0"}</span>
+          <span className="media-card-foot">
+            <span>{tvOn ? t("media.nowPlaying") : "\u00a0"}</span>
           </span>
         </Button>
         <Button
@@ -122,37 +124,25 @@ export function MediaCards({ panel }: { panel: MediaPanel }) {
           title={t("media.openAmp")}
           onClick={() => panel.open("now")}
         >
-          <span className={`device-icon ${s?.amp.on ? "on" : ""}`}>
-            <Music2 size={32} />
-          </span>
-          <span className="device-info">
-            <strong>{t("media.amp")}</strong>
-            <span className="light-state">{ampLine}</span>
-            {playing && <span className="media-now-line">{playing}</span>}
-          </span>
-          {s?.amp.on && (
-            <strong className="media-db">
-              <Ltr>
-                {formatDb(displayDb(s.amp))} <small>dB</small>
-              </Ltr>
-            </strong>
-          )}
-        </Button>
-        <Button
-          variant="eink"
-          className="media-card"
-          data-on={s?.movieActive ?? false}
-          title={t("media.toggleMovie")}
-          onClick={() => void panel.act({ type: "movie", on: !(s?.movieActive ?? false) })}
-        >
-          <span className={`device-icon ${s?.movieActive ? "on" : ""}`}>
-            <Film size={32} />
-          </span>
-          <span className="device-info">
-            <strong>{t("media.movie")}</strong>
-            <span className="light-state">
-              {s === null ? "—" : s.movieActive ? t("state.on") : t("state.off")}
+          <span className="media-card-heading">
+            <span className={`device-icon ${s?.amp.on ? "on" : ""}`}>
+              <Music2 size={34} />
             </span>
+            <span className="device-info">
+              <strong>{t("media.amp")}</strong>
+              <span className="light-state">{ampLine}</span>
+            </span>
+          </span>
+          <span className="media-card-body media-now-line">{playing || "\u00a0"}</span>
+          <span className="media-card-foot">
+            <span>{s?.amp.on ? t("media.volume") : "\u00a0"}</span>
+            {s?.amp.on && (
+              <strong className="media-db">
+                <Ltr>
+                  {formatDb(displayDb(s.amp))} <small>dB</small>
+                </Ltr>
+              </strong>
+            )}
           </span>
         </Button>
       </div>

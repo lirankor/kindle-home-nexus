@@ -238,7 +238,7 @@ export function useMediaPanel({
       onClick: () => void act({ type: "tv", op: "toggle" }),
     },
     { label: t("media.amp"), icon: Music2, onClick: () => open("now") },
-    null,
+    { label: t("power.allOff"), icon: Power, onClick: () => void act({ type: "all_off" }) },
   ];
   const powerKey: DeviceAction = {
     label: t("amp.power"),

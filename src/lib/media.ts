@@ -234,7 +234,9 @@ export type MediaAction =
   | { type: "fm.frequency"; mhz: number }
   | { type: "radio.step"; delta: 1 | -1 }
   | { type: "radio.favourite"; stationId: string; add: boolean }
-  | { type: "queue"; op: "next" | "prev" | "pause" | "resume" | "toggle" | "stop" };
+  | { type: "queue"; op: "next" | "prev" | "pause" | "resume" | "toggle" | "stop" }
+  /** TV off, amp to standby, then (3 s later) the media plug off. */
+  | { type: "all_off" };
 export type MediaActionResult = { ok: boolean; error?: string; snapshot?: MediaSnapshot | null };
 
 // ---- Demo data (no env) ----

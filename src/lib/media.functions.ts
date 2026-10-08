@@ -64,6 +64,7 @@ const actionSchema = z.discriminatedUnion("type", [
     type: z.literal("queue"),
     op: z.enum(["next", "prev", "pause", "resume", "toggle", "stop"]),
   }),
+  z.object({ type: z.literal("all_off") }),
 ]);
 
 const flags = () => ({ amp: ampConfigured(), jellyfin: jellyfinConfigured() });

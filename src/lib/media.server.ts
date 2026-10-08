@@ -1238,6 +1238,13 @@ export async function performMediaAction(a: MediaAction): Promise<void> {
     case "radio.step":
       await radioStep(a.delta);
       break;
+    case "all_off":
+      // Tolerant of entities that are already off or unavailable; the plug always goes off last.
+      await haMedia.tv("turn_off").catch((e) => console.warn("all_off: TV off failed:", e));
+      await haMedia.turnOff().catch((e) => console.warn("all_off: amp off failed:", e));
+      await sleep(3000);
+      await haMedia.plug(false);
+      break;
     case "radio.favourite":
       await setFavourite(a.stationId, a.add);
       break;

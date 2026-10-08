@@ -52,6 +52,7 @@ import {
 import { LightModal, PickerModal, PlugModal, pickerValues } from "@/components/light-modals";
 import { MediaCards, MediaModal } from "@/components/media-screens";
 import { useMediaPanel } from "@/lib/media-panel";
+import { loadPanelState, persistableScreen, savePanelState, type TabName } from "@/lib/panel-state";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import { useFullRefresh } from "@/lib/eink";
 import { BatteryBadge } from "@/components/battery-badge";
@@ -133,7 +134,7 @@ const SAMPLE_REFRESH_MS = 10 * 60 * 1000;
 const MODAL_IDLE_MS = 30 * 1000;
 
 function HomeControl() {
-  const [tab, setTab] = useState("Lights");
+  const [tab, setTab] = useState<TabName>("Lights");
   const [scene, setScene] = useState("");
   const [locating, setLocating] = useState(false);
   const [screensaver, setScreensaver] = useState(false);
@@ -261,6 +262,7 @@ function HomeControl() {
     onHomeChanged: () => void queryClient.invalidateQueries({ queryKey: ["snapshot"] }),
   });
   const mediaClose = media.close;
+  const mediaOpen = media.open;
   const mediaStatus =
     configured && media.pollError
       ? `${t("status.disconnected")} · ${serverText(media.pollError)}`
@@ -312,7 +314,6 @@ function HomeControl() {
     if (modal) screen.current?.querySelector<HTMLElement>(".full-modal")?.focus();
   }, [modal]);
   const modalOpen = modal !== null;
-  const anyModalOpen = modalOpen || media.screen !== null;
   useFullRefresh(tab);
   useFullRefresh(modal ? `${modal.kind}:${modal.index}` : "");
   useFullRefresh(screensaver ? "saver" : "");
@@ -324,17 +325,14 @@ function HomeControl() {
     if (target?.isConnected) target.focus();
   }, [modalOpen]);
 
-  // Modals close after 30 s without a key press and as soon as the screensaver starts.
+  // Light / plug / picker modals close after 30 s without a key press and when the screensaver starts.
+  // The media screens (amp view, source list, radio, music) are "now playing" views and stay open.
   useEffect(() => {
-    if (!anyModalOpen) return;
-    const closeAll = () => {
-      setModal(null);
-      mediaClose();
-    };
-    let timer = setTimeout(closeAll, MODAL_IDLE_MS);
+    if (!modalOpen) return;
+    let timer = setTimeout(() => setModal(null), MODAL_IDLE_MS);
     const reset = () => {
       clearTimeout(timer);
-      timer = setTimeout(closeAll, MODAL_IDLE_MS);
+      timer = setTimeout(() => setModal(null), MODAL_IDLE_MS);
     };
     document.addEventListener("keydown", reset, true);
     document.addEventListener("pointerdown", reset, true);
@@ -343,13 +341,24 @@ function HomeControl() {
       document.removeEventListener("keydown", reset, true);
       document.removeEventListener("pointerdown", reset, true);
     };
-  }, [anyModalOpen, mediaClose]);
+  }, [modalOpen]);
   useEffect(() => {
-    if (screensaver) {
-      setModal(null);
-      mediaClose();
+    if (screensaver) setModal(null);
+  }, [screensaver]);
+  // Remember tab + media screen so a page reload or a screensaver wake lands where the user was.
+  const restored = useRef(false);
+  useEffect(() => {
+    const saved = loadPanelState();
+    if (saved) {
+      setTab(saved.tab);
+      if (saved.mediaScreen) mediaOpen(saved.mediaScreen);
     }
-  }, [screensaver, mediaClose]);
+    restored.current = true;
+  }, [mediaOpen]);
+  const mediaScreenToSave = persistableScreen(media.screen);
+  useEffect(() => {
+    if (restored.current) savePanelState({ tab, mediaScreen: mediaScreenToSave });
+  }, [tab, mediaScreenToSave]);
   const photoSrc = photo.data?.image ?? "";
   useEffect(() => {
     if (!screensaver) return;
