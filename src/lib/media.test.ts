@@ -147,6 +147,57 @@ describe("YTuner XML", () => {
   });
 });
 
+describe("queue advance at a track end", () => {
+  it("pushes the next track when the amp reports STOPPED at 0:00 of the current one", () => {
+    const q = {
+      id: "q",
+      title: "t",
+      index: 0,
+      status: "playing" as const,
+      startedAt: 1,
+      offsetMs: 0,
+      nextPushed: false,
+      tracks: [
+        {
+          id: "aaaaaaaa",
+          title: "a",
+          artist: null,
+          album: null,
+          durationMs: 200_000,
+          container: "mp3",
+          artItemId: null,
+          streamUrl: "http://j/Audio/aaaaaaaa/stream.mp3?static=true",
+        },
+        {
+          id: "bbbbbbbb",
+          title: "b",
+          artist: null,
+          album: null,
+          durationMs: 200_000,
+          container: "mp3",
+          artItemId: null,
+          streamUrl: "http://j/Audio/bbbbbbbb/stream.mp3?static=true",
+        },
+      ],
+    } as unknown as Parameters<typeof decideAdvance>[0];
+    const pos = {
+      track: 1,
+      trackUri: "http://j/Audio/aaaaaaaa/stream.mp3?static=true",
+      durationMs: 200_000,
+      relTimeMs: 0,
+    };
+    expect(decideAdvance(q, pos, "STOPPED").kind).toBe("push-next");
+    expect(decideAdvance(q, { ...pos, relTimeMs: 50_000 }, "PLAYING").kind).toBe("wait");
+    expect(
+      decideAdvance(
+        q,
+        { ...pos, trackUri: "http://j/Audio/bbbbbbbb/stream.mp3?static=true" },
+        "PLAYING",
+      ).kind,
+    ).toBe("amp-advanced");
+  });
+});
+
 describe("AVTransport", () => {
   it("builds DIDL-Lite with escaped values and the mp3 protocolInfo", () => {
     const didl = buildDidl({

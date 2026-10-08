@@ -376,12 +376,18 @@ export type AdvanceDecision =
   /** Position says the track is not actually over yet (buffering / slow start): resync and wait. */
   | { kind: "wait"; relTimeMs: number };
 /** Reconcile our timer with GetPositionInfo once the timer says the track is due. */
-export function decideAdvance(q: QueueState, pos: PositionInfo | null): AdvanceDecision {
+export function decideAdvance(
+  q: QueueState,
+  pos: PositionInfo | null,
+  transportState: string | null = null,
+): AdvanceDecision {
   if (!pos) return { kind: "push-next" };
   const playingId = trackIdFromUri(pos.trackUri);
   const next = q.tracks[q.index + 1];
   const cur = q.tracks[q.index];
   if (next && playingId === next.id) return { kind: "amp-advanced", relTimeMs: pos.relTimeMs ?? 0 };
+  // The R-N500 rewinds to 0:00 and reports STOPPED at the end of a pushed track: never "wait" on that.
+  if (transportState === "STOPPED") return { kind: "push-next" };
   if (
     cur &&
     playingId === cur.id &&

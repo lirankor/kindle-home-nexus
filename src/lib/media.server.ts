@@ -4,6 +4,7 @@
 // without AMP_HOST / JELLYFIN_* the callers fall back to demo data (see media.functions.ts).
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdirSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { createConnection } from "node:net";
 import os from "node:os";
@@ -43,6 +44,7 @@ import type {
   RadioStationView,
 } from "@/lib/media";
 import {
+  trackIdFromUri,
   AVT_SERVICE,
   artUrlFor,
   buildDidl,
@@ -127,7 +129,10 @@ type Runtime = {
   mixes: { day: string; items: Map<MixId, MusicTrack[]> } | null;
   lists: Map<string, { at: number; items: MusicListItem[] }>;
 };
-const g = globalThis as unknown as { __kindleMediaRuntime?: Runtime };
+const g = globalThis as unknown as {
+  __kindleMediaRuntime?: Runtime;
+  __kindleMediaFlushHook?: boolean;
+};
 const rt: Runtime = (g.__kindleMediaRuntime ??= {
   persisted: null,
   saveTimer: null,
@@ -151,9 +156,12 @@ async function loadState(): Promise<Persisted> {
       lastSource: isAmpSource(raw.lastSource) ? raw.lastSource : null,
       radio: raw.radio ?? null,
     };
-    // A queue that was playing when the process died cannot be trusted: its clock is gone.
-    if (p.queue && p.queue.status === "playing")
-      p.queue = { ...p.queue, status: "stopped", startedAt: null };
+    // A queue that was playing when the process died has lost its clock: keep it and re-sync with the amp.
+    if (p.queue && p.queue.status === "playing") {
+      p.queue = { ...p.queue, startedAt: null, nextPushed: false };
+      setTimeout(() => void reconcileQueueWithAmp(), 1500).unref?.();
+      ensureQueueTimer();
+    }
   } catch {
     /* first run */
   }
@@ -171,10 +179,33 @@ function saveState() {
   }, 300);
   rt.saveTimer.unref?.();
 }
+/** Synchronous write, used for queue changes and on shutdown: a debounced save was lost on every deploy. */
+function saveStateNow() {
+  if (rt.saveTimer) {
+    clearTimeout(rt.saveTimer);
+    rt.saveTimer = null;
+  }
+  try {
+    const file = stateFile();
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(rt.persisted ?? {}), "utf8");
+  } catch (e) {
+    console.error("media state save failed:", e);
+  }
+}
+if (!g.__kindleMediaFlushHook) {
+  g.__kindleMediaFlushHook = true;
+  for (const sig of ["SIGTERM", "SIGINT"] as const)
+    process.once(sig, () => {
+      saveStateNow();
+      process.kill(process.pid, sig);
+    });
+}
 async function patchState(patch: Partial<Persisted>) {
   const p = await loadState();
   Object.assign(p, patch);
-  saveState();
+  if ("queue" in patch) saveStateNow();
+  else saveState();
   return p;
 }
 
@@ -1285,6 +1316,61 @@ export async function queueCommand(
 }
 
 /** Every 2 s while playing: once our clock says the track is over, confirm with GetPositionInfo and advance. */
+/**
+ * After a process restart: find out what the amp is really doing and continue the persisted queue from
+ * there (same mix, right index and position); push the next track if the amp stopped at a track end.
+ */
+async function reconcileQueueWithAmp() {
+  const q = rt.persisted?.queue;
+  if (!q || q.status !== "playing" || q.startedAt !== null || rt.queueBusy) return;
+  if (!ampConfigured()) {
+    await setQueue({ ...q, status: "stopped" });
+    return;
+  }
+  rt.queueBusy = true;
+  try {
+    const [pos, tr] = await Promise.all([
+      avTransport.positionInfo().catch(() => null),
+      avTransport.transportInfo().catch(() => null),
+    ]);
+    const playingId = pos ? trackIdFromUri(pos.trackUri) : null;
+    const idx = playingId ? q.tracks.findIndex((t) => t.id === playingId) : -1;
+    const now = Date.now();
+    if (idx >= 0 && tr?.state === "PLAYING") {
+      const after = q.tracks[idx + 1];
+      if (after)
+        await avTransport.setNextUri(after.streamUrl, didlFor(after)).catch(() => undefined);
+      await setQueue({
+        ...q,
+        index: idx,
+        offsetMs: pos?.relTimeMs ?? 0,
+        startedAt: now,
+        nextPushed: after !== undefined,
+      });
+      console.log(`queue re-synced with the amp at track ${idx + 1}/${q.tracks.length}`);
+    } else if (idx >= 0 && tr?.state === "STOPPED" && q.tracks[idx + 1]) {
+      const n = {
+        ...q,
+        index: idx + 1,
+        offsetMs: 0,
+        startedAt: now,
+        nextPushed: q.tracks[idx + 2] !== undefined,
+      };
+      await pushTrack(n.tracks[n.index]!, n.tracks[n.index + 1]);
+      await setQueue({ ...n, startedAt: Date.now() });
+      console.log(`queue continued after restart: track ${n.index + 1}/${q.tracks.length}`);
+    } else {
+      await setQueue({ ...q, status: "stopped", startedAt: null });
+      console.log("queue stopped after restart: amp is not playing it");
+    }
+  } catch (e) {
+    console.error("queue reconcile failed:", e);
+    await setQueue({ ...q, status: "stopped", startedAt: null }).catch(() => undefined);
+  } finally {
+    rt.queueBusy = false;
+  }
+}
+
 async function queueTick() {
   if (rt.queueBusy) return;
   const q = rt.persisted?.queue;
@@ -1293,8 +1379,13 @@ async function queueTick() {
   if (!queueDue(q, now)) return;
   rt.queueBusy = true;
   try {
-    const pos = ampConfigured() ? await avTransport.positionInfo().catch(() => null) : null;
-    const d = decideAdvance(q, pos);
+    const [pos, tr] = ampConfigured()
+      ? await Promise.all([
+          avTransport.positionInfo().catch(() => null),
+          avTransport.transportInfo().catch(() => null),
+        ])
+      : [null, null];
+    const d = decideAdvance(q, pos, tr?.state ?? null);
     if (d.kind === "wait") {
       await setQueue({ ...q, offsetMs: d.relTimeMs, startedAt: now });
     } else if (d.kind === "amp-advanced") {
