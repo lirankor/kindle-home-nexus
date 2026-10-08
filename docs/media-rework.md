@@ -37,7 +37,7 @@ Everything the app talks to lives on pop-os. Hard facts below were verified on t
 - **NET RADIO via XML** (all verified):
   - `PUT <Main_Zone><Input><Input_Sel>NET RADIO</Input_Sel></Input></Main_Zone>`
   - `PUT <NET_RADIO><List_Control><Cursor>Return to Home</Cursor></List_Control></NET_RADIO>` → top menu
-    (`*** YTuner ***`, `Favourites`, `My Stations`, `Radio Browser`, in this order = lines 1..4).
+    (`Stations`, `Favourites`, `Radio Browser`, in this order = lines 1..3; configured in ytuner/config/avr.ini [MainMenu Items]).
   - `GET <NET_RADIO><List_Info>GetParam</List_Info></NET_RADIO>` → `Menu_Status` (Ready/Busy), `Menu_Layer`,
     `Menu_Name`, `Current_Line`, `Max_Line`, `Current_List/Line_1..8` (`Txt`, `Attribute` Container/Item/Unselectable). Poll until Ready.
   - `PUT <NET_RADIO><List_Control><Direct_Sel>Line_k</Direct_Sel></List_Control></NET_RADIO>` selects window line k (1..8).
@@ -90,7 +90,7 @@ large, song line, bitrate · codec small, station logo (server-resized 96px gray
 5-way: up/down volume (knob + dB), left/right = previous/next station in the current list (tunes immediately: Jump_Line + Sel),
 Enter = open the station list of the current band (list rows: logo – name – "128k MP3", up/down highlight, Enter tunes).
 Footer: F1 חזרה, F2 רשימה (band picker: 4 lists), F3 הוסף/הסר מועדפים, F4 הפעלה/כיבוי.
-Tuning path on the amp: ensure input NET RADIO → Return to Home → Line_3 (My Stations) → Jump_Line <category index> + Sel →
+Tuning path on the amp: ensure input NET RADIO → Return to Home → Line_1 (Stations) → Jump_Line <category index> + Sel →
 Jump_Line <station index> + Sel. Favourites list: Line_2 (Favourites) → Jump_Line <bookmark index> + Sel. Remember the current
 list/index server-side so the UI doesn't re-walk menus when it isn't needed (check `List_Info` `Menu_Name` first).
 
