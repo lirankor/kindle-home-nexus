@@ -23,8 +23,17 @@ http://radioyamaha.vtuner.com, http://radioyamaha2.vtuner.com, http://*.vtuner.c
 
 ## Stations
 
-`config/stations.yaml`: `Category: { "Station name": "http://stream|http://logo" }`. Streams must be plain
-`http://` MP3 or AAC (no HLS/OGG/Opus). Edit, commit, redeploy (`docker compose up -d --build ytuner`).
+`config/stations.yaml`:
+
+```
+Category name:
+  Station name: http://stream-url|http://logo-url
+```
+
+No comment lines: YTuner's YAML reader is minimal and a `#` line makes it drop the whole file
+("No station(s) found"). Streams must be plain `http://` MP3 or AAC (no HTTPS, HLS, OGG, Opus); the
+R-N500 cannot follow https redirects. URLs were verified 2026-10-08. Edit, commit, redeploy
+(`docker compose up -d --build ytuner`); the log should say `Successfully loaded N my stations`.
 
 ## Checks
 
