@@ -714,6 +714,16 @@ export async function startPowerOn(source?: AmpSource): Promise<PowerOnStatus> {
 }
 async function runPowerOn(target: AmpSource | null) {
   try {
+    // Already on (false "off" reading or the user pressed it anyway): just make sure of the source and finish.
+    const live = ampConfigured() ? await amp.basicStatus().catch(() => null) : null;
+    if (live?.power) {
+      if (target && live.input !== target) {
+        setPowerStep("source");
+        await haMedia.selectSource(target);
+      }
+      setPowerStep("done");
+      return;
+    }
     await haMedia.plug(true);
     setPowerStep("wait");
     const host = env("AMP_HOST");
@@ -877,11 +887,26 @@ export function overlayAmpStatus(
     );
 }
 
+type BasicCache = { at: number; value: Awaited<ReturnType<typeof amp.basicStatus>> };
+const BASIC_CACHE_MS = 30_000;
+let basicCache: BasicCache | null = null;
+/** Basic_Status with a 30 s last-good fallback: the amp's XML API stalls for a few seconds after menu
+ * changes, and one failed read must not make the panel believe the amp is off (seen 2026-10-08). */
+async function basicStatusCached() {
+  try {
+    const value = await amp.basicStatus();
+    basicCache = { at: Date.now(), value };
+    return value;
+  } catch {
+    return basicCache && Date.now() - basicCache.at < BASIC_CACHE_MS ? basicCache.value : null;
+  }
+}
+
 export async function readMediaSnapshot(): Promise<MediaSnapshot> {
   const [states, persisted, basic] = await Promise.all([
     ampConfigured() ? fetchStates().catch(() => new Map<string, HaState>()) : fetchStates(),
     loadState(),
-    ampConfigured() ? amp.basicStatus().catch(() => null) : Promise.resolve(null),
+    ampConfigured() ? basicStatusCached() : Promise.resolve(null),
   ]);
   overlayAmpStatus(states, basic);
   const player = states.get(AMP.player);
