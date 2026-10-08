@@ -222,7 +222,7 @@ describe("Music screen", () => {
     expect(rowDetails()[1]).toBe("Tracks never played · 20 tracks");
     press("ArrowRight");
     expect(activeTab()).toBe("Picks");
-    expect(screen.getByRole("dialog").textContent).toContain("Enter: play");
+    expect(screen.getByRole("dialog").textContent).toContain("Enter play");
   });
 
   it("pages the albums tab with F3 / F2 and lets the highlight cross the page edge", async () => {
@@ -325,7 +325,7 @@ describe("Music screen", () => {
     expect(dialog.querySelector(".amp-times")?.textContent).toContain("6:05");
     const width = () => dialog.querySelector<HTMLElement>(".progress-track span")!.style.width;
     expect(parseFloat(width())).toBeCloseTo((30000 / 365000) * 100, 1);
-    expect(dialog.textContent).toContain("Enter: נגן / השהה");
+    expect(dialog.textContent).toContain("Enter נגן/השהה");
     // Client-side ticker: a second later the position moved on without a new snapshot.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2100);

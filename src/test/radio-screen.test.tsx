@@ -78,7 +78,7 @@ const press = (key: string) =>
     document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
   });
 const dial = () => document.querySelector<SVGSVGElement>(".radio-dial");
-const knob = () => document.querySelector<HTMLElement>(".radio-knob-row .amp-knob");
+const knob = () => document.querySelector<HTMLElement>(".radio-transport-row .transport-db");
 const needleX = () => {
   const needle = dial()?.querySelector(".radio-needle");
   return needle ? Number(needle.getAttribute("x")) + DIAL.needleW / 2 : null;
@@ -134,9 +134,16 @@ describe("Radio screen", () => {
     expect(now.querySelector(".radio-now-song")?.textContent).toBe("Zara Larsson - Memory Lane");
     expect(now.querySelector(".radio-now-detail")?.textContent).toBe("128k · MP3");
     expect(now.querySelector("img")?.getAttribute("src")).toBe("/media/img?station=wdr-5&w=96");
-    // The small volume knob under the station dial; only one dial bar on the screen.
+    // The small transport control under the station dial; only one dial bar on the screen.
     expect(knob()?.textContent).toBe("-44.5dB");
+    const pad = document.querySelector(".radio-transport-row .transport");
+    expect(pad?.getAttribute("data-mode")).toBe("radio");
+    expect(pad?.querySelectorAll(".transport-pad svg")).toHaveLength(3);
+    expect(pad?.querySelectorAll(".transport-skip")).toHaveLength(2);
     expect(document.querySelectorAll(".radio-dial")).toHaveLength(1);
+    // The single key hint sits above the status line, no hint inside the body.
+    expect(document.querySelector(".modal-foot-hint")?.textContent).toContain("רשימת תחנות");
+    expect(document.querySelector(".full-modal-body .modal-hint")).toBeNull();
     // Footer: back, favourite toggle, next band (Israel after Düsseldorf), power.
     expect(footerLabels()).toEqual(["חזרה", "הוסף למועדפים", "ישראל", "הפעלה / כיבוי"]);
     expect(document.documentElement.getAttribute("data-eink-refresh")).toBe("full");

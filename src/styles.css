@@ -499,22 +499,26 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .amp-progress { margin-top: 16px; }
 .amp-progress .progress-track { height: 14px; margin-top: 0; }
 .amp-times { display: flex; justify-content: space-between; font-size: 18px; color: var(--muted-foreground); margin-top: 6px; }
-/* Volume knob (M2 look, restored by user request): a circle with the dB value, up / down chevrons. */
-.amp-knob-block { display: flex; flex-direction: column; align-items: center; margin-top: 18px; gap: 4px; }
-.amp-knob-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.amp-knob { width: 210px; height: 210px; border-radius: 50%; border: 6px solid var(--foreground); display: flex; align-items: center; justify-content: center; box-sizing: border-box; background: var(--background); }
-[data-on="false"] .amp-knob { border-color: var(--border); color: var(--muted-foreground); }
-.amp-knob bdi { display: flex; align-items: baseline; gap: 6px; }
-.amp-knob strong { font-size: 64px; font-weight: 400; line-height: 1; }
-.amp-knob small { font-size: 26px; color: var(--muted-foreground); }
-.amp-knob-block .modal-hint { margin-top: 14px; }
-.amp-knob-block .amp-nav-hint { margin-top: 6px; }
-/* Small knob on the radio screen (between the station dial and now playing). */
-.amp-knob-small { gap: 0; }
-.amp-knob-small .amp-knob { width: 110px; height: 110px; border-width: 4px; }
-.amp-knob-small .amp-knob bdi { gap: 3px; }
-.amp-knob-small .amp-knob strong { font-size: 30px; }
-.amp-knob-small .amp-knob small { font-size: 15px; }
+/* Transport control: the 5-way as a rounded square (volume up / play state / volume down), previous and
+   next outside it, dB underneath. Full size in the amp view, small on the radio screen. */
+.amp-transport { margin-top: 16px; }
+.transport { display: flex; flex-direction: column; align-items: center; }
+.transport-row { display: flex; align-items: center; gap: 20px; direction: ltr; color: var(--foreground); }
+.transport-pad { width: 150px; height: 150px; box-sizing: border-box; border: 6px solid var(--foreground); border-radius: 28px; background: var(--background); display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 7px 0; }
+.transport-vol { display: flex; align-items: center; gap: 1px; line-height: 1; }
+.transport-vol b { font-size: 22px; font-weight: 700; }
+.transport-db { margin-top: 8px; font-size: 22px; line-height: 1; }
+.transport-db bdi { display: inline-flex; align-items: baseline; gap: 5px; }
+.transport-db small { font-size: 16px; color: var(--muted-foreground); }
+[data-on="false"] .transport-row { color: var(--muted-foreground); }
+[data-on="false"] .transport-pad { border-color: var(--border); }
+.transport-small .transport-row { gap: 12px; }
+.transport-small .transport-pad { width: 100px; height: 100px; border-width: 4px; border-radius: 20px; padding: 3px 0; }
+.transport-small .transport-vol b { font-size: 18px; }
+.transport-small .transport-db { margin-top: 4px; font-size: 18px; }
+.transport-small .transport-db small { font-size: 14px; }
+/* One key hint per media screen, just above the status line. */
+.modal-foot-hint { flex-shrink: 0; margin: 0 28px 4px; font-size: 16px; line-height: 1.2; text-align: center; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .poweron h2 { font-size: 34px; margin: 0 0 16px; font-weight: 700; }
 .poweron-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .poweron-steps li { display: flex; align-items: center; gap: 14px; font-size: 25px; color: var(--muted-foreground); }
@@ -537,7 +541,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 /* Media rework M3: radio screen — the dial bar (SVG, shared with the amp volume), now playing, station list. */
 .radio-dial { display: block; width: 100%; height: auto; margin: 6px 0 10px; fill: #000; }
 .radio-dial text { font-family: inherit; fill: #000; }
-.radio-knob-row { display: flex; justify-content: center; margin-top: 6px; }
+.radio-transport-row { display: flex; justify-content: center; margin-top: 10px; }
 .radio-now { display: flex; gap: 18px; align-items: center; margin-top: 20px; min-height: 110px; }
 .radio-logo { flex-shrink: 0; border: 1px solid var(--foreground); display: flex; align-items: center; justify-content: center; background: var(--background); overflow: hidden; box-sizing: content-box; }
 .radio-logo img { width: 100%; height: 100%; object-fit: contain; filter: grayscale(1) contrast(1.15); display: block; }
@@ -547,7 +551,6 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .radio-now-song { font-size: 23px; line-height: 1.2; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .radio-now-detail { font-size: 18px; color: var(--muted-foreground); }
 .radio-error { font-size: 18px; color: var(--foreground); text-align: center; margin: 12px 0 0; }
-.radio-hint { margin-top: 22px; }
 .radio-list-heading h1 { font-size: 34px; }
 .radio-list-heading p { margin-top: 4px; font-size: 20px; }
 .radio-rows { gap: 4px; margin-top: 10px; }
@@ -562,13 +565,12 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .music-tabs { display: flex; gap: 6px; }
 .music-tab { flex: 1; min-width: 0; height: 50px; padding: 0 4px; font: inherit; font-size: 22px; font-weight: 700; background: var(--background); color: var(--foreground); border: 2px solid var(--foreground); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .music-tab[aria-selected="true"] { background: var(--primary); color: var(--primary-foreground); }
-.music-rows { gap: 6px; margin-top: 14px; min-height: 490px; }
-.source-row.music-row.eink-button { height: 56px; padding: 0 12px; gap: 14px; }
+.music-rows { gap: 5px; margin-top: 12px; min-height: 467px; }
+.source-row.music-row.eink-button { height: 54px; padding: 0 12px; gap: 14px; }
 .music-row .radio-logo { width: 46px !important; height: 46px !important; border-color: currentColor; background: transparent; }
 .music-row .source-row-text strong { font-size: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .music-row .source-row-text span { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .music-note { font-size: 24px; text-align: center; color: var(--muted-foreground); margin: 40px 0; }
-.music-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; }
-.music-foot .music-hint { margin: 0; text-align: start; font-size: 18px; flex: 1; min-width: 0; }
+.music-foot { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 10px; }
 .music-page { font-size: 22px; font-weight: 700; flex-shrink: 0; }
 .amp-progress[data-status="paused"] .progress-track span { background: var(--muted-foreground); }

@@ -5,21 +5,26 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Check,
-  ChevronDown,
-  ChevronUp,
   Compass,
   Disc3,
   Leaf,
   MicVocal,
   Moon,
   Music2,
+  Pause,
+  Play,
   Power,
   Radio,
   RadioTower,
   Server,
+  SkipBack,
+  SkipForward,
   Sparkles,
+  Square,
   Sun,
   Tv,
+  Volume1,
+  Volume2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RadioDial } from "@/components/dial-bar";
@@ -233,29 +238,87 @@ function useTrackPosition(queue: QueueProgress | null): number {
   return queue.durationMs > 0 ? Math.min(queue.durationMs, raw) : raw;
 }
 
-/** The volume knob: a circle with the dB value inside and up / down chevrons (the 5-way steps it). */
-function VolumeKnob({
+/** What the centre of the transport pad shows. */
+type TransportMode = "playing" | "paused" | "radio" | "stopped" | "off";
+
+/**
+ * The 5-way as a picture: a rounded square (the Kindle's button) with volume up on top, volume down at
+ * the bottom and the play state in the centre; previous / next outside it (physical left / right in
+ * both languages); the dB readout underneath. The 5-way keys do the work, this only shows it.
+ */
+function TransportControl({
   db,
   label,
+  mode,
   small = false,
 }: {
   db: number | null;
   label: string;
+  mode: TransportMode;
   small?: boolean;
 }) {
-  const chevron = small ? 20 : 30;
+  const inner = small ? 28 : 34;
+  const outer = small ? 36 : 42;
+  const Centre =
+    mode === "playing"
+      ? Pause
+      : mode === "paused"
+        ? Play
+        : mode === "radio"
+          ? Play
+          : mode === "stopped"
+            ? Square
+            : Power;
   return (
-    <div className={`amp-knob-wrap${small ? " amp-knob-small" : ""}`}>
-      <ChevronUp size={chevron} aria-hidden="true" />
-      <div className="amp-knob" role="meter" aria-label={label} data-db={db ?? ""}>
+    <div
+      className={`transport${small ? " transport-small" : ""}`}
+      role="group"
+      aria-label={label}
+      data-mode={mode}
+      data-db={db ?? ""}
+    >
+      <div className="transport-row">
+        <SkipBack size={outer} aria-hidden="true" className="transport-skip" />
+        <div className="transport-pad">
+          <span className="transport-vol" aria-hidden="true">
+            <Volume2 size={inner} />
+            <b>+</b>
+          </span>
+          <Centre
+            size={inner}
+            aria-hidden="true"
+            className="transport-centre"
+            fill={mode === "playing" || mode === "radio" ? "currentColor" : "none"}
+          />
+          <span className="transport-vol" aria-hidden="true">
+            <Volume1 size={inner} />
+            <b>−</b>
+          </span>
+        </div>
+        <SkipForward size={outer} aria-hidden="true" className="transport-skip" />
+      </div>
+      <div className="transport-db" role="meter" aria-label={label}>
         <Ltr>
           <strong>{formatDb(db)}</strong>
           <small>dB</small>
         </Ltr>
       </div>
-      <ChevronDown size={chevron} aria-hidden="true" />
     </div>
   );
+}
+
+/** Centre glyph of the transport pad for the current snapshot. */
+function transportMode(s: MediaSnapshot | null): TransportMode {
+  if (!s || !s.amp.on) return "off";
+  if (s.nowPlaying.kind === "music" && s.queue)
+    return s.queue.status === "playing"
+      ? "playing"
+      : s.queue.status === "paused"
+        ? "paused"
+        : "stopped";
+  if (s.nowPlaying.kind === "radio" || s.nowPlaying.kind === "fm")
+    return s.amp.state === "playing" ? "radio" : "stopped";
+  return s.amp.state === "playing" ? "playing" : "stopped";
 }
 
 function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
@@ -268,7 +331,12 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
   const position = useTrackPosition(queue);
   const db = on && s ? displayDb(s.amp) : null;
   return (
-    <FullModal label={t("amp.label")} actions={panel.modalActions} status={status}>
+    <FullModal
+      label={t("amp.label")}
+      actions={panel.modalActions}
+      status={status}
+      hint={queue ? t("amp.keysHint") : t("amp.keysHintRadio")}
+    >
       {panel.showPowerOn ? (
         <PowerOnBlock panel={panel} />
       ) : (
@@ -314,12 +382,8 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
           </div>
         </div>
       )}
-      <div className="amp-knob-block" data-on={on}>
-        <VolumeKnob db={db} label={t("media.volume")} />
-        <p className="modal-hint">{t("amp.volHint")}</p>
-        <p className="modal-hint amp-nav-hint">
-          {queue ? t("amp.musicNavHint") : t("amp.navHint")}
-        </p>
+      <div className="amp-transport" data-on={on}>
+        <TransportControl db={db} label={t("media.volume")} mode={transportMode(s)} />
       </div>
     </FullModal>
   );
@@ -441,7 +505,12 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
   const db = on && s ? displayDb(s.amp) : null;
   const loading = panel.radioListsLoading && !radioLists;
   return (
-    <FullModal label={t("radio.title")} actions={panel.modalActions} status={status}>
+    <FullModal
+      label={t("radio.title")}
+      actions={panel.modalActions}
+      status={status}
+      hint={t("radio.hint")}
+    >
       {panel.showPowerOn ? (
         <PowerOnBlock panel={panel} />
       ) : (
@@ -459,8 +528,8 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
                   : t("radio.empty")
             }
           />
-          <div className="radio-knob-row" data-on={on}>
-            <VolumeKnob db={db} label={t("media.volume")} small />
+          <div className="radio-transport-row" data-on={on}>
+            <TransportControl db={db} label={t("media.volume")} mode={transportMode(s)} small />
           </div>
           <div className="radio-now" data-on={on}>
             <StationLogo station={on ? playing : dialStation} size={96} alt={t("radio.logoAlt")} />
@@ -471,7 +540,6 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
             </div>
           </div>
           {panel.radioListsError && <p className="radio-error">{panel.radioListsError}</p>}
-          <p className="modal-hint radio-hint">{t("radio.hint")}</p>
         </>
       )}
     </FullModal>
@@ -486,7 +554,12 @@ function RadioStationList({ panel, status }: { panel: MediaPanel; status: string
   const pages = Math.max(1, Math.ceil(stations.length / RADIO_PAGE_SIZE));
   const rows = stations.slice(page * RADIO_PAGE_SIZE, (page + 1) * RADIO_PAGE_SIZE);
   return (
-    <FullModal label={t("radio.stationsTitle")} actions={panel.modalActions} status={status}>
+    <FullModal
+      label={t("radio.stationsTitle")}
+      actions={panel.modalActions}
+      status={status}
+      hint={t("radio.listHint")}
+    >
       <header className="modal-heading radio-list-heading">
         <h1>{t(bandKey(dialPos.list))}</h1>
         <p>
@@ -534,7 +607,6 @@ function RadioStationList({ panel, status }: { panel: MediaPanel; status: string
           );
         })}
       </div>
-      <p className="modal-hint">{t("radio.listHint")}</p>
     </FullModal>
   );
 }
@@ -596,7 +668,12 @@ function MusicScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   const on = s?.amp.on ?? false;
   const loading = panel.musicListLoading && !panel.musicListError;
   return (
-    <FullModal label={t("music.title")} actions={panel.modalActions} status={status}>
+    <FullModal
+      label={t("music.title")}
+      actions={panel.modalActions}
+      status={status}
+      hint={on ? t("music.hint") : t("music.offHint")}
+    >
       {panel.showPowerOn ? (
         <PowerOnBlock panel={panel} />
       ) : (
@@ -647,9 +724,6 @@ function MusicScreen({ panel, status }: { panel: MediaPanel; status: string }) {
             ))}
           </div>
           <div className="music-foot">
-            <span className="modal-hint music-hint">
-              {on ? t("music.hint") : t("music.offHint")}
-            </span>
             <strong className="music-page">
               <Ltr>
                 {Math.min(musicPage, musicPages - 1) + 1}/{musicPages}

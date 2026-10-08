@@ -122,7 +122,7 @@ describe("Media tab and amp view", () => {
     const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
     expect(dialog).toBeVisible();
     expect(dialog.textContent).toContain("WDR 5");
-    expect(dialog.querySelector(".amp-knob")?.textContent).toBe("-44.5dB");
+    expect(dialog.querySelector(".transport-db")?.textContent).toBe("-44.5dB");
     expect(document.documentElement.getAttribute("data-eink-refresh")).toBe("full");
 
     let settle: (value: { ok: boolean }) => void = () => {};
@@ -136,9 +136,9 @@ describe("Media tab and amp view", () => {
       }),
     );
     // Optimistic: shown right away, before the server answers; back to the snapshot once it does.
-    expect(dialog.querySelector(".amp-knob")?.textContent).toBe("-42.5dB");
+    expect(dialog.querySelector(".transport-db")?.textContent).toBe("-42.5dB");
     await act(async () => settle({ ok: true }));
-    await waitFor(() => expect(dialog.querySelector(".amp-knob")?.textContent).toBe("-44.5dB"));
+    await waitFor(() => expect(dialog.querySelector(".transport-db")?.textContent).toBe("-44.5dB"));
     press("ArrowDown");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
@@ -225,7 +225,7 @@ describe("Media tab and amp view", () => {
     press("F3");
     const dialog = screen.getByRole("dialog", { name: "Amplifier view" });
     expect(dialog.textContent).toContain("The amplifier is off");
-    expect(dialog.querySelector(".amp-knob")?.textContent).toBe("—dB");
+    expect(dialog.querySelector(".transport-db")?.textContent).toBe("—dB");
     press("F4");
     await waitFor(() => expect(mocks.startAmpPowerOn).toHaveBeenCalledWith({ data: {} }));
     await waitFor(() => expect(dialog.textContent).toContain("Waiting for the amplifier…"));
@@ -275,7 +275,7 @@ describe("Media tab and amp view", () => {
     await waitFor(() =>
       expect(mocks.getMediaSnapshot.mock.calls.length).toBeGreaterThan(snapshots),
     );
-    await waitFor(() => expect(dialog.querySelector(".amp-knob")?.textContent).toBe("-44.5dB"));
+    await waitFor(() => expect(dialog.querySelector(".transport-db")?.textContent).toBe("-44.5dB"));
     expect(dialog.textContent).toContain("WDR 5");
   });
 
