@@ -74,7 +74,7 @@ Jellyfin title / FM channel), **Movie mode** (on/off). Footer: F1 מצב סרט 
 
 ### Amp view (full page)
 Now-playing header: source badge, title / artist / album (or station / song), album art (server-resized 160px grayscale, `data-eink-photo`? no — plain img, dithered by CSS is fine), progress bar for Jellyfin (our timer).
-**5-way**: up/down = volume ±2 dB with a knob icon + dB readout in the middle of the content; left/right = next/prev
+**5-way**: up/down = volume ±2 dB shown on the SAME retro dial bar as the radio (docs/design/radio-dial-reference.svg): needle = volume position on a -80…+16 dB scale, caption "dB", big numeric readout next to it (user 2026-10-08: "tuner is still a basic circle, use controls.svg"; no circle knob); left/right = next/prev
 (Jellyfin queue, radio station in the current list, FM preset). Enter = play/pause (Jellyfin) / nothing (radio).
 Footer: F1 חזרה (back to Media tab), F2 מוזיקה (Jellyfin screen), F3 מקור (source list), F4 הפעלה/כיבוי (amp power;
 if off → runs the power-on routine with progress text, then restores last source).
