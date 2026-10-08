@@ -84,8 +84,11 @@ Up/down highlights, Enter or F4 applies; F1 cancels. Selecting רדיו opens th
 ### Radio screen
 Lists ("bands"): **מועדפים** (YTuner bookmarks), **דיסלדורף** (local), **ישראל** (israel), **אנגלית** (english) — from `radio-stations.json`
 (+ bookmarks from YTuner). FM presets appear as a fifth, secondary list only if cheap.
-Layout: band switch row (4 slots, active filled), **one retro dial bar** (not full screen): black band, light scale with ticks,
-station names (local list: real FM MHz under the name) as labels, thick needle on the current station. Below: station name
+Layout: band switch row (4 slots, active filled), **one retro dial bar** (not full screen) drawn after
+`docs/design/radio-dial-reference.svg` (user-supplied 2026-10-08): a single horizontal black bar made of block segments
+(thick solid ends, short dashes between), a thick rounded vertical needle crossing the bar at the current station,
+labels above the bar (the list name at the left end like "AM"/"FM" in the reference, then station names or FM MHz for the
+local list) and below it. Render it as inline SVG scaled to the full width (600 px minus margins), ~140 px tall, pure black on white. Below: station name
 large, song line, bitrate · codec small, station logo (server-resized 96px grayscale PNG, cached) left of the name.
 5-way: up/down volume (knob + dB), left/right = previous/next station in the current list (tunes immediately: Jump_Line + Sel),
 Enter = open the station list of the current band (list rows: logo – name – "128k MP3", up/down highlight, Enter tunes).
