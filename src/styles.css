@@ -499,17 +499,22 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .amp-progress { margin-top: 16px; }
 .amp-progress .progress-track { height: 14px; margin-top: 0; }
 .amp-times { display: flex; justify-content: space-between; font-size: 18px; color: var(--muted-foreground); margin-top: 6px; }
-/* Amp view volume: the dial bar (needle = level), then the big readout with the up / down hint arrows. */
-.amp-vol { margin-top: 10px; }
-.amp-vol .radio-dial { margin: 18px 0 6px; }
-.amp-vol-row { display: flex; justify-content: center; align-items: center; gap: 14px; direction: ltr; }
-.amp-vol-arrows { display: flex; flex-direction: column; color: var(--foreground); }
-.amp-vol[data-on="false"] .amp-vol-arrows, .amp-vol[data-on="false"] .amp-readout { color: var(--muted-foreground); }
-.amp-readout bdi { display: flex; align-items: baseline; gap: 8px; }
-.amp-readout strong { font-size: 64px; font-weight: 400; line-height: 1.1; }
-.amp-readout small { font-size: 26px; color: var(--muted-foreground); }
-.amp-vol .modal-hint { margin-top: 16px; }
-.amp-vol .amp-nav-hint { margin-top: 6px; }
+/* Volume knob (M2 look, restored by user request): a circle with the dB value, up / down chevrons. */
+.amp-knob-block { display: flex; flex-direction: column; align-items: center; margin-top: 18px; gap: 4px; }
+.amp-knob-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.amp-knob { width: 210px; height: 210px; border-radius: 50%; border: 6px solid var(--foreground); display: flex; align-items: center; justify-content: center; box-sizing: border-box; background: var(--background); }
+[data-on="false"] .amp-knob { border-color: var(--border); color: var(--muted-foreground); }
+.amp-knob bdi { display: flex; align-items: baseline; gap: 6px; }
+.amp-knob strong { font-size: 64px; font-weight: 400; line-height: 1; }
+.amp-knob small { font-size: 26px; color: var(--muted-foreground); }
+.amp-knob-block .modal-hint { margin-top: 14px; }
+.amp-knob-block .amp-nav-hint { margin-top: 6px; }
+/* Small knob on the radio screen (between the station dial and now playing). */
+.amp-knob-small { gap: 0; }
+.amp-knob-small .amp-knob { width: 110px; height: 110px; border-width: 4px; }
+.amp-knob-small .amp-knob bdi { gap: 3px; }
+.amp-knob-small .amp-knob strong { font-size: 30px; }
+.amp-knob-small .amp-knob small { font-size: 15px; }
 .poweron h2 { font-size: 34px; margin: 0 0 16px; font-weight: 700; }
 .poweron-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .poweron-steps li { display: flex; align-items: center; gap: 14px; font-size: 25px; color: var(--muted-foreground); }
@@ -532,7 +537,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 /* Media rework M3: radio screen — the dial bar (SVG, shared with the amp volume), now playing, station list. */
 .radio-dial { display: block; width: 100%; height: auto; margin: 6px 0 10px; fill: #000; }
 .radio-dial text { font-family: inherit; fill: #000; }
-.radio-dial-compact { margin: 18px 0 6px; }
+.radio-knob-row { display: flex; justify-content: center; margin-top: 6px; }
 .radio-now { display: flex; gap: 18px; align-items: center; margin-top: 20px; min-height: 110px; }
 .radio-logo { flex-shrink: 0; border: 1px solid var(--foreground); display: flex; align-items: center; justify-content: center; background: var(--background); overflow: hidden; box-sizing: content-box; }
 .radio-logo img { width: 100%; height: 100%; object-fit: contain; filter: grayscale(1) contrast(1.15); display: block; }

@@ -1,17 +1,15 @@
-// The retro dial bar after docs/design/radio-dial-reference.svg, used for the radio stations and for
-// the amp volume: one segmented black bar across the content width, a thick rounded needle, a caption
-// above the left end ("AM" / "FM" in the reference) and labels above / below the bar. Pure black on
-// white; geometry and label planning live in src/lib/radio-dial.ts.
+// The retro dial bar after docs/design/radio-dial-reference.svg for the radio stations: one segmented
+// black bar across the content width, a thick rounded needle, a caption above the left end ("AM" /
+// "FM" in the reference) and labels above / below the bar. Pure black on white; geometry and label
+// planning live in src/lib/radio-dial.ts. (Volume uses the circle knob, not this bar.)
 import type { RadioStationView } from "@/lib/media";
 import {
   DIAL,
-  DIAL_COMPACT,
   dialSegments,
   estimateWidth,
   planDialLabels,
   stationLabel,
   stationX,
-  volumeDial,
 } from "@/lib/radio-dial";
 import type { DialGeometry, DialLabel } from "@/lib/radio-dial";
 
@@ -38,12 +36,11 @@ export function DialBar({
   emptyText?: string | undefined;
   geometry?: DialGeometry;
 } & Record<`data-${string}`, string | number | undefined>) {
-  const compact = g.height < 100;
   const arrowY = 10;
   const arrowDx = g.needleW / 2 + 8;
   return (
     <svg
-      className={`radio-dial${compact ? " radio-dial-compact" : ""}`}
+      className="radio-dial"
       viewBox={`0 0 ${g.width} ${g.height}`}
       width={g.width}
       height={g.height}
@@ -141,22 +138,6 @@ export function RadioDial({
       emptyText={n === 0 ? emptyText : undefined}
       data-list={list}
       data-index={n > 0 ? index : -1}
-    />
-  );
-}
-
-/** The amp volume on the dial: ticks every 20 dB, the needle at the level, the value beside it. */
-export function VolumeDial({ db, compact = false }: { db: number | null; compact?: boolean }) {
-  const g = compact ? DIAL_COMPACT : DIAL;
-  const { stops, needleX, labels } = volumeDial(db, g);
-  return (
-    <DialBar
-      caption="dB"
-      labels={labels}
-      stops={stops}
-      needleX={needleX}
-      geometry={g}
-      data-db={db ?? ""}
     />
   );
 }

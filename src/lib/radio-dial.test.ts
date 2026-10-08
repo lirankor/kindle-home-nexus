@@ -14,10 +14,7 @@ import {
   stationLabel,
   stationX,
   toggleFavouriteInLists,
-  volumeDial,
   wrapIndex,
-  DIAL_COMPACT,
-  fractionX,
 } from "./radio-dial";
 
 const view = (s: (typeof RADIO_LISTS)[number]["stations"][number]): RadioStationView => ({
@@ -71,7 +68,9 @@ describe("radio dial helpers", () => {
     });
     // Out-of-range remembered index is clamped; unknown band falls back to the playing station.
     const israelLast = lists.find((l) => l.id === "israel")!.stations.length - 1;
-    expect(dialPosition({ list: "israel", indexByList: { israel: 99 } }, lists, s).index).toBe(israelLast);
+    expect(dialPosition({ list: "israel", indexByList: { israel: 99 } }, lists, s).index).toBe(
+      israelLast,
+    );
     expect(dialPosition({ list: "music", indexByList: {} }, lists, s)).toEqual({
       list: "local",
       index: 0,
@@ -153,31 +152,5 @@ describe("radio dial helpers", () => {
     const removed = toggleFavouriteInLists(added, live, false);
     expect(removed.lists[0]!.stations).toEqual([]);
     expect(removed.lists.find((l) => l.id === "local")!.stations[0]!.favourite).toBe(false);
-  });
-
-  it("maps the volume to the bar with ticks below and the value beside the needle", () => {
-    const v = volumeDial(-44.5);
-    expect(v.stops).toHaveLength(6);
-    expect(v.stops[0]).toBeCloseTo(fractionX(0.5 / 97), 5); // -80 sits just right of the -80.5 minimum
-    expect(v.stops[5]).toBe(DIAL.x1);
-    expect(v.labels.map((l) => l.text)).toEqual([
-      "-80",
-      "-60",
-      "-40",
-      "-20",
-      "0",
-      "+16.5",
-      "-44.5",
-    ]);
-    expect(v.labels.slice(0, 6).every((l) => l.side === "below" && !l.current)).toBe(true);
-    expect(v.needleX).toBeCloseTo(fractionX((-44.5 + 80.5) / 97), 5);
-    expect(v.labels[6]).toMatchObject({ side: "above", anchor: "start", current: true });
-    // Full volume: the value goes to the left of the needle.
-    expect(volumeDial(16.5).labels[6]?.anchor).toBe("end");
-    // Unknown volume: ticks only.
-    const off = volumeDial(null, DIAL_COMPACT);
-    expect(off.needleX).toBeNull();
-    expect(off.labels).toHaveLength(6);
-    expect(off.stops[5]).toBe(DIAL_COMPACT.x1);
   });
 });

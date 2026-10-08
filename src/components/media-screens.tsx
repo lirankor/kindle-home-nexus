@@ -22,7 +22,7 @@ import {
   Tv,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { RadioDial, VolumeDial } from "@/components/dial-bar";
+import { RadioDial } from "@/components/dial-bar";
 import { FullModal } from "@/components/light-modals";
 import { tryT } from "@/lib/i18n";
 import type { Key, Lang } from "@/lib/i18n";
@@ -233,6 +233,31 @@ function useTrackPosition(queue: QueueProgress | null): number {
   return queue.durationMs > 0 ? Math.min(queue.durationMs, raw) : raw;
 }
 
+/** The volume knob: a circle with the dB value inside and up / down chevrons (the 5-way steps it). */
+function VolumeKnob({
+  db,
+  label,
+  small = false,
+}: {
+  db: number | null;
+  label: string;
+  small?: boolean;
+}) {
+  const chevron = small ? 20 : 30;
+  return (
+    <div className={`amp-knob-wrap${small ? " amp-knob-small" : ""}`}>
+      <ChevronUp size={chevron} aria-hidden="true" />
+      <div className="amp-knob" role="meter" aria-label={label} data-db={db ?? ""}>
+        <Ltr>
+          <strong>{formatDb(db)}</strong>
+          <small>dB</small>
+        </Ltr>
+      </div>
+      <ChevronDown size={chevron} aria-hidden="true" />
+    </div>
+  );
+}
+
 function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
   const { t, data: s } = panel;
   const [line1, line2, line3] = nowPlayingLines(panel, s);
@@ -289,20 +314,8 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
           </div>
         </div>
       )}
-      <div className="amp-vol" data-on={on}>
-        <VolumeDial db={db} />
-        <div className="amp-vol-row">
-          <span className="amp-vol-arrows" aria-hidden="true">
-            <ChevronUp size={30} />
-            <ChevronDown size={30} />
-          </span>
-          <div className="amp-readout" role="meter" aria-label={t("media.volume")}>
-            <Ltr>
-              <strong>{formatDb(db)}</strong>
-              <small>dB</small>
-            </Ltr>
-          </div>
-        </div>
+      <div className="amp-knob-block" data-on={on}>
+        <VolumeKnob db={db} label={t("media.volume")} />
         <p className="modal-hint">{t("amp.volHint")}</p>
         <p className="modal-hint amp-nav-hint">
           {queue ? t("amp.musicNavHint") : t("amp.navHint")}
@@ -446,7 +459,9 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
                   : t("radio.empty")
             }
           />
-          <VolumeDial db={db} compact />
+          <div className="radio-knob-row" data-on={on}>
+            <VolumeKnob db={db} label={t("media.volume")} small />
+          </div>
           <div className="radio-now" data-on={on}>
             <StationLogo station={on ? playing : dialStation} size={96} alt={t("radio.logoAlt")} />
             <div className="radio-now-text">

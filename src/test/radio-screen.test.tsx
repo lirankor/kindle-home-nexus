@@ -77,8 +77,8 @@ const press = (key: string) =>
   act(() => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
   });
-const dial = () => document.querySelector<SVGSVGElement>(".radio-dial:not(.radio-dial-compact)");
-const volumeDial = () => document.querySelector<SVGSVGElement>(".radio-dial-compact");
+const dial = () => document.querySelector<SVGSVGElement>(".radio-dial");
+const knob = () => document.querySelector<HTMLElement>(".radio-knob-row .amp-knob");
 const needleX = () => {
   const needle = dial()?.querySelector(".radio-needle");
   return needle ? Number(needle.getAttribute("x")) + DIAL.needleW / 2 : null;
@@ -134,22 +134,9 @@ describe("Radio screen", () => {
     expect(now.querySelector(".radio-now-song")?.textContent).toBe("Zara Larsson - Memory Lane");
     expect(now.querySelector(".radio-now-detail")?.textContent).toBe("128k · MP3");
     expect(now.querySelector("img")?.getAttribute("src")).toBe("/media/img?station=wdr-5&w=96");
-    // The compact volume dial under the station dial: ticks, needle, value beside it, no arrows.
-    const vol = volumeDial();
-    expect(vol?.getAttribute("data-db")).toBe("-44.5");
-    expect(vol?.querySelector("text[data-current]")?.textContent).toBe("-44.5");
-    expect(vol?.querySelector(".radio-needle")).not.toBeNull();
-    expect(vol?.querySelector(".radio-needle-arrows")).toBeNull();
-    expect(Array.from(vol?.querySelectorAll("text") ?? []).map((t) => t.textContent)).toEqual([
-      "dB",
-      "-80",
-      "-60",
-      "-40",
-      "-20",
-      "0",
-      "+16.5",
-      "-44.5",
-    ]);
+    // The small volume knob under the station dial; only one dial bar on the screen.
+    expect(knob()?.textContent).toBe("-44.5dB");
+    expect(document.querySelectorAll(".radio-dial")).toHaveLength(1);
     // Footer: back, favourite toggle, next band (Israel after Düsseldorf), power.
     expect(footerLabels()).toEqual(["חזרה", "הוסף למועדפים", "ישראל", "הפעלה / כיבוי"]);
     expect(document.documentElement.getAttribute("data-eink-refresh")).toBe("full");
@@ -217,7 +204,7 @@ describe("Radio screen", () => {
         data: { type: "amp.volume.step", delta: 1 },
       }),
     );
-    expect(volumeDial()?.getAttribute("data-db")).toBe("-42.5");
+    expect(knob()?.textContent).toBe("-42.5dB");
     await act(async () => settle({ ok: true }));
     press("ArrowDown");
     await waitFor(() =>
@@ -384,9 +371,8 @@ describe("Radio screen", () => {
     await waitFor(() => expect(dial()).not.toBeNull());
     expect(dial()?.getAttribute("data-list")).toBe("local");
     expect(document.querySelector(".radio-now-name")?.textContent).toBe("The amplifier is off");
-    // No volume: no needle and no value on the volume dial.
-    expect(volumeDial()?.getAttribute("data-db")).toBe("");
-    expect(volumeDial()?.querySelector(".radio-needle")).toBeNull();
+    // No volume: the knob shows "—".
+    expect(knob()?.textContent).toBe("—dB");
     // Up / down do nothing while off.
     press("ArrowUp");
     expect(mocks.runMediaAction).not.toHaveBeenCalled();

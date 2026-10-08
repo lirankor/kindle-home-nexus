@@ -1,7 +1,6 @@
 // Pure helpers for the radio screen: the four bands, where the needle is, the dial bar geometry and
 // which station labels fit above / below the bar. No React, no network, so it is unit-testable.
-import { AMP, FAVOURITES_LIST_ID } from "./media";
-import { formatDb } from "./media-ui";
+import { FAVOURITES_LIST_ID } from "./media";
 import type {
   MediaSnapshot,
   RadioListView,
@@ -169,7 +168,7 @@ export type DialGeometry = {
   belowY: number;
 };
 
-/** The station dial and the amp view's volume dial (~150 px tall at content width). */
+/** The station dial (~150 px tall at the content width). */
 export const DIAL: DialGeometry = {
   width: 544,
   height: 150,
@@ -190,32 +189,8 @@ export const DIAL: DialGeometry = {
   belowY: 132,
 };
 
-/** The small volume dial under the station dial on the radio screen (~76 px tall). */
-export const DIAL_COMPACT: DialGeometry = {
-  width: 544,
-  height: 76,
-  barY: 31,
-  barH: 12,
-  endBlock: 40,
-  dash: 10,
-  gap: 4,
-  stop: 18,
-  x0: 70,
-  x1: 500,
-  needleW: 8,
-  labelPx: 16,
-  currentPx: 20,
-  namePx: 18,
-  aboveY: 24,
-  belowY: 70,
-};
-
 export const stationX = (index: number, count: number, g: DialGeometry = DIAL): number =>
   count <= 1 ? (g.x0 + g.x1) / 2 : g.x0 + (index * (g.x1 - g.x0)) / Math.max(1, count - 1);
-
-/** x for a 0..1 fraction of the scale. */
-export const fractionX = (fraction: number, g: DialGeometry = DIAL): number =>
-  g.x0 + Math.max(0, Math.min(1, fraction)) * (g.x1 - g.x0);
 
 /** Segment rectangles of the bar: solid ends, dashes between, a longer solid stop at every `stops` x. */
 export function dialSegments(stops: number[], g: DialGeometry = DIAL): { x: number; w: number }[] {
@@ -320,35 +295,4 @@ export function planDialLabels(
     lastSide = side;
   }
   return out.sort((a, b) => a.index - b.index);
-}
-
-// ---- Volume on the same bar ----
-/** Tick marks of the volume scale (dB); the last one is the amp's maximum. */
-export const VOLUME_TICKS = [-80, -60, -40, -20, 0, AMP.volumeMaxDb] as const;
-export const volumeFraction = (db: number): number =>
-  (db - AMP.volumeMinDb) / (AMP.volumeMaxDb - AMP.volumeMinDb);
-
-/**
- * Volume as a dial: ticks below (with a longer stop under each), the needle at the level and the
- * value in bold beside it above the bar. No needle and no value when the volume is unknown (amp off).
- */
-export function volumeDial(
-  db: number | null,
-  g: DialGeometry = DIAL,
-): { stops: number[]; needleX: number | null; labels: DialLabel[] } {
-  const stops = VOLUME_TICKS.map((v) => fractionX(volumeFraction(v), g));
-  const labels: DialLabel[] = VOLUME_TICKS.map((v, index) => ({
-    index,
-    side: "below",
-    x: stops[index] ?? 0,
-    anchor: "middle",
-    text: v > 0 ? `+${v}` : String(v),
-    current: false,
-  }));
-  if (db === null) return { stops, needleX: null, labels };
-  const needleX = fractionX(volumeFraction(db), g);
-  const text = formatDb(db);
-  const { x, anchor } = besideNeedle(needleX, estimateWidth(text, g.currentPx), g);
-  labels.push({ index: VOLUME_TICKS.length, side: "above", x, anchor, text, current: true });
-  return { stops, needleX, labels };
 }
