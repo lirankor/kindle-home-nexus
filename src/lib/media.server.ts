@@ -859,7 +859,7 @@ async function radioListSize(list: string): Promise<number> {
 
 /**
  * Walk the amp's NET RADIO menu to a station by index (0-based inside the list):
- * input NET RADIO → (Return to Home → Line_3 My Stations → Jump_Line category + Sel | Line_2 Favourites)
+ * input NET RADIO → (Return to Home → Line_1 Stations → Jump_Line category + Sel | Line_2 Favourites)
  * → Jump_Line station + Sel. The menu walk is skipped when List_Info already shows the target list.
  */
 export async function tuneRadio(list: string, index: number): Promise<RadioPosition> {
@@ -891,7 +891,8 @@ export async function tuneRadio(list: string, index: number): Promise<RadioPosit
       await amp.directSel(2);
       await amp.waitReady();
     } else {
-      await amp.directSel(3);
+      // Top menu: Line_1 Stations, Line_2 Favourites, Line_3 Radio Browser.
+      await amp.directSel(1);
       await amp.waitReady();
       await amp.jumpLineAndSelect(catIdx + 1);
     }
