@@ -217,6 +217,20 @@ export const amp = {
     parseTunerPlayInfo(await ampXml("GET", "<Tuner><Play_Info>GetParam</Play_Info></Tuner>")),
   setFmFrequency: (mhz: number) => ampXml("PUT", fmFrequencyXml(mhz)),
   selectInput: (input: AmpSource) => ampXml("PUT", inputSelXml(input)),
+  /** Power on / standby through the XML API (works even when HA's yamaha_ynca link is down). */
+  power: (on: boolean) =>
+    ampXml(
+      "PUT",
+      `<Main_Zone><Power_Control><Power>${on ? "On" : "Standby"}</Power></Power_Control></Main_Zone>`,
+    ),
+  /** Main zone volume in dB (0.5 dB steps), same shape as Basic_Status reports it. */
+  setVolumeDb: (db: number) => {
+    const v = Math.round(Math.max(AMP.volumeMinDb, Math.min(AMP.volumeMaxDb, db)) * 2) / 2;
+    return ampXml(
+      "PUT",
+      `<Main_Zone><Volume><Lvl><Val>${Math.round(v * 10)}</Val><Exp>1</Exp><Unit>dB</Unit></Lvl></Volume></Main_Zone>`,
+    );
+  },
   returnToHome: () => ampXml("PUT", netRadioControlXml("<Cursor>Return to Home</Cursor>")),
   /** Select window line k (1..8) of the current page; only used for the fixed top menu. */
   directSel: (k: number) => ampXml("PUT", netRadioControlXml(`<Direct_Sel>Line_${k}</Direct_Sel>`)),
@@ -567,28 +581,57 @@ const clampDb = (db: number) =>
   Math.round(Math.max(AMP.volumeMinDb, Math.min(AMP.volumeMaxDb, db)) * 2) / 2;
 
 export const haMedia = {
+  // The amp's XML API is used whenever AMP_HOST is set: HA's yamaha_ynca link to the amp drops for
+  // minutes after every power cut (verified 2026-10-08), so power, input and volume must not depend on it.
   async selectSource(source: AmpSource) {
-    await service("media_player", "select_source", { entity_id: AMP.player, source });
+    if (ampConfigured()) await amp.selectInput(source);
+    else await service("media_player", "select_source", { entity_id: AMP.player, source });
     await patchState({ lastSource: source });
   },
-  /** One 5-way press = 2 dB on number.r_n500_main_volume_db. */
+  /** One 5-way press = 2 dB. */
   async volumeStep(delta: 1 | -1) {
-    const states = await fetchStates();
-    const cur = stateNum(states.get(AMP.volumeDb));
+    let cur: number | null;
+    if (ampConfigured()) cur = (await amp.basicStatus()).volumeDb;
+    else cur = stateNum((await fetchStates()).get(AMP.volumeDb));
     if (cur === null) throw new MediaError("Volume unknown");
     await haMedia.volumeDb(cur + delta * AMP.volumeStepDb);
   },
   volumeDb: (db: number) =>
-    service("number", "set_value", { entity_id: AMP.volumeDb, value: clampDb(db) }),
+    ampConfigured()
+      ? amp.setVolumeDb(db)
+      : service("number", "set_value", { entity_id: AMP.volumeDb, value: clampDb(db) }),
   volumeSet: (level: number) =>
     service("media_player", "volume_set", {
       entity_id: AMP.player,
       volume_level: Math.max(0, Math.min(1, level)),
     }),
-  turnOn: () => service("media_player", "turn_on", { entity_id: AMP.player }),
-  turnOff: () => service("media_player", "turn_off", { entity_id: AMP.player }),
-  /** Reconnects yamaha_ynca right after power-on instead of waiting out HA's setup-retry backoff. */
-  reloadYnca: () => ha("POST", `/api/config/config_entries/entry/${AMP.yncaEntryId}/reload`, {}),
+  turnOn: () =>
+    ampConfigured()
+      ? amp.power(true)
+      : service("media_player", "turn_on", { entity_id: AMP.player }),
+  turnOff: () =>
+    ampConfigured()
+      ? amp.power(false)
+      : service("media_player", "turn_off", { entity_id: AMP.player }),
+  /** Reconnects yamaha_ynca right after power-on instead of waiting out HA's setup-retry backoff (takes ~45 s). */
+  reloadYnca: () =>
+    ha("POST", `/api/config/config_entries/entry/${AMP.yncaEntryId}/reload`, {}, 90_000),
+  /**
+   * Reload only when the entry is waiting in setup_retry: reloading while a setup is in progress
+   * cancels it and starts the backoff again (seen in the HA log 2026-10-08).
+   */
+  async reloadYncaIfRetrying(): Promise<string> {
+    const entries = await ha<{ entry_id: string; state: string }[]>(
+      "GET",
+      "/api/config/config_entries/entry",
+    );
+    const state = entries.find((e) => e.entry_id === AMP.yncaEntryId)?.state ?? "missing";
+    if (state === "setup_retry" || state === "setup_error" || state === "not_loaded") {
+      await haMedia.reloadYnca();
+      return `reloaded (was ${state})`;
+    }
+    return state;
+  },
   plug: (on: boolean) => service("switch", on ? "turn_on" : "turn_off", { entity_id: AMP.plug }),
   tunerPreset: (n: number) =>
     service("media_player", "play_media", {
@@ -649,7 +692,7 @@ const setPowerStep = (step: PowerOnStep, error?: string) => {
     ...(error === undefined ? {} : { error }),
   };
 };
-/** plug on → amp answers on tcp 80 (60–90 s) → reload yamaha_ynca → turn_on → last source. Returns at once. */
+/** plug on → amp answers on tcp 80 (60–90 s) → power on + last source via XML → (background) reconnect yamaha_ynca. Returns at once. */
 export async function startPowerOn(source?: AmpSource): Promise<PowerOnStatus> {
   if (rt.powerOn?.running) return powerOnStatus()!;
   const persisted = await loadState();
@@ -674,21 +717,20 @@ async function runPowerOn(target: AmpSource | null) {
     if (host) {
       if (!(await waitForTcp(host, 80))) throw new MediaError("Amp did not come up");
     } else await sleep(90_000);
-    setPowerStep("reload");
-    try {
-      await haMedia.reloadYnca();
-    } catch (e) {
-      console.warn("yamaha_ynca reload failed, continuing:", e);
-    }
-    await sleep(3000);
     setPowerStep("turn_on");
-    await haMedia.turnOn();
+    await haMedia.turnOn(); // XML when AMP_HOST is set; does not need HA's yamaha_ynca link
     await sleep(1500);
     if (target) {
       setPowerStep("source");
       await haMedia.selectSource(target);
     }
     setPowerStep("done");
+    // HA's yamaha_ynca entry reconnects in the background; the panel works from the XML API meanwhile.
+    if (haConfigured())
+      void haMedia
+        .reloadYncaIfRetrying()
+        .then((r) => console.log("yamaha_ynca after power-on:", r))
+        .catch((e) => console.warn("yamaha_ynca reconnect skipped:", e));
   } catch (e) {
     setPowerStep("failed", mediaErrorMessage(e));
   }
@@ -786,8 +828,46 @@ export function buildMediaSnapshot(
   };
 }
 
+/**
+ * HA's amp entity is unavailable for minutes after every amp power cut (yamaha_ynca backoff). When
+ * AMP_HOST is set, Basic_Status from the XML API stands in for it so the panel keeps showing the truth.
+ */
+export function overlayAmpStatus(
+  states: Map<string, HaState>,
+  basic: { power: boolean; input: string | null; volumeDb: number | null; muted: boolean } | null,
+): void {
+  if (!basic) return;
+  const player = states.get(AMP.player);
+  if (player && player.state !== "unavailable" && player.state !== "unknown") return;
+  const volumeLevel =
+    basic.volumeDb === null
+      ? null
+      : (basic.volumeDb - AMP.volumeMinDb) / (AMP.volumeMaxDb - AMP.volumeMinDb);
+  const mk = (entity_id: string, state: string, attributes: Record<string, unknown>): HaState =>
+    ({ entity_id, state, attributes, last_changed: "", last_updated: "" }) as unknown as HaState;
+  states.set(
+    AMP.player,
+    mk(AMP.player, basic.power ? "on" : "off", {
+      source: basic.input,
+      ...(volumeLevel === null ? {} : { volume_level: Math.max(0, Math.min(1, volumeLevel)) }),
+      is_volume_muted: basic.muted,
+      friendly_name: "R-N500 (xml)",
+    }),
+  );
+  if (basic.volumeDb !== null)
+    states.set(
+      AMP.volumeDb,
+      mk(AMP.volumeDb, String(basic.volumeDb), { unit_of_measurement: "dB" }),
+    );
+}
+
 export async function readMediaSnapshot(): Promise<MediaSnapshot> {
-  const [states, persisted] = await Promise.all([fetchStates(), loadState()]);
+  const [states, persisted, basic] = await Promise.all([
+    ampConfigured() ? fetchStates().catch(() => new Map<string, HaState>()) : fetchStates(),
+    loadState(),
+    ampConfigured() ? amp.basicStatus().catch(() => null) : Promise.resolve(null),
+  ]);
+  overlayAmpStatus(states, basic);
   const player = states.get(AMP.player);
   const source = attrs(player)["source"];
   const on = player !== undefined && !["off", "unavailable", "unknown"].includes(player.state);

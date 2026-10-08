@@ -34,7 +34,12 @@ export class HomeError extends Error {}
 const env = (name: string) => (process.env[name] ?? "").trim().replace(/\/+$/, "");
 export const haConfigured = () => env("HA_TOKEN") !== "";
 
-export async function ha<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+export async function ha<T>(
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+  timeoutMs = 6000,
+): Promise<T> {
   const base = env("HA_BASE_URL") || "http://host.docker.internal:8123";
   let res: Response;
   try {
@@ -42,7 +47,7 @@ export async function ha<T>(method: "GET" | "POST", path: string, body?: unknown
       method,
       headers: { Authorization: `Bearer ${env("HA_TOKEN")}`, "Content-Type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
     throw new HomeError("HA unreachable");
