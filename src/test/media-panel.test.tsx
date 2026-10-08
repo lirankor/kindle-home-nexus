@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DeviceActions, pressSoftKey } from "@/components/device-actions";
 import { MediaCards, MediaModal } from "@/components/media-screens";
@@ -74,6 +74,9 @@ describe("Media tab and amp view", () => {
     mocks.getPowerOnStatus.mockResolvedValue(null);
     mocks.getRadioLists.mockResolvedValue(demoRadioLists());
     mocks.tuneRadioStation.mockResolvedValue({ ok: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("renders the TV and amp cards from the demo snapshot with the all-off footer", async () => {
@@ -223,5 +226,100 @@ describe("Media tab and amp view", () => {
     await waitFor(() => expect(dialog.textContent).toContain("Waiting for the amplifier…"));
     expect(dialog.querySelector('[data-state="active"]')?.textContent).toContain("Waiting");
     expect(dialog.querySelector('[data-state="done"]')?.textContent).toContain("plug");
+  });
+
+  it("refetches the snapshot when a screen opens and again 2 s after an action", async () => {
+    renderPanel();
+    await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
+    const before = mocks.getMediaSnapshot.mock.calls.length;
+    press("F3"); // amp view: fresh snapshot right away, not at the next 10 s poll
+    await waitFor(() => expect(mocks.getMediaSnapshot.mock.calls.length).toBe(before + 1));
+    press("F3"); // source list: again
+    await waitFor(() => expect(mocks.getMediaSnapshot.mock.calls.length).toBe(before + 2));
+    press("F1");
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const beforeAction = mocks.getMediaSnapshot.mock.calls.length;
+    press("ArrowUp");
+    await waitFor(() => expect(mocks.runMediaAction).toHaveBeenCalled());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    const settled = mocks.getMediaSnapshot.mock.calls.length; // invalidate right after the action
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+    expect(mocks.getMediaSnapshot.mock.calls.length).toBe(settled + 1);
+    expect(settled).toBeGreaterThanOrEqual(beforeAction);
+  });
+
+  it("shows a power-on routine started elsewhere, polls it, and ends on the radio screen for NET RADIO", async () => {
+    const now = Date.now();
+    const running = {
+      running: true,
+      step: "wait" as const,
+      startedAt: now,
+      updatedAt: now,
+      elapsedMs: 5000,
+      source: "NET RADIO" as const,
+    };
+    const off = liveResult();
+    off.snapshot!.amp.on = false;
+    off.snapshot!.amp.state = "off";
+    off.snapshot!.powerOn = running; // another client (or F4 on the server side) started it
+    mocks.getMediaSnapshot.mockResolvedValue(off);
+    mocks.getPowerOnStatus.mockResolvedValue({ ...running, step: "reload", elapsedMs: 9000 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
+    press("F3");
+    const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
+    await waitFor(() => expect(dialog.textContent).toContain("מדליק את המגבר"));
+    // Polled: the status moved on to the reload step.
+    await waitFor(() => expect(mocks.getPowerOnStatus).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(dialog.querySelector('[data-state="active"]')?.textContent).toContain("מתחבר"),
+    );
+    // The user wandered to the music placeholder; the routine ends on NET RADIO → radio screen.
+    press("F2");
+    expect(screen.getByRole("dialog", { name: "מוזיקה" })).toBeVisible();
+    mocks.getPowerOnStatus.mockResolvedValue({
+      ...running,
+      running: false,
+      step: "done",
+      elapsedMs: 120000,
+    });
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "רדיו" })).toBeVisible(), {
+      timeout: 4000,
+    });
+  });
+
+  it("stays on the amp view when the routine ends there", async () => {
+    const now = Date.now();
+    const off = liveResult();
+    off.snapshot!.amp.on = false;
+    off.snapshot!.amp.state = "off";
+    off.snapshot!.powerOn = {
+      running: true,
+      step: "turn_on",
+      startedAt: now,
+      updatedAt: now,
+      elapsedMs: 80000,
+      source: "SERVER",
+    };
+    mocks.getMediaSnapshot.mockResolvedValue(off);
+    mocks.getPowerOnStatus.mockResolvedValue({
+      ...off.snapshot!.powerOn,
+      running: false,
+      step: "done",
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
+    press("F3");
+    await waitFor(() => expect(mocks.getPowerOnStatus).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "תצוגת המגבר" }).textContent).not.toContain(
+        "מדליק את המגבר",
+      ),
+    );
+    expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
   });
 });

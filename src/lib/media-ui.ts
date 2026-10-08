@@ -49,6 +49,10 @@ const EMPTY_PLAY: NowPlaying = {
   preset: null,
 };
 
+/** The media screen that belongs to a source: radio for NET RADIO, music for SERVER, else the amp view. */
+export const screenForSource = (source: AmpSource | null | undefined): "radio" | "music" | "now" =>
+  source === "NET RADIO" ? "radio" : source === "SERVER" ? "music" : "now";
+
 /** Order of the source list rows: Jellyfin, TV, turntable, radio, FM. */
 export const SOURCE_ROWS: readonly AmpSource[] = ["SERVER", "CD", "PHONO", "NET RADIO", "TUNER"];
 

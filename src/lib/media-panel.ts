@@ -38,6 +38,7 @@ import {
   applyMediaOptimistic,
   applyRadioTune,
   mediaActionLabel,
+  screenForSource,
   stepAction,
   toggleAction,
 } from "@/lib/media-ui";
@@ -65,6 +66,8 @@ import {
 
 const POLL_MS = 10000;
 const POWER_ON_POLL_MS = 2000;
+/** HA publishes the new state a moment after an action: refetch the snapshot this long after it resolved. */
+const AFTER_ACTION_MS = 2000;
 const FAILED_SHOWN_MS = 2 * 60 * 1000;
 const NAV_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"];
 
@@ -102,6 +105,28 @@ export function useMediaPanel({
   const lastGood = useRef<MediaSnapshot | null>(null);
   const inFlight = useRef(0);
   const opener = useRef<HTMLElement | null>(null);
+  const screenRef = useRef<MediaScreen | null>(null);
+  screenRef.current = screen;
+  // Snapshot freshness: the 10 s poll is too slow right after an action (HA settles ~1–2 s later)
+  // and when a screen opens (F4 once sent "off" to an amp that was already in standby).
+  const afterActionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refetchSnapshot = useCallback(
+    () => void queryClient.refetchQueries({ queryKey: ["media"], exact: true }),
+    [queryClient],
+  );
+  const refetchSnapshotSoon = useCallback(() => {
+    if (afterActionTimer.current) clearTimeout(afterActionTimer.current);
+    afterActionTimer.current = setTimeout(() => {
+      afterActionTimer.current = null;
+      refetchSnapshot();
+    }, AFTER_ACTION_MS);
+  }, [refetchSnapshot]);
+  useEffect(
+    () => () => {
+      if (afterActionTimer.current) clearTimeout(afterActionTimer.current);
+    },
+    [],
+  );
   const query = useQuery<MediaSnapshotResult>({
     queryKey: ["media"],
     queryFn: () => getMediaSnapshot(),
@@ -150,6 +175,12 @@ export function useMediaPanel({
       const pending = tuneAfterPowerOn.current;
       tuneAfterPowerOn.current = null;
       if (step === "done" && pending) void sendTune(pending);
+      // The screen must match the source the amp ended on: never the music placeholder for NET RADIO.
+      // The amp view ("now") shows any source and stays; a closed panel stays closed.
+      const want = screenForSource(powerOn?.source ?? null);
+      const cur = screenRef.current;
+      if (step === "done" && cur !== null && cur !== "now" && cur !== "tv" && cur !== want)
+        open(want);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
@@ -194,13 +225,14 @@ export function useMediaPanel({
         inFlight.current -= 1;
         if (inFlight.current === 0) setOptimistic(null);
         void queryClient.invalidateQueries({ queryKey: ["media"] });
+        refetchSnapshotSoon();
         if (action.type === "radio.favourite")
           void queryClient.invalidateQueries({ queryKey: RADIO_LISTS_KEY });
         if (action.type === "movie" || action.type === "tv") onHomeChanged?.();
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lang, queryClient],
+    [lang, queryClient, refetchSnapshotSoon],
   );
 
   const startPowerOn = useCallback(
@@ -214,9 +246,10 @@ export function useMediaPanel({
       } catch {
         notify({ text: t("err.server"), error: true });
       }
+      refetchSnapshotSoon();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lang],
+    [lang, refetchSnapshotSoon],
   );
 
   /** F4: off → power-on routine (demo: plain toggle); on → turn off. */
@@ -242,19 +275,20 @@ export function useMediaPanel({
   useEffect(() => {
     if (screen) {
       document.querySelector<HTMLElement>(".full-modal")?.focus();
+      refetchSnapshot();
       return;
     }
     const target = opener.current;
     opener.current = null;
     if (target?.isConnected) target.focus();
-  }, [screen]);
+  }, [screen, refetchSnapshot]);
 
   /** Applies a source; an amp that is off is powered on straight into it. Radio / Jellyfin open their screens. */
   const applySource = (source: AmpSource) => {
     const s = latest.current;
     if (s && !s.amp.on && configuredRef.current) void startPowerOn(source);
     else void act({ type: "amp.source", source });
-    open(source === "NET RADIO" ? "radio" : source === "SERVER" ? "music" : "now");
+    open(screenForSource(source));
   };
 
   // ---- Radio screen: lists, the dial position, tuning by index, favourites ----
@@ -329,7 +363,10 @@ export function useMediaPanel({
       const next = pendingTune.current;
       pendingTune.current = null;
       if (next) void sendTune(next);
-      else void queryClient.invalidateQueries({ queryKey: ["media"] });
+      else {
+        void queryClient.invalidateQueries({ queryKey: ["media"] });
+        refetchSnapshotSoon();
+      }
     }
   };
 
