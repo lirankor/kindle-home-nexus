@@ -257,8 +257,8 @@ function TransportControl({
   mode: TransportMode;
   small?: boolean;
 }) {
-  const sat = small ? 36 : 42;
-  const centre = small ? 60 : 90;
+  // All five icons share one size; the square only frames the centre one.
+  const icon = small ? 30 : 40;
   const Centre =
     mode === "playing"
       ? Pause
@@ -279,22 +279,22 @@ function TransportControl({
     >
       <div className="transport-grid">
         <span className="transport-sat transport-vol transport-up" aria-hidden="true">
-          <Volume2 size={sat} />
+          <Volume2 size={icon} />
           <b>+</b>
         </span>
-        <SkipBack size={sat} aria-hidden="true" className="transport-sat transport-prev" />
+        <SkipBack size={icon} aria-hidden="true" className="transport-sat transport-prev" />
         <div className="transport-pad">
           <Centre
-            size={centre}
-            strokeWidth={1.6}
+            size={icon}
+            strokeWidth={2}
             aria-hidden="true"
             className="transport-centre"
             fill={mode === "playing" || mode === "radio" ? "currentColor" : "none"}
           />
         </div>
-        <SkipForward size={sat} aria-hidden="true" className="transport-sat transport-next" />
+        <SkipForward size={icon} aria-hidden="true" className="transport-sat transport-next" />
         <span className="transport-sat transport-vol transport-down" aria-hidden="true">
-          <Volume1 size={sat} />
+          <Volume1 size={icon} />
           <b>−</b>
         </span>
       </div>
