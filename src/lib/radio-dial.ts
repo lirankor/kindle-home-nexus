@@ -1,6 +1,7 @@
 // Pure helpers for the radio screen: the four bands, where the needle is, the dial bar geometry and
 // which station labels fit above / below the bar. No React, no network, so it is unit-testable.
-import { FAVOURITES_LIST_ID } from "./media";
+import { AMP, FAVOURITES_LIST_ID } from "./media";
+import { formatDb } from "./media-ui";
 import type {
   MediaSnapshot,
   RadioListView,
@@ -147,7 +148,29 @@ export function shortName(name: string, max = 10): string {
 }
 
 // ---- Geometry (viewBox units; the SVG scales to the content width) ----
-export const DIAL = {
+export type DialGeometry = {
+  width: number;
+  height: number;
+  barY: number;
+  barH: number;
+  endBlock: number;
+  dash: number;
+  gap: number;
+  /** Width of the longer solid block drawn under every stop. */
+  stop: number;
+  /** First / last position x. */
+  x0: number;
+  x1: number;
+  needleW: number;
+  labelPx: number;
+  currentPx: number;
+  namePx: number;
+  aboveY: number;
+  belowY: number;
+};
+
+/** The station dial and the amp view's volume dial (~150 px tall at content width). */
+export const DIAL: DialGeometry = {
   width: 544,
   height: 150,
   barY: 80,
@@ -156,7 +179,7 @@ export const DIAL = {
   dash: 12,
   gap: 4,
   stop: 24,
-  /** First / last station x; the band name owns the top-left, so the first stop starts after it. */
+  // The caption owns the top-left, so the first stop starts after it.
   x0: 140,
   x1: 500,
   needleW: 10,
@@ -165,21 +188,43 @@ export const DIAL = {
   namePx: 22,
   aboveY: 64,
   belowY: 132,
-} as const;
+};
 
-export const stationX = (index: number, count: number): number =>
-  count <= 1
-    ? (DIAL.x0 + DIAL.x1) / 2
-    : DIAL.x0 + (index * (DIAL.x1 - DIAL.x0)) / Math.max(1, count - 1);
+/** The small volume dial under the station dial on the radio screen (~76 px tall). */
+export const DIAL_COMPACT: DialGeometry = {
+  width: 544,
+  height: 76,
+  barY: 31,
+  barH: 12,
+  endBlock: 40,
+  dash: 10,
+  gap: 4,
+  stop: 18,
+  x0: 70,
+  x1: 500,
+  needleW: 8,
+  labelPx: 16,
+  currentPx: 20,
+  namePx: 18,
+  aboveY: 24,
+  belowY: 70,
+};
+
+export const stationX = (index: number, count: number, g: DialGeometry = DIAL): number =>
+  count <= 1 ? (g.x0 + g.x1) / 2 : g.x0 + (index * (g.x1 - g.x0)) / Math.max(1, count - 1);
+
+/** x for a 0..1 fraction of the scale. */
+export const fractionX = (fraction: number, g: DialGeometry = DIAL): number =>
+  g.x0 + Math.max(0, Math.min(1, fraction)) * (g.x1 - g.x0);
 
 /** Segment rectangles of the bar: solid ends, dashes between, a longer solid stop at every `stops` x. */
-export function dialSegments(stops: number[]): { x: number; w: number }[] {
-  const { width, endBlock, dash, gap } = DIAL;
+export function dialSegments(stops: number[], g: DialGeometry = DIAL): { x: number; w: number }[] {
+  const { width, endBlock, dash, gap } = g;
   const out: { x: number; w: number }[] = [{ x: 0, w: endBlock }];
   for (let x = endBlock + gap; x + dash <= width - endBlock - gap; x += dash + gap)
     out.push({ x, w: dash });
   out.push({ x: width - endBlock, w: endBlock });
-  for (const x of stops) out.push({ x: x - DIAL.stop / 2, w: DIAL.stop });
+  for (const x of stops) out.push({ x: x - g.stop / 2, w: g.stop });
   return out;
 }
 
@@ -199,6 +244,18 @@ export const estimateWidth = (text: string, px: number) =>
   Array.from(text).reduce((w, ch) => w + px * (/[0-9.:\u0590-\u05ff ]/.test(ch) ? 0.5 : 0.58), 0) +
   6;
 
+/** The current label's place beside the needle: to its right, or to its left at the end of the bar. */
+function besideNeedle(
+  nx: number,
+  w: number,
+  g: DialGeometry,
+): { x: number; anchor: "start" | "end" } {
+  const right = nx + g.needleW / 2 + 6;
+  return right + w <= g.width
+    ? { x: right, anchor: "start" }
+    : { x: nx - g.needleW / 2 - 6, anchor: "end" };
+}
+
 /**
  * Which stations get a label and on which side of the bar. The current station is always labelled;
  * the rest are added outwards from it, alternating sides, and skipped when they would overlap one
@@ -208,6 +265,7 @@ export function planDialLabels(
   texts: string[],
   current: number,
   reservedAbove: [number, number] | null,
+  g: DialGeometry = DIAL,
 ): DialLabel[] {
   const n = texts.length;
   if (n === 0) return [];
@@ -215,7 +273,7 @@ export function planDialLabels(
     above: reservedAbove ? [reservedAbove] : [],
     below: [],
   };
-  const clampX = (x: number, w: number) => Math.max(w / 2, Math.min(DIAL.width - w / 2, x));
+  const clampX = (x: number, w: number) => Math.max(w / 2, Math.min(g.width - w / 2, x));
   const fits = (side: DialSide, x: number, w: number) =>
     placed[side].every(([a, b]) => x + w / 2 + 6 <= a || x - w / 2 - 6 >= b);
   const put = (
@@ -232,18 +290,16 @@ export function planDialLabels(
   const out: DialLabel[] = [];
   const cur = current >= 0 && current < n ? current : -1;
   if (cur >= 0) {
-    // The current label sits beside the needle (never under it): to its right, or to its left at the end.
-    const w = estimateWidth(texts[cur] ?? "", DIAL.currentPx);
-    const nx = stationX(cur, n);
-    const right = nx + DIAL.needleW / 2 + 6;
-    const anchor: DialLabel["anchor"] = right + w <= DIAL.width ? "start" : "end";
-    const x = anchor === "start" ? right : nx - DIAL.needleW / 2 - 6;
+    // The current label sits beside the needle (never under it).
+    const w = estimateWidth(texts[cur] ?? "", g.currentPx);
+    const nx = stationX(cur, n, g);
+    const { x, anchor } = besideNeedle(nx, w, g);
     const side: DialSide = fits("above", anchor === "start" ? x + w / 2 : x - w / 2, w)
       ? "above"
       : "below";
     out.push(put(cur, side, x, w, anchor));
     // No other label under the needle, on either side.
-    const needle: [number, number] = [nx - DIAL.needleW / 2 - 4, nx + DIAL.needleW / 2 + 4];
+    const needle: [number, number] = [nx - g.needleW / 2 - 4, nx + g.needleW / 2 + 4];
     placed.above.push(needle);
     placed.below.push(needle);
   }
@@ -255,8 +311,8 @@ export function planDialLabels(
   }
   if (cur < 0) for (let i = 0; i < n; i++) order.push(i);
   for (const i of order) {
-    const w = estimateWidth(texts[i] ?? "", DIAL.labelPx);
-    const x = clampX(stationX(i, n), w);
+    const w = estimateWidth(texts[i] ?? "", g.labelPx);
+    const x = clampX(stationX(i, n, g), w);
     const preferred: DialSide = lastSide === "above" ? "below" : "above";
     const side = fits(preferred, x, w) ? preferred : fits(lastSide, x, w) ? lastSide : null;
     if (!side) continue;
@@ -264,4 +320,35 @@ export function planDialLabels(
     lastSide = side;
   }
   return out.sort((a, b) => a.index - b.index);
+}
+
+// ---- Volume on the same bar ----
+/** Tick marks of the volume scale (dB); the last one is the amp's maximum. */
+export const VOLUME_TICKS = [-80, -60, -40, -20, 0, AMP.volumeMaxDb] as const;
+export const volumeFraction = (db: number): number =>
+  (db - AMP.volumeMinDb) / (AMP.volumeMaxDb - AMP.volumeMinDb);
+
+/**
+ * Volume as a dial: ticks below (with a longer stop under each), the needle at the level and the
+ * value in bold beside it above the bar. No needle and no value when the volume is unknown (amp off).
+ */
+export function volumeDial(
+  db: number | null,
+  g: DialGeometry = DIAL,
+): { stops: number[]; needleX: number | null; labels: DialLabel[] } {
+  const stops = VOLUME_TICKS.map((v) => fractionX(volumeFraction(v), g));
+  const labels: DialLabel[] = VOLUME_TICKS.map((v, index) => ({
+    index,
+    side: "below",
+    x: stops[index] ?? 0,
+    anchor: "middle",
+    text: v > 0 ? `+${v}` : String(v),
+    current: false,
+  }));
+  if (db === null) return { stops, needleX: null, labels };
+  const needleX = fractionX(volumeFraction(db), g);
+  const text = formatDb(db);
+  const { x, anchor } = besideNeedle(needleX, estimateWidth(text, g.currentPx), g);
+  labels.push({ index: VOLUME_TICKS.length, side: "above", x, anchor, text, current: true });
+  return { stops, needleX, labels };
 }

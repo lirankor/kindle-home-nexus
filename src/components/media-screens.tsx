@@ -17,6 +17,7 @@ import {
   Tv,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { RadioDial, VolumeDial } from "@/components/dial-bar";
 import { FullModal } from "@/components/light-modals";
 import { tryT } from "@/lib/i18n";
 import type { Key, Lang } from "@/lib/i18n";
@@ -24,19 +25,7 @@ import type { AmpSource, MediaSnapshot, PowerOnStep, RadioStationView } from "@/
 import { SOURCE_ROWS, displayDb, formatDb, powerOnStepKey } from "@/lib/media-ui";
 import { RADIO_PAGE_SIZE } from "@/lib/media-panel";
 import type { MediaPanel } from "@/lib/media-panel";
-import {
-  DIAL,
-  RADIO_BANDS,
-  bandKey,
-  dialSegments,
-  estimateWidth,
-  listById,
-  planDialLabels,
-  stationDetail,
-  stationLabel,
-  stationX,
-} from "@/lib/radio-dial";
-import type { DialLabel } from "@/lib/radio-dial";
+import { RADIO_BANDS, bandKey, listById, stationDetail } from "@/lib/radio-dial";
 
 const Ltr = ({ children }: { children: ReactNode }) => <bdi dir="ltr">{children}</bdi>;
 const POWER_ON_STEPS: PowerOnStep[] = ["plug", "wait", "reload", "turn_on", "source"];
@@ -255,15 +244,20 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
           </div>
         </div>
       )}
-      <div className="amp-knob-block" data-on={on}>
-        <ChevronUp size={30} aria-hidden="true" />
-        <div className="amp-knob" role="meter" aria-label={t("media.volume")}>
-          <Ltr>
-            <strong>{formatDb(db)}</strong>
-            <small>dB</small>
-          </Ltr>
+      <div className="amp-vol" data-on={on}>
+        <VolumeDial db={db} />
+        <div className="amp-vol-row">
+          <span className="amp-vol-arrows" aria-hidden="true">
+            <ChevronUp size={30} />
+            <ChevronDown size={30} />
+          </span>
+          <div className="amp-readout" role="meter" aria-label={t("media.volume")}>
+            <Ltr>
+              <strong>{formatDb(db)}</strong>
+              <small>dB</small>
+            </Ltr>
+          </div>
         </div>
-        <ChevronDown size={30} aria-hidden="true" />
         <p className="modal-hint">{t("amp.volHint")}</p>
         <p className="modal-hint amp-nav-hint">{t("amp.navHint")}</p>
       </div>
@@ -365,115 +359,6 @@ function StationLogo({
   );
 }
 
-/**
- * The retro dial bar after docs/design/radio-dial-reference.svg: one segmented black bar across the
- * content width, a thick rounded needle, a name above the left end ("AM" / "FM" in the reference)
- * and labels above / below the bar. Pure black on white. `stops` are x positions that get a longer
- * solid block in the bar; `needleX` is in viewBox units (see DIAL in src/lib/radio-dial.ts).
- */
-export function DialBar({
-  name,
-  labels,
-  stops,
-  needleX,
-  emptyText,
-  ...rest
-}: {
-  name: string;
-  labels: DialLabel[];
-  stops: number[];
-  needleX: number | null;
-  emptyText?: string | undefined;
-} & Record<`data-${string}`, string | number | undefined>) {
-  return (
-    <svg
-      className="radio-dial"
-      viewBox={`0 0 ${DIAL.width} ${DIAL.height}`}
-      width={DIAL.width}
-      height={DIAL.height}
-      role="img"
-      aria-label={name}
-      direction="ltr"
-      {...rest}
-    >
-      <text x={4} y={DIAL.aboveY} fontSize={DIAL.namePx} fontWeight={700} textAnchor="start">
-        {name}
-      </text>
-      {dialSegments(stops).map((seg, i) => (
-        <rect key={i} x={seg.x} y={DIAL.barY} width={seg.w} height={DIAL.barH} />
-      ))}
-      {emptyText && (
-        <text
-          x={DIAL.width / 2}
-          y={DIAL.aboveY}
-          fontSize={DIAL.currentPx}
-          fontWeight={700}
-          textAnchor="middle"
-        >
-          {emptyText}
-        </text>
-      )}
-      {labels.map((l) => (
-        <text
-          key={`${l.side}-${l.index}`}
-          x={l.x}
-          y={l.side === "above" ? DIAL.aboveY : DIAL.belowY}
-          fontSize={l.current ? DIAL.currentPx : DIAL.labelPx}
-          fontWeight={l.current ? 700 : 400}
-          textAnchor={l.anchor}
-          data-current={l.current || undefined}
-        >
-          {l.text}
-        </text>
-      ))}
-      {needleX !== null && (
-        <rect
-          className="radio-needle"
-          x={needleX - DIAL.needleW / 2}
-          y={6}
-          width={DIAL.needleW}
-          height={DIAL.height - 12}
-          rx={DIAL.needleW / 2}
-        />
-      )}
-    </svg>
-  );
-}
-
-/** The radio band on the dial bar: stations spread evenly, the needle on the current one. */
-export function RadioDial({
-  bandName,
-  stations,
-  list,
-  index,
-  emptyText,
-}: {
-  bandName: string;
-  stations: RadioStationView[];
-  list: string;
-  index: number;
-  emptyText: string;
-}) {
-  const n = stations.length;
-  const labels = planDialLabels(
-    stations.map((s) => stationLabel(s, list)),
-    n > 0 ? index : -1,
-    [0, estimateWidth(bandName, DIAL.namePx)],
-  );
-  const stops = stations.map((_, i) => stationX(i, n));
-  return (
-    <DialBar
-      name={bandName}
-      labels={labels}
-      stops={stops}
-      needleX={n > 0 ? stationX(Math.min(index, n - 1), n) : null}
-      emptyText={n === 0 ? emptyText : undefined}
-      data-list={list}
-      data-index={n > 0 ? index : -1}
-    />
-  );
-}
-
 function RadioDialView({ panel, status }: { panel: MediaPanel; status: string }) {
   const { t, data: s, dialPos, dialStation, radioLists } = panel;
   const list = listById(radioLists, dialPos.list);
@@ -501,21 +386,6 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
         <PowerOnBlock panel={panel} />
       ) : (
         <>
-          <div className="radio-bands" role="tablist" aria-label={t("radio.bandsLabel")}>
-            {RADIO_BANDS.map((band) => (
-              <Button
-                key={band}
-                variant="eink"
-                className="radio-band"
-                role="tab"
-                aria-selected={band === dialPos.list}
-                aria-pressed={band === dialPos.list}
-                onClick={() => panel.selectBand(band)}
-              >
-                {t(bandKey(band))}
-              </Button>
-            ))}
-          </div>
           <RadioDial
             bandName={t(bandKey(dialPos.list))}
             stations={list?.stations ?? []}
@@ -529,18 +399,13 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
                   : t("radio.empty")
             }
           />
+          <VolumeDial db={db} compact />
           <div className="radio-now" data-on={on}>
             <StationLogo station={on ? playing : dialStation} size={96} alt={t("radio.logoAlt")} />
             <div className="radio-now-text">
               <strong className="radio-now-name">{name}</strong>
               <span className="radio-now-song">{song || "\u00a0"}</span>
               <span className="radio-now-detail">{detail ? <Ltr>{detail}</Ltr> : "\u00a0"}</span>
-            </div>
-            <div className="radio-now-db" role="meter" aria-label={t("media.volume")}>
-              <Ltr>
-                <strong>{formatDb(db)}</strong>
-                <small>dB</small>
-              </Ltr>
             </div>
           </div>
           {panel.radioListsError && <p className="radio-error">{panel.radioListsError}</p>}
@@ -551,7 +416,7 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
   );
 }
 
-/** Enter on the dial: the stations of the current band, 8 per page, Enter tunes. */
+/** Enter on the dial: the stations of the current band, 8 per page (F2 / F3 page), Enter tunes. */
 function RadioStationList({ panel, status }: { panel: MediaPanel; status: string }) {
   const { t, dialPos, radioLists, cursor } = panel;
   const stations = listById(radioLists, dialPos.list)?.stations ?? [];
@@ -612,57 +477,10 @@ function RadioStationList({ panel, status }: { panel: MediaPanel; status: string
   );
 }
 
-/** F2 on the dial: the four bands; Enter / F4 shows one on the dial without tuning. */
-function RadioBandPicker({ panel, status }: { panel: MediaPanel; status: string }) {
-  const { t, dialPos, radioLists, cursor } = panel;
-  return (
-    <FullModal label={t("radio.bandsTitle")} actions={panel.modalActions} status={status}>
-      <header className="modal-heading">
-        <h1>{t("radio.bandsTitle")}</h1>
-        <p>{t("radio.title")}</p>
-      </header>
-      <div className="source-rows" role="listbox" aria-label={t("radio.bandsTitle")}>
-        {RADIO_BANDS.map((band, index) => {
-          const count = listById(radioLists, band)?.stations.length ?? 0;
-          const current = band === dialPos.list;
-          return (
-            <Button
-              key={band}
-              variant="eink"
-              className="source-row"
-              role="option"
-              aria-selected={index === cursor}
-              aria-pressed={index === cursor}
-              data-current={current}
-              onClick={() => panel.selectBand(band)}
-            >
-              <span className="source-row-icon">
-                <Radio size={30} strokeWidth={1.6} />
-              </span>
-              <span className="source-row-text">
-                <strong>{t(bandKey(band))}</strong>
-                <span>
-                  {count === 0 && band === RADIO_BANDS[0]
-                    ? t("radio.noFavourites")
-                    : t("radio.count", { n: count })}
-                </span>
-              </span>
-              {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
-            </Button>
-          );
-        })}
-      </div>
-      <p className="modal-hint">{t("radio.bandHint")}</p>
-    </FullModal>
-  );
-}
-
 function RadioScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   switch (panel.radioView) {
     case "stations":
       return <RadioStationList panel={panel} status={status} />;
-    case "bands":
-      return <RadioBandPicker panel={panel} status={status} />;
     default:
       return <RadioDialView panel={panel} status={status} />;
   }

@@ -28,12 +28,12 @@ const liveResult = (): MediaSnapshotResult => ({
   snapshot: demoMediaSnapshot(),
   lang: "he",
 });
-/** Demo lists, marked configured, with WDR 2 (local index 1) bookmarked. */
+/** Demo lists, marked configured, with the second local station (NRW1) bookmarked. */
 const lists = (): RadioListsResult => {
   const r = demoRadioLists();
-  const wdr2 = r.lists.find((l) => l.id === "local")!.stations[1]!;
-  wdr2.favourite = true;
-  r.lists[0]!.stations = [{ ...wdr2 }];
+  const second = r.lists.find((l) => l.id === "local")!.stations[1]!;
+  second.favourite = true;
+  r.lists[0]!.stations = [{ ...second }];
   return { ...r, configured: true };
 };
 
@@ -74,7 +74,8 @@ const press = (key: string) =>
   act(() => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
   });
-const dial = () => document.querySelector<SVGSVGElement>(".radio-dial");
+const dial = () => document.querySelector<SVGSVGElement>(".radio-dial:not(.radio-dial-compact)");
+const volumeDial = () => document.querySelector<SVGSVGElement>(".radio-dial-compact");
 const needleX = () => {
   const needle = dial()?.querySelector(".radio-needle");
   return needle ? Number(needle.getAttribute("x")) + DIAL.needleW / 2 : null;
@@ -109,32 +110,42 @@ describe("Radio screen", () => {
 
   it("renders the band row, the dial with the needle on the playing station and the footer", async () => {
     await openRadio();
-    const bands = Array.from(document.querySelectorAll<HTMLElement>(".radio-band"));
-    expect(bands.map((b) => b.textContent)).toEqual(["מועדפים", "דיסלדורף", "ישראל", "אנגלית"]);
-    expect(bands.map((b) => b.getAttribute("aria-pressed"))).toEqual([
-      "false",
-      "true",
-      "false",
-      "false",
-    ]);
-    // 1LIVE is local index 0: needle on the first stop, bold FM label, band name at the left end.
+    // WDR 5 is local index 0: needle on the first stop with the "<|>" arrows, bold FM label, band
+    // name at the left end.
+    expect(dial()?.querySelector(".radio-needle-arrows")).not.toBeNull();
     expect(dial()?.getAttribute("data-list")).toBe("local");
     expect(dial()?.getAttribute("data-index")).toBe("0");
     expect(needleX()).toBe(stationX(0, 12));
     const current = dial()?.querySelector("text[data-current]");
-    expect(current?.textContent).toBe("106.7");
+    expect(current?.textContent).toBe("88.8");
     expect(dial()?.querySelector("text")?.textContent).toBe("דיסלדורף");
     const labels = Array.from(dial()?.querySelectorAll("text") ?? []).map((t) => t.textContent);
     expect(labels.length).toBeGreaterThanOrEqual(9);
     expect(labels).toContain("95.1");
     // Now playing block from the snapshot.
     const now = document.querySelector(".radio-now")!;
-    expect(now.querySelector(".radio-now-name")?.textContent).toBe("1LIVE");
+    expect(now.querySelector(".radio-now-name")?.textContent).toBe("WDR 5");
     expect(now.querySelector(".radio-now-song")?.textContent).toBe("Zara Larsson - Memory Lane");
     expect(now.querySelector(".radio-now-detail")?.textContent).toBe("128k · MP3");
-    expect(now.querySelector(".radio-now-db")?.textContent).toBe("-44.5dB");
-    expect(now.querySelector("img")?.getAttribute("src")).toBe("/media/img?station=1live&w=96");
-    expect(footerLabels()).toEqual(["חזרה", "רשימה", "מועדפים", "הפעלה / כיבוי"]);
+    expect(now.querySelector("img")?.getAttribute("src")).toBe("/media/img?station=wdr-5&w=96");
+    // The compact volume dial under the station dial: ticks, needle, value beside it, no arrows.
+    const vol = volumeDial();
+    expect(vol?.getAttribute("data-db")).toBe("-44.5");
+    expect(vol?.querySelector("text[data-current]")?.textContent).toBe("-44.5");
+    expect(vol?.querySelector(".radio-needle")).not.toBeNull();
+    expect(vol?.querySelector(".radio-needle-arrows")).toBeNull();
+    expect(Array.from(vol?.querySelectorAll("text") ?? []).map((t) => t.textContent)).toEqual([
+      "dB",
+      "-80",
+      "-60",
+      "-40",
+      "-20",
+      "0",
+      "+16.5",
+      "-44.5",
+    ]);
+    // Footer: back, favourite toggle, next band (Israel after Düsseldorf), power.
+    expect(footerLabels()).toEqual(["חזרה", "הוסף למועדפים", "ישראל", "הפעלה / כיבוי"]);
     expect(document.documentElement.getAttribute("data-eink-refresh")).toBe("full");
   });
 
@@ -150,10 +161,10 @@ describe("Radio screen", () => {
     );
     // Optimistic: needle and name move before the server answers.
     expect(needleX()).toBe(stationX(1, 12));
-    expect(document.querySelector(".radio-now-name")?.textContent).toBe("WDR 2");
-    expect(document.querySelector(".radio-now-img, .radio-now img")?.getAttribute("src")).toBe(
-      "/media/img?station=wdr-2&w=96",
-    );
+    expect(document.querySelector(".radio-now-name")?.textContent).toBe("NRW1");
+    // NRW1 has no logo in the catalog: the placeholder glyph, no <img>.
+    expect(document.querySelector(".radio-now img")).toBeNull();
+    expect(document.querySelector(".radio-now .radio-logo svg")).not.toBeNull();
     await act(async () => settle({ ok: true }));
     // Wrap at the start: left from index 1 → 0 → 11.
     press("ArrowLeft");
@@ -185,7 +196,7 @@ describe("Radio screen", () => {
     press("ArrowRight");
     await waitFor(() => expect(mocks.tuneRadioStation).toHaveBeenCalled());
     await waitFor(() => expect(needleX()).toBe(stationX(0, 12)));
-    expect(document.querySelector(".radio-now-name")?.textContent).toBe("1LIVE");
+    expect(document.querySelector(".radio-now-name")?.textContent).toBe("WDR 5");
   });
 
   it("steps the volume on up / down like the amp view", async () => {
@@ -200,7 +211,7 @@ describe("Radio screen", () => {
         data: { type: "amp.volume.step", delta: 1 },
       }),
     );
-    expect(document.querySelector(".radio-now-db")?.textContent).toBe("-42.5dB");
+    expect(volumeDial()?.getAttribute("data-db")).toBe("-42.5");
     await act(async () => settle({ ok: true }));
     press("ArrowDown");
     await waitFor(() =>
@@ -217,22 +228,36 @@ describe("Radio screen", () => {
     const list = screen.getByRole("listbox", { name: "תחנות" });
     const rows = Array.from(list.querySelectorAll('[role="option"]'));
     expect(rows).toHaveLength(8);
-    expect(rows[0]?.querySelector("strong")?.textContent).toBe("1LIVE");
+    expect(rows[0]?.querySelector("strong")?.textContent).toBe("WDR 5");
     expect(rows[0]?.querySelector(".radio-row-detail")?.textContent).toBe("128k MP3");
     expect(rows[0]).toHaveAttribute("aria-selected", "true");
     expect(rows[0]?.querySelector("img")?.getAttribute("src")).toBe(
-      "/media/img?station=1live&w=48",
+      "/media/img?station=wdr-5&w=48",
     );
-    expect(footerLabels()).toEqual(["חזרה", "\u00a0", "\u00a0", "בחר"]);
+    expect(footerLabels()).toEqual(["חזרה", "הקודם", "הבא", "בחר"]);
+    const slot = (key: string) =>
+      document.querySelector<HTMLButtonElement>(`.full-modal [data-soft-key="${key}"]`);
+    expect(slot("F2")?.disabled).toBe(true);
+    expect(slot("F3")?.disabled).toBe(false);
     press("ArrowDown");
     press("ArrowDown");
     expect(screen.getAllByRole("option")[2]).toHaveAttribute("aria-selected", "true");
-    // Page 2 after moving past row 8; PageDown jumps a page.
-    press("PageDown");
+    // F3 = next page (cursor on its first row), F2 = previous page; PageDown also jumps a page.
+    press("F3");
     expect(screen.getByRole("dialog").textContent).toContain("2/2");
-    expect(screen.getAllByRole("option")[2]?.querySelector("strong")?.textContent).toBe(
-      "Deutschlandfunk Kultur",
+    expect(screen.getAllByRole("option")).toHaveLength(4);
+    expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
+    expect(screen.getAllByRole("option")[0]?.querySelector("strong")?.textContent).toBe(
+      "Antenne Duesseldorf",
     );
+    expect(slot("F2")?.disabled).toBe(false);
+    expect(slot("F3")?.disabled).toBe(true);
+    press("F2");
+    expect(screen.getByRole("dialog").textContent).toContain("1/2");
+    press("ArrowDown");
+    press("ArrowDown");
+    press("PageDown");
+    expect(screen.getAllByRole("option")[2]?.querySelector("strong")?.textContent).toBe("1LIVE");
     press("PageUp");
     press("Enter");
     await waitFor(() =>
@@ -248,22 +273,12 @@ describe("Radio screen", () => {
     expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
   });
 
-  it("switches the band from the F2 picker without tuning; the first right then tunes there", async () => {
+  it("cycles the band on F3 without tuning; the first right then tunes there", async () => {
     await openRadio();
-    press("F2");
-    const picker = screen.getByRole("listbox", { name: "בחירת רשימה" });
-    const rows = Array.from(picker.querySelectorAll('[role="option"]'));
-    expect(rows.map((r) => r.querySelector("strong")?.textContent)).toEqual([
-      "מועדפים",
-      "דיסלדורף",
-      "ישראל",
-      "אנגלית",
-    ]);
-    expect(rows[0]?.textContent).toContain("1 תחנות");
-    expect(rows[1]).toHaveAttribute("aria-selected", "true");
-    press("ArrowDown");
-    press("ArrowDown");
-    press("Enter");
+    press("F3"); // Düsseldorf → Israel
+    expect(dial()?.getAttribute("data-list")).toBe("israel");
+    expect(footerLabels()[2]).toBe("אנגלית");
+    press("F3"); // → English
     expect(dial()?.getAttribute("data-list")).toBe("english");
     expect(dial()?.getAttribute("data-index")).toBe("0");
     expect(needleX()).toBe(stationX(0, 14));
@@ -271,8 +286,8 @@ describe("Radio screen", () => {
     expect(labels[0]).toBe("אנגלית");
     expect(labels).toContain("BBC World");
     expect(mocks.tuneRadioStation).not.toHaveBeenCalled();
-    // Still playing 1LIVE until something is tuned.
-    expect(document.querySelector(".radio-now-name")?.textContent).toBe("1LIVE");
+    // Still playing WDR 5 until something is tuned.
+    expect(document.querySelector(".radio-now-name")?.textContent).toBe("WDR 5");
     let settle: (value: { ok: boolean }) => void = () => {};
     mocks.tuneRadioStation.mockImplementationOnce(
       () => new Promise<{ ok: boolean }>((resolve) => (settle = resolve)),
@@ -283,20 +298,17 @@ describe("Radio screen", () => {
     );
     expect(document.querySelector(".radio-now-name")?.textContent).toBe("Classic FM");
     await act(async () => settle({ ok: true }));
-    // F4 in the picker selects too; favourites band shows its one bookmark.
-    press("F2");
-    press("ArrowUp");
-    press("ArrowUp");
-    press("ArrowUp");
-    press("F4");
+    // English → favourites (wrap): the one bookmark, NRW1, under the needle.
+    press("F3");
     expect(dial()?.getAttribute("data-list")).toBe("favourites");
-    expect(dial()?.querySelector("text[data-current]")?.textContent).toBe("WDR 2");
+    expect(dial()?.querySelector("text[data-current]")?.textContent).toBe("NRW1");
+    expect(footerLabels()[1]).toBe("הסר ממועדפים");
   });
 
-  it("adds or removes the station under the needle with F3 and updates the favourites band", async () => {
+  it("adds or removes the station under the needle with F2 and updates the favourites band", async () => {
     await openRadio();
     expect(
-      document.querySelector('.full-modal [data-soft-key="F3"]')?.getAttribute("aria-pressed"),
+      document.querySelector('.full-modal [data-soft-key="F2"]')?.getAttribute("aria-pressed"),
     ).toBe("false");
     // The server's lists after the add (the refetch must agree with the optimistic update).
     const after = lists();
@@ -304,26 +316,33 @@ describe("Radio screen", () => {
     live.favourite = true;
     after.lists[0]!.stations.push({ ...live });
     mocks.getRadioLists.mockResolvedValue(after);
-    press("F3");
+    press("F2");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
-        data: { type: "radio.favourite", stationId: "1live", add: true },
+        data: { type: "radio.favourite", stationId: "wdr-5", add: true },
       }),
     );
-    // Optimistic: the key shows pressed, the favourites band lists two stations.
+    // Optimistic: the key shows pressed and reads "remove"; the favourites band has two stations.
     expect(
-      document.querySelector('.full-modal [data-soft-key="F3"]')?.getAttribute("aria-pressed"),
+      document.querySelector('.full-modal [data-soft-key="F2"]')?.getAttribute("aria-pressed"),
     ).toBe("true");
-    press("F2");
-    expect(screen.getAllByRole("option")[0]?.textContent).toContain("2 תחנות");
+    expect(footerLabels()[1]).toBe("הסר ממועדפים");
+    press("F3");
+    press("F3");
+    press("F3"); // → favourites
+    expect(dial()?.getAttribute("data-list")).toBe("favourites");
+    expect(dial()?.querySelectorAll("rect").length).toBeGreaterThan(0);
+    press("Enter");
+    expect(screen.getAllByRole("option")).toHaveLength(2);
     press("Escape");
-    // WDR 2 is already bookmarked: F3 on it removes.
+    press("F3"); // → Düsseldorf
+    // NRW1 is already bookmarked: F2 on it removes.
     press("ArrowRight");
     await waitFor(() => expect(mocks.tuneRadioStation).toHaveBeenCalled());
-    press("F3");
+    press("F2");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
-        data: { type: "radio.favourite", stationId: "wdr-2", add: false },
+        data: { type: "radio.favourite", stationId: "nrw1", add: false },
       }),
     );
   });
@@ -359,14 +378,16 @@ describe("Radio screen", () => {
     await waitFor(() => expect(dial()).not.toBeNull());
     expect(dial()?.getAttribute("data-list")).toBe("local");
     expect(document.querySelector(".radio-now-name")?.textContent).toBe("The amplifier is off");
-    expect(document.querySelector(".radio-now-db")?.textContent).toBe("—dB");
+    // No volume: no needle and no value on the volume dial.
+    expect(volumeDial()?.getAttribute("data-db")).toBe("");
+    expect(volumeDial()?.querySelector(".radio-needle")).toBeNull();
     // Up / down do nothing while off.
     press("ArrowUp");
     expect(mocks.runMediaAction).not.toHaveBeenCalled();
     // Favourites band is empty: text on the bar, no needle.
-    press("F2");
-    press("ArrowUp");
-    press("Enter");
+    press("F3");
+    press("F3");
+    press("F3");
     expect(dial()?.getAttribute("data-list")).toBe("favourites");
     expect(dial()?.textContent).toContain("No favourites");
     expect(needleX()).toBeNull();
@@ -374,9 +395,8 @@ describe("Radio screen", () => {
     expect(mocks.tuneRadioStation).not.toHaveBeenCalled();
     expect(mocks.startAmpPowerOn).not.toHaveBeenCalled();
     // Back on Düsseldorf, right remembers the station and powers the amp on with the radio source.
-    press("F2");
-    press("ArrowDown");
-    press("Enter");
+    press("F3");
+    expect(dial()?.getAttribute("data-list")).toBe("local");
     press("ArrowRight");
     await waitFor(() =>
       expect(mocks.startAmpPowerOn).toHaveBeenCalledWith({ data: { source: "NET RADIO" } }),

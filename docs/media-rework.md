@@ -93,13 +93,15 @@ large, song line, bitrate · codec small, station logo (server-resized 96px gray
 5-way: up/down volume (knob + dB), left/right = previous/next station in the current list (tunes immediately: Jump_Line + Sel),
 Enter = open the station list of the current band (list rows: logo – name – "128k MP3", up/down highlight, Enter tunes).
 Footer: F1 חזרה, F2 רשימה (band picker: 4 lists), F3 הוסף/הסר מועדפים, F4 הפעלה/כיבוי.
-Implemented (M3, 2026-10-08): the dial is `DialBar` / `RadioDial` in `src/components/media-screens.tsx` (geometry and
-label planning in `src/lib/radio-dial.ts`; `DialBar` is generic so the amp view can reuse it for volume). Band + index per
-band persist in `kindle-panel-state` (`radio`); the needle follows `nowPlaying.stationId` (the band the user is on first,
-then favourites, then the rest) whenever the server reports a new station. Left/right call `tuneRadioStation` directly and
-coalesce quick presses (one menu walk per settled target). F3 is a single "מועדפים" key with a pressed state (add / remove).
-Enter = station list (8 rows, Enter/F4 tunes, F1 back); F2 = band picker (Enter/F4 shows the band, nothing is tuned).
-Amp off: tuning starts the power-on routine with NET RADIO and tunes the chosen station once it is done.
+Implemented (M3, 2026-10-08): the dial is `DialBar` in `src/components/dial-bar.tsx` (geometry, label planning and the
+volume scale in `src/lib/radio-dial.ts`), used three times: the station dial (needle on the station, "<|>" arrows at the
+needle top, band name as the caption), a compact volume dial under it on the radio screen, and the amp view's volume (needle
+= dB on a -80.5…+16.5 scale, ticks -80…+16.5, value beside the needle, big readout under the bar; no circle knob). There is
+no band row: F3 cycles the band (label = the next band), F2 adds / removes the favourite ("הוסף/הסר ממועדפים"), F1 back,
+F4 power. Enter = station list (8 rows, F2/F3 previous/next page, Enter/F4 tunes, F1 back). Band + index per band persist
+in `kindle-panel-state` (`radio`); the needle follows `nowPlaying.stationId` (the band the user is on first, then
+favourites, then the rest) whenever the server reports a new station. Left/right call `tuneRadioStation` directly and
+coalesce quick presses. Amp off: tuning starts the power-on routine with NET RADIO and tunes the chosen station once it is done.
 Tuning path on the amp: ensure input NET RADIO → Return to Home → Line_1 (Stations) → Jump_Line <category index> + Sel →
 Jump_Line <station index> + Sel. Favourites list: Line_2 (Favourites) → Jump_Line <bookmark index> + Sel. Remember the current
 list/index server-side so the UI doesn't re-walk menus when it isn't needed (check `List_Info` `Menu_Name` first).

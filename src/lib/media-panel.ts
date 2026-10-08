@@ -6,9 +6,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Film,
   Heart,
-  List,
   ListMusic,
   Music2,
   Power,
@@ -68,8 +69,8 @@ const FAILED_SHOWN_MS = 2 * 60 * 1000;
 const NAV_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"];
 
 export type MediaScreen = "now" | "source" | "radio" | "music" | "tv";
-/** Sub-views of the radio screen: the dial, the station list of the band, the band picker. */
-export type RadioView = "dial" | "stations" | "bands";
+/** Sub-views of the radio screen: the dial and the station list of the band. */
+export type RadioView = "dial" | "stations";
 export type MediaNotice = { text: string; error?: boolean };
 export const RADIO_PAGE_SIZE = 8;
 /** Not under ["media"]: a volume step must not refetch the YTuner lists. */
@@ -371,15 +372,24 @@ export function useMediaPanel({
     setRadioView("dial");
     notify({ text: t("act.band", { band: t(bandKey(list)) }) });
   };
+  /** F3 on the dial: the next band, wrapping (favourites → Düsseldorf → Israel → English). */
+  const bandAfter = (list: string): string =>
+    RADIO_BANDS[
+      (RADIO_BANDS.indexOf(list as (typeof RADIO_BANDS)[number]) + 1) % RADIO_BANDS.length
+    ]!;
+  const cycleBand = () => selectBand(bandAfter(dialRef.current.list));
   const openStations = () => {
     setCursor(Math.max(0, dialRef.current.index));
     setRadioView("stations");
   };
-  const openBands = () => {
-    setCursor(
-      Math.max(0, RADIO_BANDS.indexOf(dialRef.current.list as (typeof RADIO_BANDS)[number])),
-    );
-    setRadioView("bands");
+  const stationCount = dialList?.stations.length ?? 0;
+  const stationPages = Math.max(1, Math.ceil(stationCount / RADIO_PAGE_SIZE));
+  const stationPage = Math.floor(cursor / RADIO_PAGE_SIZE);
+  /** F2 / F3 in the station list: previous / next page, cursor on its first row. */
+  const pageStations = (delta: 1 | -1) => {
+    const page = stationPage + delta;
+    if (page < 0 || page >= stationPages) return;
+    setCursor(page * RADIO_PAGE_SIZE);
   };
 
   const isFavourite = !!dialStation && (dialPos.list === RADIO_BANDS[0] || dialStation.favourite);
@@ -470,35 +480,40 @@ export function useMediaPanel({
             ? radioView === "dial"
               ? [
                   backToNow,
-                  { label: t("radio.bands"), icon: List, onClick: openBands },
                   {
-                    label: t("radio.favKey"),
+                    label: t(isFavourite ? "radio.favRemove" : "radio.favAdd"),
                     icon: Heart,
                     pressed: isFavourite,
                     disabled: !canFavourite,
                     onClick: toggleFavourite,
                   },
+                  {
+                    label: t(bandKey(bandAfter(dialPos.list))),
+                    icon: Radio,
+                    onClick: cycleBand,
+                  },
                   powerKey,
                 ]
               : [
+                  { label: t("amp.back"), icon: ArrowLeft, onClick: () => setRadioView("dial") },
                   {
-                    label: radioView === "stations" ? t("amp.back") : t("source.cancel"),
-                    icon: radioView === "stations" ? ArrowLeft : X,
-                    onClick: () => setRadioView("dial"),
+                    label: t("radio.prevPage"),
+                    icon: ChevronLeft,
+                    disabled: stationPage === 0,
+                    onClick: () => pageStations(-1),
                   },
-                  null,
-                  null,
+                  {
+                    label: t("radio.nextPage"),
+                    icon: ChevronRight,
+                    disabled: stationPage >= stationPages - 1,
+                    onClick: () => pageStations(1),
+                  },
                   {
                     label: t("source.apply"),
                     icon: Check,
                     onClick: () => {
-                      if (radioView === "stations") {
-                        setRadioView("dial");
-                        tuneTo({ list: dialPos.list, index: cursor });
-                      } else {
-                        const band = RADIO_BANDS[cursor];
-                        if (band) selectBand(band);
-                      }
+                      setRadioView("dial");
+                      tuneTo({ list: dialPos.list, index: cursor });
                     },
                   },
                 ]
@@ -555,9 +570,9 @@ export function useMediaPanel({
     return true;
   };
 
-  /** Keys in the station list and the band picker: up/down (page keys jump a page), Enter picks, Escape backs out. */
+  /** Keys in the station list: up/down move (across pages; page keys jump a page), Enter tunes, Escape backs out. */
   const onRadioListKey = (event: KeyboardEvent): boolean => {
-    const size = radioView === "stations" ? (dialList?.stations.length ?? 0) : RADIO_BANDS.length;
+    const size = stationCount;
     if (event.key === "Escape") {
       event.preventDefault();
       setRadioView("dial");
@@ -565,13 +580,8 @@ export function useMediaPanel({
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      if (radioView === "stations") {
-        setRadioView("dial");
-        if (cursor < size) tuneTo({ list: dialPos.list, index: cursor });
-      } else {
-        const band = RADIO_BANDS[cursor];
-        if (band) selectBand(band);
-      }
+      setRadioView("dial");
+      if (cursor < size) tuneTo({ list: dialPos.list, index: cursor });
       return true;
     }
     if (!NAV_KEYS.includes(event.key)) return false;
@@ -614,7 +624,9 @@ export function useMediaPanel({
     tuneTo,
     selectBand,
     openStations,
-    openBands,
+    cycleBand,
+    stationPage,
+    stationPages,
     toggleFavourite,
   };
 }
