@@ -42,9 +42,11 @@ services:
       - "127.0.0.1:8095:80"
     volumes:
       - ytuner-cache:/app/cache
+      - ytuner-db:/app/db
 
 volumes:
   ytuner-cache:
+  ytuner-db:
 
 networks:
   default:

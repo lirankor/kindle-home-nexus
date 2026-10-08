@@ -15,12 +15,12 @@ RUN curl -fsSL -o /tmp/ytuner.zip "https://github.com/coffeegreg/YTuner/releases
  && cp /tmp/ytuner/ytuner-${YTUNER_VERSION}-x86_64-linux/ytuner /app/ytuner \
  && chmod +x /app/ytuner \
  && rm -rf /tmp/ytuner /tmp/ytuner.zip \
- && mkdir -p /app/cache /app/config
+ && mkdir -p /app/cache /app/db /app/config
 
-# Our configuration (versioned in the repo). Cache/DB live in the /app/cache volume.
+# Our configuration (versioned in the repo). Cache and DB live in volumes (/app/cache, /app/db).
 COPY ytuner.ini /app/ytuner.ini
 COPY config/ /app/config/
 
-VOLUME ["/app/cache"]
+VOLUME ["/app/cache", "/app/db"]
 EXPOSE 80/tcp
 CMD ["./ytuner"]
