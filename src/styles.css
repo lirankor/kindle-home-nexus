@@ -501,7 +501,9 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .amp-times { display: flex; justify-content: space-between; font-size: 18px; color: var(--muted-foreground); margin-top: 6px; }
 /* Transport control: the 5-way as a rounded square with the play state inside and four satellites
    outside (volume up above, volume down below, previous / next left / right), dB underneath. */
-.amp-transport { margin-top: 12px; }
+/* The body content as a column that fills the body, so the control can sit at its bottom (margin-top: auto). */
+.screen-stack { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.amp-transport { margin-top: auto; padding-top: 12px; margin-bottom: 6px; }
 .transport { display: flex; flex-direction: column; align-items: center; color: var(--foreground); }
 .transport-grid { display: grid; grid-template-columns: auto auto auto; grid-template-areas: ". up ." "prev pad next" ". down ."; align-items: center; justify-items: center; gap: 6px 18px; direction: ltr; }
 .transport-up { grid-area: up; }
@@ -545,8 +547,8 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 /* Media rework M3: radio screen — the dial bar (SVG, shared with the amp volume), now playing, station list. */
 .radio-dial { display: block; width: 100%; height: auto; margin: 6px 0 10px; fill: #000; }
 .radio-dial text { font-family: inherit; fill: #000; }
-.radio-transport-row { display: flex; justify-content: center; margin-top: 6px; }
-.radio-now { display: flex; gap: 18px; align-items: center; margin-top: 20px; min-height: 110px; }
+.radio-transport-row { display: flex; justify-content: center; margin-top: auto; padding-top: 6px; margin-bottom: 6px; }
+.radio-now { display: flex; gap: 18px; align-items: center; margin-top: 16px; min-height: 110px; }
 .radio-logo { flex-shrink: 0; border: 1px solid var(--foreground); display: flex; align-items: center; justify-content: center; background: var(--background); overflow: hidden; box-sizing: content-box; }
 .radio-logo img { width: 100%; height: 100%; object-fit: contain; filter: grayscale(1) contrast(1.15); display: block; }
 .radio-now[data-on="false"] .radio-logo { color: var(--muted-foreground); }

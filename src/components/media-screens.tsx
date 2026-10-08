@@ -338,53 +338,55 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
       status={status}
       hint={queue ? t("amp.keysHint") : t("amp.keysHintRadio")}
     >
-      {panel.showPowerOn ? (
-        <PowerOnBlock panel={panel} />
-      ) : (
-        <header className="amp-head" data-on={on}>
-          <span className="amp-art" aria-hidden="true">
-            {art ? (
-              <img
-                src={`/media/img?item=${encodeURIComponent(art)}&w=160`}
-                alt=""
-                width={160}
-                height={160}
+      <div className="screen-stack">
+        {panel.showPowerOn ? (
+          <PowerOnBlock panel={panel} />
+        ) : (
+          <header className="amp-head" data-on={on}>
+            <span className="amp-art" aria-hidden="true">
+              {art ? (
+                <img
+                  src={`/media/img?item=${encodeURIComponent(art)}&w=160`}
+                  alt=""
+                  width={160}
+                  height={160}
+                />
+              ) : (
+                <Glyph size={72} strokeWidth={1.4} />
+              )}
+            </span>
+            <span className="amp-meta">
+              <span className="amp-badge">
+                {on ? sourceLabel(t, s?.amp.source ?? null) : t("media.amp")}
+              </span>
+              <strong className="amp-title">{line1}</strong>
+              <span className="amp-sub">{line2 || " "}</span>
+              <span className="amp-sub amp-sub2">{line3 || " "}</span>
+            </span>
+          </header>
+        )}
+        {queue && queue.track && (
+          <div className="amp-progress" dir="ltr" data-status={queue.status}>
+            <div className="progress-track">
+              <span
+                style={{
+                  width: `${queue.durationMs ? Math.min(100, (position / queue.durationMs) * 100) : 0}%`,
+                }}
               />
-            ) : (
-              <Glyph size={72} strokeWidth={1.4} />
-            )}
-          </span>
-          <span className="amp-meta">
-            <span className="amp-badge">
-              {on ? sourceLabel(t, s?.amp.source ?? null) : t("media.amp")}
-            </span>
-            <strong className="amp-title">{line1}</strong>
-            <span className="amp-sub">{line2 || " "}</span>
-            <span className="amp-sub amp-sub2">{line3 || " "}</span>
-          </span>
-        </header>
-      )}
-      {queue && queue.track && (
-        <div className="amp-progress" dir="ltr" data-status={queue.status}>
-          <div className="progress-track">
-            <span
-              style={{
-                width: `${queue.durationMs ? Math.min(100, (position / queue.durationMs) * 100) : 0}%`,
-              }}
-            />
+            </div>
+            <div className="amp-times">
+              <span className="amp-time-pos">{mmss(position)}</span>
+              <span className="amp-queue-pos">
+                {t("media.queuePos", { index: queue.index + 1, count: queue.count })}
+                {queue.status === "paused" ? ` · ${t("act.pause")}` : ""}
+              </span>
+              <span>{mmss(queue.durationMs)}</span>
+            </div>
           </div>
-          <div className="amp-times">
-            <span className="amp-time-pos">{mmss(position)}</span>
-            <span className="amp-queue-pos">
-              {t("media.queuePos", { index: queue.index + 1, count: queue.count })}
-              {queue.status === "paused" ? ` · ${t("act.pause")}` : ""}
-            </span>
-            <span>{mmss(queue.durationMs)}</span>
-          </div>
+        )}
+        <div className="amp-transport" data-on={on}>
+          <TransportControl db={db} label={t("media.volume")} mode={transportMode(s)} />
         </div>
-      )}
-      <div className="amp-transport" data-on={on}>
-        <TransportControl db={db} label={t("media.volume")} mode={transportMode(s)} />
       </div>
     </FullModal>
   );
@@ -512,37 +514,43 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
       status={status}
       hint={t("radio.hint")}
     >
-      {panel.showPowerOn ? (
-        <PowerOnBlock panel={panel} />
-      ) : (
-        <>
-          <RadioDial
-            bandName={t(bandKey(dialPos.list))}
-            stations={list?.stations ?? []}
-            list={dialPos.list}
-            index={dialPos.index}
-            emptyText={
-              loading
-                ? ""
-                : dialPos.list === RADIO_BANDS[0]
-                  ? t("radio.noFavourites")
-                  : t("radio.empty")
-            }
-          />
-          <div className="radio-transport-row" data-on={on}>
-            <TransportControl db={db} label={t("media.volume")} mode={transportMode(s)} small />
-          </div>
-          <div className="radio-now" data-on={on}>
-            <StationLogo station={on ? playing : dialStation} size={96} alt={t("radio.logoAlt")} />
-            <div className="radio-now-text">
-              <strong className="radio-now-name">{name}</strong>
-              <span className="radio-now-song">{song || "\u00a0"}</span>
-              <span className="radio-now-detail">{detail ? <Ltr>{detail}</Ltr> : "\u00a0"}</span>
+      <div className="screen-stack">
+        {panel.showPowerOn ? (
+          <PowerOnBlock panel={panel} />
+        ) : (
+          <>
+            <RadioDial
+              bandName={t(bandKey(dialPos.list))}
+              stations={list?.stations ?? []}
+              list={dialPos.list}
+              index={dialPos.index}
+              emptyText={
+                loading
+                  ? ""
+                  : dialPos.list === RADIO_BANDS[0]
+                    ? t("radio.noFavourites")
+                    : t("radio.empty")
+              }
+            />
+            <div className="radio-now" data-on={on}>
+              <StationLogo
+                station={on ? playing : dialStation}
+                size={96}
+                alt={t("radio.logoAlt")}
+              />
+              <div className="radio-now-text">
+                <strong className="radio-now-name">{name}</strong>
+                <span className="radio-now-song">{song || "\u00a0"}</span>
+                <span className="radio-now-detail">{detail ? <Ltr>{detail}</Ltr> : "\u00a0"}</span>
+              </div>
             </div>
-          </div>
-          {panel.radioListsError && <p className="radio-error">{panel.radioListsError}</p>}
-        </>
-      )}
+            {panel.radioListsError && <p className="radio-error">{panel.radioListsError}</p>}
+            <div className="radio-transport-row" data-on={on}>
+              <TransportControl db={db} label={t("media.volume")} mode={transportMode(s)} small />
+            </div>
+          </>
+        )}
+      </div>
     </FullModal>
   );
 }
