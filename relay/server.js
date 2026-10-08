@@ -34,9 +34,9 @@ function publicTarget(u) {
   const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
   if (m) {
     const [a, b] = [Number(m[1]), Number(m[2])];
-    if (a === 10 || a === 127 || a === 0 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127)) return false;
+    if (a >= 224 || a === 10 || a === 127 || a === 0 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127)) return false; // incl. multicast/reserved/broadcast
   }
-  if (h.includes(":")) return false; // no IPv6 literals
+  if (h.includes(":")) return false; // no IPv6 literals at all (URL.hostname keeps the brackets, so this catches [::1] too)
   return true;
 }
 
@@ -44,10 +44,10 @@ function publicTarget(u) {
 function privateAddress(addr, family) {
   if (family === 4) {
     const [a, b] = addr.split(".").map(Number);
-    return a === 10 || a === 127 || a === 0 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+    return a >= 224 || a === 10 || a === 127 || a === 0 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
   }
   const h = addr.toLowerCase();
-  if (h === "::1" || h === "::" || h.startsWith("fe80:") || h.startsWith("fc") || h.startsWith("fd")) return true;
+  if (h === "::1" || h === "::" || h.startsWith("fe80:") || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("ff") || h.startsWith("64:ff9b:")) return true;
   const v4 = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(h);
   return v4 ? privateAddress(v4[1], 4) : false;
 }
