@@ -194,7 +194,7 @@ describe("Jellyfin stream URL", () => {
       "http://j/Audio/id1/stream.mp3?static=true",
     );
     expect(pickStreamUrl("http://j", "k", "id1", "flac")).toBe(
-      "http://j/Audio/id1/stream.flac?static=true&api_key=k",
+      "http://j/Audio/id1/stream.flac?static=true",
     );
     expect(pickStreamUrl("http://j", "k", "id1", "ogg")).toContain(
       "/Audio/id1/universal?container=mp3&audioCodec=mp3",
