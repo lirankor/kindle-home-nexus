@@ -1,21 +1,45 @@
 Duesseldorf FM:
-  1LIVE: http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3
-  WDR 2 Rhein und Ruhr: http://wdr-wdr2-rheinruhr.icecast.wdr.de/wdr/wdr2/rheinruhr/mp3/128/stream.mp3
-  WDR 3: http://wdr-wdr3-live.icecast.wdr.de/wdr/wdr3/live/mp3/128/stream.mp3
-  WDR 4: http://wdr-wdr4-live.icecast.wdr.de/wdr/wdr4/live/mp3/128/stream.mp3
-  WDR 5: http://wdr-wdr5-live.icecast.wdr.de/wdr/wdr5/live/mp3/128/stream.mp3
+  1LIVE: http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3|https://www1.wdr.de/radio/1live/resources/img/favicon/apple-touch-icon.png
+  WDR 2: http://wdr-wdr2-rheinruhr.icecast.wdr.de/wdr/wdr2/rheinruhr/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.139.1/img/favicon/apple-touch-icon.png
+  WDR 3: http://wdr-wdr3-live.icecast.wdr.de/wdr/wdr3/live/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.139.1/img/favicon/apple-touch-icon.png
+  WDR 4: http://wdr-wdr4-live.icecast.wdr.de/wdr/wdr4/live/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.132.3/img/favicon/apple-touch-icon.png
+  WDR 5: http://wdr-wdr5-live.icecast.wdr.de/wdr/wdr5/live/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.134.1/img/favicon/apple-touch-icon.png
   COSMO: http://wdr-cosmo-live.icecast.wdr.de/wdr/cosmo/live/mp3/128/stream.mp3
-  Antenne Duesseldorf: http://stream.antenneduesseldorf.de/444z5kv
+  Antenne Duesseldorf: http://stream.antenneduesseldorf.de/444z5kv|https://www.antenneduesseldorf.de/assets/images/favicons/antenneduesseldorf/favicon_x96.png
   NRW1: http://stream.nrw1.de/nrw1/stream/mp3
-  bigFM: http://streams.bigfm.de/bigfm-deutschland-128-mp3
-  Deutschlandfunk: http://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3
-  Deutschlandfunk Kultur: http://st02.sslstream.dlf.de/dlf/02/128/mp3/stream.mp3
-  Deutschlandfunk Nova: http://st03.sslstream.dlf.de/dlf/03/128/mp3/stream.mp3
+  bigFM: http://streams.bigfm.de/bigfm-deutschland-128-mp3|http://cdn.bigfm.de/sites/all/themes/bigfm/favicon.ico
+  Deutschlandfunk: http://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3|https://www.deutschlandfunk.de/static/img/deutschlandfunk/icons/apple-touch-icon-128x128.png
+  Deutschlandfunk Kultur: http://st02.sslstream.dlf.de/dlf/02/128/mp3/stream.mp3|https://www.deutschlandfunkkultur.de/static/img/deutschlandfunk_kultur/icons/apple-touch-icon-128x128.png
+  Deutschlandfunk Nova: http://st03.sslstream.dlf.de/dlf/03/128/mp3/stream.mp3|https://www.deutschlandfunknova.de/apple-touch-icon.png
+
+Israel:
+  Galgalatz: http://glzwizzlv.bynetcdn.com/glglz_mp3|https://static-media.streema.com/media/cache/34/ee/34ee4ed52c07ad09122cbe047a7c0bfd.jpg
+  Galei Zahal: http://glzwizzlv.bynetcdn.com/glz_mp3
+  100FM Oldies: http://gb25.streamgates.net/radios-audio/100Oldies/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-oldies.png
+  100FM Movies: http://gb25.streamgates.net/radios-audio/100Movies/icecast.audio
+  Kol Barama: http://kb.cdnwz.net/kol_barama|https://kol-barama.co.il/wp-content/themes/qs-starter/images/favicon/apple-touch-icon-120x120.png
+  Kol Hashfela: http://1036kh.cdnwz.net/1036kh|https://static.wixstatic.com/media/cbf57a_82d58bf0f55940b8b288c481497d43c7~mv2.png/v1/crop/x_54,y_238,w_1861,h_624/fill/w_376,h_124,al_c,q_85,usm_0.66_1.00_0.01/kol.webp
+
+English:
+  BBC World Service: http://stream.live.vc.bbcmedia.co.uk/bbc_world_service|null
+  Classic FM: http://ice-the.musicradio.com/ClassicFMMP3
+  LBC: http://media-sov.musicradio.com/LBC973MP3Low|http://www.lbc.co.uk/assets_v4r/lbc/img/favicon-196x196.png
+  Capital FM London: http://media-ice.musicradio.com/CapitalMP3|http://assets6.capitalfm.com/2016/11/capital-3d-network-logo-large-canvas-1458228638-herowidev4-0.jpg
+  Heart London: http://ice-sov.musicradio.com/HeartLondonMP3
+  Smooth Radio: http://media-the.musicradio.com/SmoothEastMids|https://firebasestorage.googleapis.com/v0/b/radiogalaxy-580f4.appspot.com/o/images%2FIMG_20240128_220647011.jpg?alt=media&token=1e224c71-df0a-40ea-9d54-0a76e133bd47
+  Radio X: http://icecast.thisisdax.com/RadioXUKMP3|https://i.imgur.com/fbhlSLX.jpg
+  Radio Caroline: http://78.129.202.200:8040/;|http://www.radiocaroline.co.uk/favicon.ico
+  Radio Paradise: http://stream-uk1.radioparadise.com/aac-320|https://radioparadise.com/apple-touch-icon.png
+  NPR: http://npr-ice.streamguys1.com/live.mp3|https://static-assets.npr.org/static/images/favicon/favicon-96x96.png
+  101 Smooth Jazz: http://jking.cdnstream1.com/b22139_128mp3|http://101smoothjazz.com/favicon.ico
+  Your Classical Relax: http://relax.stream.publicradio.org/relax.mp3|http://www.yourclassical.org/apple-touch-icon.png
+  Ambient Sleeping Pill: http://radio.stereoscenic.com/asp-h
+  181.FM Old School: http://listen.181fm.com/181-oldschool_128k.mp3|http://www.181.fm/favicon.ico
 
 Musik:
-  Klassik Radio Pure Mozart: http://stream.klassikradio.de/mozart/mp3-128/vtuner/
-  Klassik Radio Lounge: http://stream.klassikradio.de/lounge/mp3-128/www.klassikradio.de/
-  Klassik Radio Opera: http://stream.klassikradio.de/opera/mp3-128/www.klassikradio.de/
+  Klassik Radio Pure Mozart: http://stream.klassikradio.de/mozart/mp3-128/vtuner/|http://www.klassikradio.de/img/ms-mediumtile.png
+  Klassik Radio Lounge: http://stream.klassikradio.de/lounge/mp3-128/www.klassikradio.de/|http://cdn-radiotime-logos.tunein.com/s25028q.png
+  Klassik Radio Opera: http://stream.klassikradio.de/opera/mp3-128/www.klassikradio.de/|http://cdn-radiotime-logos.tunein.com/s25028q.png
   Radio BOB: http://streams.radiobob.de/bob-national/mp3-192/mediaplayer
   Radio BOB Classic Rock: http://streams.radiobob.de/bob-classicrock/mp3-192/streams.radiobob.de/
-  bigFM Sunset Lounge: http://streams.bigfm.de/bigfm-sunsetlounge-128-mp3
+  bigFM Sunset Lounge: http://streams.bigfm.de/bigfm-sunsetlounge-128-mp3|https://cdn.bigfm.de/sites/all/themes/bigfm/favicon.ico

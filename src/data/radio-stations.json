@@ -1,0 +1,371 @@
+{
+  "generated": "by scripts/radio-stations.py",
+  "lists": [
+    {
+      "id": "local",
+      "ytunerCategory": "Duesseldorf FM",
+      "stations": [
+        {
+          "id": "1live",
+          "name": "1LIVE",
+          "url": "http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 106.7,
+          "logo": "https://www1.wdr.de/radio/1live/resources/img/favicon/apple-touch-icon.png"
+        },
+        {
+          "id": "wdr-2",
+          "name": "WDR 2",
+          "url": "http://wdr-wdr2-rheinruhr.icecast.wdr.de/wdr/wdr2/rheinruhr/mp3/128/stream.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 99.2,
+          "logo": "https://www1.wdr.de/resources-v5.139.1/img/favicon/apple-touch-icon.png"
+        },
+        {
+          "id": "wdr-3",
+          "name": "WDR 3",
+          "url": "http://wdr-wdr3-live.icecast.wdr.de/wdr/wdr3/live/mp3/128/stream.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 95.1,
+          "logo": "https://www1.wdr.de/resources-v5.139.1/img/favicon/apple-touch-icon.png"
+        },
+        {
+          "id": "wdr-4",
+          "name": "WDR 4",
+          "url": "http://wdr-wdr4-live.icecast.wdr.de/wdr/wdr4/live/mp3/128/stream.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 101.3,
+          "logo": "https://www1.wdr.de/resources-v5.132.3/img/favicon/apple-touch-icon.png"
+        },
+        {
+          "id": "wdr-5",
+          "name": "WDR 5",
+          "url": "http://wdr-wdr5-live.icecast.wdr.de/wdr/wdr5/live/mp3/128/stream.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 88.8,
+          "logo": "https://www1.wdr.de/resources-v5.134.1/img/favicon/apple-touch-icon.png"
+        },
+        {
+          "id": "cosmo",
+          "name": "COSMO",
+          "url": "http://wdr-cosmo-live.icecast.wdr.de/wdr/cosmo/live/mp3/128/stream.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 103.3,
+          "logo": null
+        },
+        {
+          "id": "antenne-duesseldorf",
+          "name": "Antenne Duesseldorf",
+          "url": "http://stream.antenneduesseldorf.de/444z5kv",
+          "codec": "MP3",
+          "bitrate": 192,
+          "fm": 104.2,
+          "logo": "https://www.antenneduesseldorf.de/assets/images/favicons/antenneduesseldorf/favicon_x96.png"
+        },
+        {
+          "id": "nrw1",
+          "name": "NRW1",
+          "url": "http://stream.nrw1.de/nrw1/stream/mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 92.6,
+          "logo": null
+        },
+        {
+          "id": "bigfm",
+          "name": "bigFM",
+          "url": "http://streams.bigfm.de/bigfm-deutschland-128-mp3",
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": 105.7,
+          "logo": "http://cdn.bigfm.de/sites/all/themes/bigfm/favicon.ico"
+        },
+        {
+          "id": "deutschlandfunk",
+          "name": "Deutschlandfunk",
+          "url": "http://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 102.8,
+          "logo": "https://www.deutschlandfunk.de/static/img/deutschlandfunk/icons/apple-touch-icon-128x128.png"
+        },
+        {
+          "id": "deutschlandfunk-kultur",
+          "name": "Deutschlandfunk Kultur",
+          "url": "http://st02.sslstream.dlf.de/dlf/02/128/mp3/stream.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 96.5,
+          "logo": "https://www.deutschlandfunkkultur.de/static/img/deutschlandfunk_kultur/icons/apple-touch-icon-128x128.png"
+        },
+        {
+          "id": "deutschlandfunk-nova",
+          "name": "Deutschlandfunk Nova",
+          "url": "http://st03.sslstream.dlf.de/dlf/03/128/mp3/stream.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://www.deutschlandfunknova.de/apple-touch-icon.png"
+        }
+      ]
+    },
+    {
+      "id": "israel",
+      "ytunerCategory": "Israel",
+      "stations": [
+        {
+          "id": "galgalatz",
+          "name": "Galgalatz",
+          "url": "http://glzwizzlv.bynetcdn.com/glglz_mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 91.8,
+          "logo": "https://static-media.streema.com/media/cache/34/ee/34ee4ed52c07ad09122cbe047a7c0bfd.jpg"
+        },
+        {
+          "id": "galei-zahal",
+          "name": "Galei Zahal",
+          "url": "http://glzwizzlv.bynetcdn.com/glz_mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 96.6,
+          "logo": null
+        },
+        {
+          "id": "100fm-oldies",
+          "name": "100FM Oldies",
+          "url": "http://gb25.streamgates.net/radios-audio/100Oldies/icecast.audio",
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-oldies.png"
+        },
+        {
+          "id": "100fm-movies",
+          "name": "100FM Movies",
+          "url": "http://gb25.streamgates.net/radios-audio/100Movies/icecast.audio",
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": null
+        },
+        {
+          "id": "kol-barama",
+          "name": "Kol Barama",
+          "url": "http://kb.cdnwz.net/kol_barama",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 92.1,
+          "logo": "https://kol-barama.co.il/wp-content/themes/qs-starter/images/favicon/apple-touch-icon-120x120.png"
+        },
+        {
+          "id": "kol-hashfela",
+          "name": "Kol Hashfela",
+          "url": "http://1036kh.cdnwz.net/1036kh",
+          "codec": "AAC",
+          "bitrate": 64,
+          "fm": 103.6,
+          "logo": "https://static.wixstatic.com/media/cbf57a_82d58bf0f55940b8b288c481497d43c7~mv2.png/v1/crop/x_54,y_238,w_1861,h_624/fill/w_376,h_124,al_c,q_85,usm_0.66_1.00_0.01/kol.webp"
+        }
+      ]
+    },
+    {
+      "id": "english",
+      "ytunerCategory": "English",
+      "stations": [
+        {
+          "id": "bbc-world-service",
+          "name": "BBC World Service",
+          "url": "http://stream.live.vc.bbcmedia.co.uk/bbc_world_service",
+          "codec": "MP3",
+          "bitrate": 56,
+          "fm": null,
+          "logo": "null"
+        },
+        {
+          "id": "classic-fm",
+          "name": "Classic FM",
+          "url": "http://ice-the.musicradio.com/ClassicFMMP3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": null
+        },
+        {
+          "id": "lbc",
+          "name": "LBC",
+          "url": "http://media-sov.musicradio.com/LBC973MP3Low",
+          "codec": "MP3",
+          "bitrate": 48,
+          "fm": null,
+          "logo": "http://www.lbc.co.uk/assets_v4r/lbc/img/favicon-196x196.png"
+        },
+        {
+          "id": "capital-fm-london",
+          "name": "Capital FM London",
+          "url": "http://media-ice.musicradio.com/CapitalMP3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "http://assets6.capitalfm.com/2016/11/capital-3d-network-logo-large-canvas-1458228638-herowidev4-0.jpg"
+        },
+        {
+          "id": "heart-london",
+          "name": "Heart London",
+          "url": "http://ice-sov.musicradio.com/HeartLondonMP3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": null
+        },
+        {
+          "id": "smooth-radio",
+          "name": "Smooth Radio",
+          "url": "http://media-the.musicradio.com/SmoothEastMids",
+          "codec": "AAC",
+          "bitrate": 48,
+          "fm": null,
+          "logo": "https://firebasestorage.googleapis.com/v0/b/radiogalaxy-580f4.appspot.com/o/images%2FIMG_20240128_220647011.jpg?alt=media&token=1e224c71-df0a-40ea-9d54-0a76e133bd47"
+        },
+        {
+          "id": "radio-x",
+          "name": "Radio X",
+          "url": "http://icecast.thisisdax.com/RadioXUKMP3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://i.imgur.com/fbhlSLX.jpg"
+        },
+        {
+          "id": "radio-caroline",
+          "name": "Radio Caroline",
+          "url": "http://78.129.202.200:8040/;",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "http://www.radiocaroline.co.uk/favicon.ico"
+        },
+        {
+          "id": "radio-paradise",
+          "name": "Radio Paradise",
+          "url": "http://stream-uk1.radioparadise.com/aac-320",
+          "codec": "AAC",
+          "bitrate": 320,
+          "fm": null,
+          "logo": "https://radioparadise.com/apple-touch-icon.png"
+        },
+        {
+          "id": "npr",
+          "name": "NPR",
+          "url": "http://npr-ice.streamguys1.com/live.mp3",
+          "codec": "MP3",
+          "bitrate": 96,
+          "fm": null,
+          "logo": "https://static-assets.npr.org/static/images/favicon/favicon-96x96.png"
+        },
+        {
+          "id": "101-smooth-jazz",
+          "name": "101 Smooth Jazz",
+          "url": "http://jking.cdnstream1.com/b22139_128mp3",
+          "codec": "MP3",
+          "bitrate": 192,
+          "fm": null,
+          "logo": "http://101smoothjazz.com/favicon.ico"
+        },
+        {
+          "id": "your-classical-relax",
+          "name": "Your Classical Relax",
+          "url": "http://relax.stream.publicradio.org/relax.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "http://www.yourclassical.org/apple-touch-icon.png"
+        },
+        {
+          "id": "ambient-sleeping-pill",
+          "name": "Ambient Sleeping Pill",
+          "url": "http://radio.stereoscenic.com/asp-h",
+          "codec": "MP3",
+          "bitrate": 256,
+          "fm": null,
+          "logo": null
+        },
+        {
+          "id": "181-fm-old-school",
+          "name": "181.FM Old School",
+          "url": "http://listen.181fm.com/181-oldschool_128k.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "http://www.181.fm/favicon.ico"
+        }
+      ]
+    },
+    {
+      "id": "music",
+      "ytunerCategory": "Musik",
+      "stations": [
+        {
+          "id": "klassik-radio-pure-mozart",
+          "name": "Klassik Radio Pure Mozart",
+          "url": "http://stream.klassikradio.de/mozart/mp3-128/vtuner/",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "http://www.klassikradio.de/img/ms-mediumtile.png"
+        },
+        {
+          "id": "klassik-radio-lounge",
+          "name": "Klassik Radio Lounge",
+          "url": "http://stream.klassikradio.de/lounge/mp3-128/www.klassikradio.de/",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "http://cdn-radiotime-logos.tunein.com/s25028q.png"
+        },
+        {
+          "id": "klassik-radio-opera",
+          "name": "Klassik Radio Opera",
+          "url": "http://stream.klassikradio.de/opera/mp3-128/www.klassikradio.de/",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "http://cdn-radiotime-logos.tunein.com/s25028q.png"
+        },
+        {
+          "id": "radio-bob",
+          "name": "Radio BOB",
+          "url": "http://streams.radiobob.de/bob-national/mp3-192/mediaplayer",
+          "codec": "MP3",
+          "bitrate": 192,
+          "fm": null,
+          "logo": null
+        },
+        {
+          "id": "radio-bob-classic-rock",
+          "name": "Radio BOB Classic Rock",
+          "url": "http://streams.radiobob.de/bob-classicrock/mp3-192/streams.radiobob.de/",
+          "codec": "MP3",
+          "bitrate": 192,
+          "fm": null,
+          "logo": null
+        },
+        {
+          "id": "bigfm-sunset-lounge",
+          "name": "bigFM Sunset Lounge",
+          "url": "http://streams.bigfm.de/bigfm-sunsetlounge-128-mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://cdn.bigfm.de/sites/all/themes/bigfm/favicon.ico"
+        }
+      ]
+    }
+  ]
+}
