@@ -793,9 +793,21 @@ export function buildMediaSnapshot(
       ...NO_PLAY,
       kind: "music",
       // While our queue plays, its track is the truth: HA's title lags a few seconds after next/advance.
-      title: (queue?.playing ? queue.track?.title : null) ?? attrStr(a["media_title"]) ?? queue?.track?.title ?? null,
-      artist: (queue?.playing ? queue.track?.artist : null) ?? attrStr(a["media_artist"]) ?? queue?.track?.artist ?? null,
-      album: (queue?.playing ? queue.track?.album : null) ?? attrStr(a["media_album_name"]) ?? queue?.track?.album ?? null,
+      title:
+        (queue?.status === "playing" ? queue.track?.title : null) ??
+        attrStr(a["media_title"]) ??
+        queue?.track?.title ??
+        null,
+      artist:
+        (queue?.status === "playing" ? queue.track?.artist : null) ??
+        attrStr(a["media_artist"]) ??
+        queue?.track?.artist ??
+        null,
+      album:
+        (queue?.status === "playing" ? queue.track?.album : null) ??
+        attrStr(a["media_album_name"]) ??
+        queue?.track?.album ??
+        null,
       artItemId: queue?.track?.artItemId ?? null,
     };
   } else if (on && source === "TUNER") {
