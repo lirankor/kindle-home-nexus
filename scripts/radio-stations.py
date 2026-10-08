@@ -15,19 +15,20 @@ UA = {"User-Agent": "kindle-home-nexus/1.0"}
 RB = "http://de1.api.radio-browser.info/json/stations/"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
+# The local list is kept in ascending FM order on purpose: the Kindle dial shows the frequencies left→right.
 LISTS = [
   {"id": "local", "ytuner": "Duesseldorf FM", "stations": [
-    ("1LIVE", "http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3", 106.7),
-    ("WDR 2", "http://wdr-wdr2-rheinruhr.icecast.wdr.de/wdr/wdr2/rheinruhr/mp3/128/stream.mp3", 99.2),
-    ("WDR 3", "http://wdr-wdr3-live.icecast.wdr.de/wdr/wdr3/live/mp3/128/stream.mp3", 95.1),
-    ("WDR 4", "http://wdr-wdr4-live.icecast.wdr.de/wdr/wdr4/live/mp3/128/stream.mp3", 101.3),
     ("WDR 5", "http://wdr-wdr5-live.icecast.wdr.de/wdr/wdr5/live/mp3/128/stream.mp3", 88.8),
+    ("NRW1", "http://stream.nrw1.de/nrw1/stream/mp3", 92.6),
+    ("WDR 3", "http://wdr-wdr3-live.icecast.wdr.de/wdr/wdr3/live/mp3/128/stream.mp3", 95.1),
+    ("Deutschlandfunk Kultur", "http://st02.sslstream.dlf.de/dlf/02/128/mp3/stream.mp3", 96.5),
+    ("WDR 2", "http://wdr-wdr2-rheinruhr.icecast.wdr.de/wdr/wdr2/rheinruhr/mp3/128/stream.mp3", 99.2),
+    ("WDR 4", "http://wdr-wdr4-live.icecast.wdr.de/wdr/wdr4/live/mp3/128/stream.mp3", 101.3),
+    ("Deutschlandfunk", "http://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3", 102.8),
     ("COSMO", "http://wdr-cosmo-live.icecast.wdr.de/wdr/cosmo/live/mp3/128/stream.mp3", 103.3),
     ("Antenne Duesseldorf", "http://stream.antenneduesseldorf.de/444z5kv", 104.2),
-    ("NRW1", "http://stream.nrw1.de/nrw1/stream/mp3", 92.6),
     ("bigFM", "http://streams.bigfm.de/bigfm-deutschland-128-mp3", 105.7),
-    ("Deutschlandfunk", "http://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3", 102.8),
-    ("Deutschlandfunk Kultur", "http://st02.sslstream.dlf.de/dlf/02/128/mp3/stream.mp3", 96.5),
+    ("1LIVE", "http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3", 106.7),
     ("Deutschlandfunk Nova", "http://st03.sslstream.dlf.de/dlf/03/128/mp3/stream.mp3", None),
   ]},
   {"id": "israel", "ytuner": "Israel", "stations": [

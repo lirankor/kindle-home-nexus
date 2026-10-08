@@ -1,15 +1,15 @@
 Duesseldorf FM:
-  1LIVE: http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3|https://www1.wdr.de/radio/1live/resources/img/favicon/apple-touch-icon.png
-  WDR 2: http://wdr-wdr2-rheinruhr.icecast.wdr.de/wdr/wdr2/rheinruhr/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.139.1/img/favicon/apple-touch-icon.png
-  WDR 3: http://wdr-wdr3-live.icecast.wdr.de/wdr/wdr3/live/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.139.1/img/favicon/apple-touch-icon.png
-  WDR 4: http://wdr-wdr4-live.icecast.wdr.de/wdr/wdr4/live/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.132.3/img/favicon/apple-touch-icon.png
   WDR 5: http://wdr-wdr5-live.icecast.wdr.de/wdr/wdr5/live/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.134.1/img/favicon/apple-touch-icon.png
+  NRW1: http://stream.nrw1.de/nrw1/stream/mp3
+  WDR 3: http://wdr-wdr3-live.icecast.wdr.de/wdr/wdr3/live/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.139.1/img/favicon/apple-touch-icon.png
+  Deutschlandfunk Kultur: http://st02.sslstream.dlf.de/dlf/02/128/mp3/stream.mp3|https://www.deutschlandfunkkultur.de/static/img/deutschlandfunk_kultur/icons/apple-touch-icon-128x128.png
+  WDR 2: http://wdr-wdr2-rheinruhr.icecast.wdr.de/wdr/wdr2/rheinruhr/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.139.1/img/favicon/apple-touch-icon.png
+  WDR 4: http://wdr-wdr4-live.icecast.wdr.de/wdr/wdr4/live/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.132.3/img/favicon/apple-touch-icon.png
+  Deutschlandfunk: http://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3|https://www.deutschlandfunk.de/static/img/deutschlandfunk/icons/apple-touch-icon-128x128.png
   COSMO: http://wdr-cosmo-live.icecast.wdr.de/wdr/cosmo/live/mp3/128/stream.mp3
   Antenne Duesseldorf: http://stream.antenneduesseldorf.de/444z5kv|https://www.antenneduesseldorf.de/assets/images/favicons/antenneduesseldorf/favicon_x96.png
-  NRW1: http://stream.nrw1.de/nrw1/stream/mp3
   bigFM: http://streams.bigfm.de/bigfm-deutschland-128-mp3|http://cdn.bigfm.de/sites/all/themes/bigfm/favicon.ico
-  Deutschlandfunk: http://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3|https://www.deutschlandfunk.de/static/img/deutschlandfunk/icons/apple-touch-icon-128x128.png
-  Deutschlandfunk Kultur: http://st02.sslstream.dlf.de/dlf/02/128/mp3/stream.mp3|https://www.deutschlandfunkkultur.de/static/img/deutschlandfunk_kultur/icons/apple-touch-icon-128x128.png
+  1LIVE: http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3|https://www1.wdr.de/radio/1live/resources/img/favicon/apple-touch-icon.png
   Deutschlandfunk Nova: http://st03.sslstream.dlf.de/dlf/03/128/mp3/stream.mp3|https://www.deutschlandfunknova.de/apple-touch-icon.png
 
 Israel:

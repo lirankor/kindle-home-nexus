@@ -6,22 +6,22 @@
       "ytunerCategory": "Duesseldorf FM",
       "stations": [
         {
-          "id": "1live",
-          "name": "1LIVE",
-          "url": "http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3",
+          "id": "wdr-5",
+          "name": "WDR 5",
+          "url": "http://wdr-wdr5-live.icecast.wdr.de/wdr/wdr5/live/mp3/128/stream.mp3",
           "codec": "MP3",
           "bitrate": 128,
-          "fm": 106.7,
-          "logo": "https://www1.wdr.de/radio/1live/resources/img/favicon/apple-touch-icon.png"
+          "fm": 88.8,
+          "logo": "https://www1.wdr.de/resources-v5.134.1/img/favicon/apple-touch-icon.png"
         },
         {
-          "id": "wdr-2",
-          "name": "WDR 2",
-          "url": "http://wdr-wdr2-rheinruhr.icecast.wdr.de/wdr/wdr2/rheinruhr/mp3/128/stream.mp3",
+          "id": "nrw1",
+          "name": "NRW1",
+          "url": "http://stream.nrw1.de/nrw1/stream/mp3",
           "codec": "MP3",
           "bitrate": 128,
-          "fm": 99.2,
-          "logo": "https://www1.wdr.de/resources-v5.139.1/img/favicon/apple-touch-icon.png"
+          "fm": 92.6,
+          "logo": null
         },
         {
           "id": "wdr-3",
@@ -30,6 +30,24 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": 95.1,
+          "logo": "https://www1.wdr.de/resources-v5.139.1/img/favicon/apple-touch-icon.png"
+        },
+        {
+          "id": "deutschlandfunk-kultur",
+          "name": "Deutschlandfunk Kultur",
+          "url": "http://st02.sslstream.dlf.de/dlf/02/128/mp3/stream.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 96.5,
+          "logo": "https://www.deutschlandfunkkultur.de/static/img/deutschlandfunk_kultur/icons/apple-touch-icon-128x128.png"
+        },
+        {
+          "id": "wdr-2",
+          "name": "WDR 2",
+          "url": "http://wdr-wdr2-rheinruhr.icecast.wdr.de/wdr/wdr2/rheinruhr/mp3/128/stream.mp3",
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": 99.2,
           "logo": "https://www1.wdr.de/resources-v5.139.1/img/favicon/apple-touch-icon.png"
         },
         {
@@ -42,13 +60,13 @@
           "logo": "https://www1.wdr.de/resources-v5.132.3/img/favicon/apple-touch-icon.png"
         },
         {
-          "id": "wdr-5",
-          "name": "WDR 5",
-          "url": "http://wdr-wdr5-live.icecast.wdr.de/wdr/wdr5/live/mp3/128/stream.mp3",
+          "id": "deutschlandfunk",
+          "name": "Deutschlandfunk",
+          "url": "http://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3",
           "codec": "MP3",
           "bitrate": 128,
-          "fm": 88.8,
-          "logo": "https://www1.wdr.de/resources-v5.134.1/img/favicon/apple-touch-icon.png"
+          "fm": 102.8,
+          "logo": "https://www.deutschlandfunk.de/static/img/deutschlandfunk/icons/apple-touch-icon-128x128.png"
         },
         {
           "id": "cosmo",
@@ -69,15 +87,6 @@
           "logo": "https://www.antenneduesseldorf.de/assets/images/favicons/antenneduesseldorf/favicon_x96.png"
         },
         {
-          "id": "nrw1",
-          "name": "NRW1",
-          "url": "http://stream.nrw1.de/nrw1/stream/mp3",
-          "codec": "MP3",
-          "bitrate": 128,
-          "fm": 92.6,
-          "logo": null
-        },
-        {
           "id": "bigfm",
           "name": "bigFM",
           "url": "http://streams.bigfm.de/bigfm-deutschland-128-mp3",
@@ -87,22 +96,13 @@
           "logo": "http://cdn.bigfm.de/sites/all/themes/bigfm/favicon.ico"
         },
         {
-          "id": "deutschlandfunk",
-          "name": "Deutschlandfunk",
-          "url": "http://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3",
+          "id": "1live",
+          "name": "1LIVE",
+          "url": "http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3",
           "codec": "MP3",
           "bitrate": 128,
-          "fm": 102.8,
-          "logo": "https://www.deutschlandfunk.de/static/img/deutschlandfunk/icons/apple-touch-icon-128x128.png"
-        },
-        {
-          "id": "deutschlandfunk-kultur",
-          "name": "Deutschlandfunk Kultur",
-          "url": "http://st02.sslstream.dlf.de/dlf/02/128/mp3/stream.mp3",
-          "codec": "MP3",
-          "bitrate": 128,
-          "fm": 96.5,
-          "logo": "https://www.deutschlandfunkkultur.de/static/img/deutschlandfunk_kultur/icons/apple-touch-icon-128x128.png"
+          "fm": 106.7,
+          "logo": "https://www1.wdr.de/radio/1live/resources/img/favicon/apple-touch-icon.png"
         },
         {
           "id": "deutschlandfunk-nova",
