@@ -300,8 +300,13 @@ export function pickStreamUrl(
 ) {
   const root = base.replace(/\/+$/, "");
   const c = (container ?? "").toLowerCase().split(",")[0] ?? "";
+  // No "&" in the URL the amp gets: the R-N500 takes the stream URL from the DIDL metadata, double-escapes
+  // "&" and mangles SetNextAVTransportURI when the URL contains one (verified 2026-10-08). Jellyfin serves
+  // audio streams without an api key, so static streams need a single query parameter only.
   if (NATIVE_CONTAINERS.includes(c))
-    return `${root}/Audio/${trackId}/stream.${c === "mp3" ? "mp3" : c}?static=true&api_key=${encodeURIComponent(apiKey)}`;
+    return `${root}/Audio/${trackId}/stream.${c === "mp3" ? "mp3" : c}?static=true`;
+  // Transcode (ogg/opus/unknown) needs the key and several parameters; the amp still plays it, only the
+  // gapless next-track handoff falls back to the queue timer for these.
   return `${root}/Audio/${trackId}/universal?container=mp3&audioCodec=mp3&maxStreamingBitrate=320000&api_key=${encodeURIComponent(apiKey)}`;
 }
 export const streamMime = (container: string | null) => {

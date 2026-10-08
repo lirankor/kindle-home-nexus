@@ -191,7 +191,7 @@ describe("AVTransport", () => {
 describe("Jellyfin stream URL", () => {
   it("uses the static stream for native containers and transcodes ogg/opus", () => {
     expect(pickStreamUrl("http://j/", "k", "id1", "mp3")).toBe(
-      "http://j/Audio/id1/stream.mp3?static=true&api_key=k",
+      "http://j/Audio/id1/stream.mp3?static=true",
     );
     expect(pickStreamUrl("http://j", "k", "id1", "flac")).toBe(
       "http://j/Audio/id1/stream.flac?static=true&api_key=k",
