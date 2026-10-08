@@ -1,0 +1,25 @@
+# Stations offered under "Duesseldorf" in the amp's NET RADIO menu (YTuner MyStations).
+# Format:  Category:\n  Station name: http://stream-url|http://logo-url
+# Only plain http:// MP3/AAC streams: the R-N500 cannot do HTTPS, HLS, OGG or Opus.
+# All URLs verified 2026-10-08 (HTTP 200, audio/mpeg, no https redirect).
+Duesseldorf FM:
+  1LIVE: http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3
+  WDR 2 Rhein und Ruhr: http://wdr-wdr2-rheinruhr.icecast.wdr.de/wdr/wdr2/rheinruhr/mp3/128/stream.mp3
+  WDR 3: http://wdr-wdr3-live.icecast.wdr.de/wdr/wdr3/live/mp3/128/stream.mp3
+  WDR 4: http://wdr-wdr4-live.icecast.wdr.de/wdr/wdr4/live/mp3/128/stream.mp3
+  WDR 5: http://wdr-wdr5-live.icecast.wdr.de/wdr/wdr5/live/mp3/128/stream.mp3
+  COSMO: http://wdr-cosmo-live.icecast.wdr.de/wdr/cosmo/live/mp3/128/stream.mp3
+  Antenne Duesseldorf: http://stream.antenneduesseldorf.de/444z5kv
+  NRW1: http://stream.nrw1.de/nrw1/stream/mp3
+  bigFM: http://streams.bigfm.de/bigfm-deutschland-128-mp3
+  Deutschlandfunk: http://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3
+  Deutschlandfunk Kultur: http://st02.sslstream.dlf.de/dlf/02/128/mp3/stream.mp3
+  Deutschlandfunk Nova: http://st03.sslstream.dlf.de/dlf/03/128/mp3/stream.mp3
+
+Musik:
+  Klassik Radio Pure Mozart: http://stream.klassikradio.de/mozart/mp3-128/vtuner/
+  Klassik Radio Lounge: http://stream.klassikradio.de/lounge/mp3-128/www.klassikradio.de/
+  Klassik Radio Opera: http://stream.klassikradio.de/opera/mp3-128/www.klassikradio.de/
+  Radio BOB: http://streams.radiobob.de/bob-national/mp3-192/mediaplayer
+  Radio BOB Classic Rock: http://streams.radiobob.de/bob-classicrock/mp3-192/streams.radiobob.de/
+  bigFM Sunset Lounge: http://streams.bigfm.de/bigfm-sunsetlounge-128-mp3

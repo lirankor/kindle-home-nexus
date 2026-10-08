@@ -33,6 +33,19 @@ services:
     # Chromium needs more than Docker's default 64MB /dev/shm
     shm_size: "512m"
 
+  # YTuner: vTuner replacement for the amp's NET RADIO input (see ytuner/README.md).
+  # Reached via Caddy (host :80, Host *.vtuner.com) -> 127.0.0.1:8095; Pi-hole points *.vtuner.com at pop-os.
+  ytuner:
+    build: ./ytuner
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8095:80"
+    volumes:
+      - ytuner-cache:/app/cache
+
+volumes:
+  ytuner-cache:
+
 networks:
   default:
     # Fixed subnet so a host firewall rule can allow this stack to reach Home Assistant:
