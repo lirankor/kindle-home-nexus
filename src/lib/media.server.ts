@@ -537,10 +537,12 @@ export async function grayscalePng(src: string, width: number): Promise<Buffer |
   try {
     const { default: sharp } = await import("sharp");
     png = await sharp(raw)
-      // Light-grey tile instead of white: white-on-transparent logos (e.g. Smooth Radio) otherwise vanish.
-      .flatten({ background: "#d9d9d9" })
-      .resize(width, width, { fit: "contain", background: "#d9d9d9" })
+      // Mid-grey tile + contrast stretch: white or very light logos (Smooth Radio, WDR 5, bigFM) otherwise
+      // vanish on the 16-grey e-ink panel.
+      .flatten({ background: "#bdbdbd" })
+      .resize(width, width, { fit: "contain", background: "#bdbdbd" })
       .grayscale()
+      .normalise()
       .png({ compressionLevel: 9 })
       .toBuffer();
   } catch {
