@@ -28,13 +28,13 @@ type HaAttrs = {
   source?: unknown;
   temperature?: unknown;
 };
-type HaState = { entity_id: string; state: string; attributes: HaAttrs };
-class HomeError extends Error {}
+export type HaState = { entity_id: string; state: string; attributes: HaAttrs };
+export class HomeError extends Error {}
 
 const env = (name: string) => (process.env[name] ?? "").trim().replace(/\/+$/, "");
 export const haConfigured = () => env("HA_TOKEN") !== "";
 
-async function ha<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+export async function ha<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
   const base = env("HA_BASE_URL") || "http://host.docker.internal:8123";
   let res: Response;
   try {
@@ -52,9 +52,9 @@ async function ha<T>(method: "GET" | "POST", path: string, body?: unknown): Prom
   return (await res.json()) as T;
 }
 
-const fetchStates = async () =>
+export const fetchStates = async () =>
   new Map((await ha<HaState[]>("GET", "/api/states")).map((s) => [s.entity_id, s]));
-const service = (domain: string, name: string, data: Record<string, unknown>) =>
+export const service = (domain: string, name: string, data: Record<string, unknown>) =>
   ha("POST", `/api/services/${domain}/${name}`, data);
 
 const num = (s?: HaState): number | null => {
