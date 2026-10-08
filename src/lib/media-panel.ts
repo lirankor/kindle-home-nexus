@@ -155,21 +155,37 @@ export function useMediaPanel({
   configuredRef.current = configured;
   const pollError = query.isError ? t("err.server") : result?.error;
 
-  // Power-on routine: the snapshot carries the last status; while it runs, poll it every 2 s.
+  // Power-on routine: the snapshot carries the last status and `localPowerOn` the one returned when
+  // this client started it (step "plug", 0 s). While either copy says running, poll the server every
+  // 2 s and let every answer replace the client copy, so the block follows the server's step and
+  // elapsed time and drops within one poll once the server reports done / failed (seen 2026-10-08:
+  // the client copy stayed on step 1 for a minute after a routine that finished at once).
   const fromSnapshot = data?.powerOn ?? null;
-  const base =
-    localPowerOn && (!fromSnapshot || localPowerOn.startedAt >= fromSnapshot.startedAt)
-      ? localPowerOn
-      : fromSnapshot;
+  const anyRunning = (localPowerOn?.running ?? false) || (fromSnapshot?.running ?? false);
   const poQuery = useQuery<PowerOnStatus | null>({
     queryKey: ["media", "powerOn"],
     queryFn: () => getPowerOnStatus(),
-    enabled: (base?.running ?? false) && screen !== null,
+    enabled: anyRunning && screen !== null,
     refetchInterval: POWER_ON_POLL_MS,
     refetchIntervalInBackground: true,
   });
+  const polled = poQuery.data;
+  const polledAt = poQuery.dataUpdatedAt;
+  useEffect(() => {
+    if (polled === undefined) return;
+    // null = the server knows no routine (restarted): nothing to show. An older status (cached from
+    // a previous routine) never overrides a newer one.
+    setLocalPowerOn((local) =>
+      polled === null ? null : !local || polled.startedAt >= local.startedAt ? polled : local,
+    );
+  }, [polled, polledAt]);
+  /** Newest startedAt wins between the client copy and the snapshot's. */
   const powerOn =
-    poQuery.data && base && poQuery.data.startedAt >= base.startedAt ? poQuery.data : base;
+    localPowerOn && fromSnapshot
+      ? localPowerOn.startedAt >= fromSnapshot.startedAt
+        ? localPowerOn
+        : fromSnapshot
+      : (localPowerOn ?? fromSnapshot);
   const step = powerOn?.step;
   const prevStep = useRef(step);
   /** Station chosen on the dial while the amp was off: tuned once the power-on routine is done. */
@@ -181,6 +197,7 @@ export function useMediaPanel({
     prevStep.current = step;
     if (step === "done" || step === "failed") {
       void queryClient.invalidateQueries({ queryKey: ["media"] });
+      refetchSnapshotSoon();
       notify({
         text: step === "done" ? t("poweron.done") : (powerOn?.error ?? t("poweron.failed")),
         error: step === "failed",

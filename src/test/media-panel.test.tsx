@@ -210,17 +210,16 @@ describe("Media tab and amp view", () => {
     off.snapshot!.amp.state = "off";
     mocks.getMediaSnapshot.mockResolvedValue(off);
     const now = Date.now();
-    mocks.startAmpPowerOn.mockResolvedValue({
-      ok: true,
-      status: {
-        running: true,
-        step: "wait",
-        startedAt: now,
-        updatedAt: now,
-        elapsedMs: 0,
-        source: "NET RADIO",
-      },
-    });
+    const waiting = {
+      running: true,
+      step: "wait" as const,
+      startedAt: now,
+      updatedAt: now,
+      elapsedMs: 0,
+      source: "NET RADIO" as const,
+    };
+    mocks.startAmpPowerOn.mockResolvedValue({ ok: true, status: waiting });
+    mocks.getPowerOnStatus.mockResolvedValue({ ...waiting, elapsedMs: 2000 });
     renderPanel("en");
     await waitFor(() => expect(screen.getByTitle("Open the amplifier")).toBeVisible());
     press("F3");
@@ -232,6 +231,52 @@ describe("Media tab and amp view", () => {
     await waitFor(() => expect(dialog.textContent).toContain("Waiting for the amplifier…"));
     expect(dialog.querySelector('[data-state="active"]')?.textContent).toContain("Waiting");
     expect(dialog.querySelector('[data-state="done"]')?.textContent).toContain("plug");
+  });
+
+  it("drops the step block within one poll when the server finishes at once, and refetches the snapshot", async () => {
+    // Seen on the device: a stale "off" snapshot, F4 → the start call answers step "plug"; the amp
+    // was in fact on, so the server finished within seconds, but the block stayed on step 1 / 0 s.
+    const off = liveResult();
+    off.snapshot!.amp.on = false;
+    off.snapshot!.amp.state = "off";
+    mocks.getMediaSnapshot.mockResolvedValue(off);
+    const now = Date.now();
+    const started = {
+      running: true,
+      step: "plug" as const,
+      startedAt: now,
+      updatedAt: now,
+      elapsedMs: 0,
+      source: null,
+    };
+    mocks.startAmpPowerOn.mockResolvedValue({ ok: true, status: started });
+    mocks.getPowerOnStatus.mockResolvedValue({
+      ...started,
+      running: false,
+      step: "done",
+      updatedAt: now + 1500,
+      elapsedMs: 1500,
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
+    press("F3");
+    const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
+    await waitFor(() => expect(dialog.textContent).toContain("המגבר כבוי"));
+    const snapshots = mocks.getMediaSnapshot.mock.calls.length;
+    mocks.getMediaSnapshot.mockResolvedValue(liveResult()); // the refetch sees the amp on
+    press("F4");
+    await waitFor(() => expect(mocks.startAmpPowerOn).toHaveBeenCalledWith({ data: {} }));
+    await waitFor(() => expect(mocks.getPowerOnStatus).toHaveBeenCalled());
+    await waitFor(() => expect(dialog.textContent).not.toContain("מדליק את המגבר"), {
+      timeout: 3000,
+    });
+    expect(dialog.querySelector(".poweron")).toBeNull();
+    // The snapshot was refetched after "done": the amp shows as on with its volume.
+    await waitFor(() =>
+      expect(mocks.getMediaSnapshot.mock.calls.length).toBeGreaterThan(snapshots),
+    );
+    await waitFor(() => expect(dialog.querySelector(".amp-knob")?.textContent).toBe("-44.5dB"));
+    expect(dialog.textContent).toContain("WDR 5");
   });
 
   it("refetches the snapshot when a screen opens and again 2 s after an action", async () => {

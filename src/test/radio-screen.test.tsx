@@ -354,17 +354,16 @@ describe("Radio screen", () => {
     mocks.getMediaSnapshot.mockResolvedValue(off);
     mocks.getRadioLists.mockResolvedValue({ ...demoRadioLists(), configured: true });
     const now = Date.now();
-    mocks.startAmpPowerOn.mockResolvedValue({
-      ok: true,
-      status: {
-        running: true,
-        step: "plug",
-        startedAt: now,
-        updatedAt: now,
-        elapsedMs: 0,
-        source: "NET RADIO",
-      },
-    });
+    const started = {
+      running: true,
+      step: "plug" as const,
+      startedAt: now,
+      updatedAt: now,
+      elapsedMs: 0,
+      source: "NET RADIO" as const,
+    };
+    mocks.startAmpPowerOn.mockResolvedValue({ ok: true, status: started });
+    mocks.getPowerOnStatus.mockResolvedValue({ ...started, elapsedMs: 2000 });
     renderPanel("en");
     await waitFor(() => expect(screen.getByTitle("Open the amplifier")).toBeVisible());
     act(() => screen.getByTestId("open-radio").click());
