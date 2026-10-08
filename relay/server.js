@@ -19,8 +19,29 @@ console.log(`relay: ${stations.size} stations from ${CATALOG}, port ${PORT}`);
 let clients = 0;
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
+// Redirect targets must be public http(s) hosts: never loopback, link-local or RFC1918 addresses.
+function publicTarget(u) {
+  let p;
+  try {
+    p = new URL(u);
+  } catch {
+    return false;
+  }
+  if (p.protocol !== "http:" && p.protocol !== "https:") return false;
+  const h = p.hostname.toLowerCase();
+  if (h === "localhost" || h.endsWith(".local") || h.endsWith(".internal")) return false;
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    if (a === 10 || a === 127 || a === 0 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127)) return false;
+  }
+  if (h.includes(":")) return false; // no IPv6 literals
+  return true;
+}
+
 function open(url, hops, cb) {
   if (hops > 5) return cb(new Error("too many redirects"));
+  if (!publicTarget(url)) return cb(new Error("target not allowed"));
   const mod = url.startsWith("https:") ? https : http;
   const req = mod.get(url, { headers: { "User-Agent": UA, "Icy-MetaData": "0", Accept: "*/*" }, timeout: 15000 }, (up) => {
     if (up.statusCode >= 300 && up.statusCode < 400 && up.headers.location) {
@@ -47,22 +68,25 @@ http
     if (clients >= MAX_CLIENTS) return res.writeHead(503).end();
     clients++;
     log(`+ ${st.id} (${clients})`);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      clients--;
+      log(`- ${st.id} (${clients})`);
+    };
+    res.on("close", release);
     open(st.url, 0, (err, up) => {
       if (err) {
-        clients--;
         log(`! ${st.id}: ${err.message}`);
         if (!res.headersSent) res.writeHead(502);
-        return res.end();
+        res.end();
+        return release();
       }
       const type = up.headers["content-type"] || (st.codec === "AAC" ? "audio/aac" : "audio/mpeg");
       res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-cache", Connection: "close", "icy-name": st.name });
       up.pipe(res);
-      const done = () => {
-        clients--;
-        log(`- ${st.id} (${clients})`);
-        up.destroy();
-      };
-      res.on("close", done);
+      res.on("close", () => up.destroy());
       up.on("error", () => res.destroy());
     });
   })
