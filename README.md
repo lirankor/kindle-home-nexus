@@ -14,7 +14,7 @@ Continue developing this project in the [Lovable editor](https://lovable.dev/pro
 
 ## Development
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+Prefer working locally? You need Node.js 22.14+ and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
 
 ```sh
 git clone <this-repository-url>
@@ -26,7 +26,9 @@ npm run dev
 ## Home Assistant and Immich
 
 The server talks to Home Assistant (REST API) and Immich; the browser only talks to this app.
-Copy `.env.example` to `.env` (git-ignored; `docker compose` loads it automatically):
+Copy `.env.example` to `.env` if you don't already have one (git-ignored; both `npm run dev` and `docker compose` load it automatically). Set `HA_BASE_URL` to your real Home Assistant URL reachable from your computer and fill in `HA_TOKEN`, then run `npm run dev`. Restart the dev server after editing `.env`. Credentials are read server-side; do not prefix them with `VITE_`.
+
+For local development, omit `MEDIA_STATE_DIR` and `MEDIA_CACHE_DIR` to use writable temporary directories instead of Docker's `/data` path.
 
 | Variable | Meaning |
 | --- | --- |

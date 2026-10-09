@@ -487,8 +487,8 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .media-db { font-size: 42px; font-weight: 600; color: var(--foreground); line-height: 1; }
 .media-db small { font-size: 22px; font-weight: 400; }
 .amp-head { display: flex; gap: 20px; align-items: center; min-height: 160px; }
-.amp-art { width: 160px; height: 160px; flex-shrink: 0; border: 1px solid var(--foreground); display: flex; align-items: center; justify-content: center; background: var(--secondary); overflow: hidden; }
-.amp-art img { width: 160px; height: 160px; object-fit: cover; filter: grayscale(1) contrast(1.15); display: block; }
+.amp-art { width: 240px; height: 240px; flex-shrink: 0; border: 1px solid var(--foreground); display: flex; align-items: center; justify-content: center; background: var(--secondary); overflow: hidden; }
+.amp-art img { width: 240px; height: 240px; object-fit: cover; filter: grayscale(1) contrast(1.15); display: block; }
 .amp-head[data-on="false"] .amp-art { color: var(--muted-foreground); }
 .amp-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .amp-badge { align-self: flex-start; font-size: 18px; font-weight: 700; padding: 2px 10px; background: var(--primary); color: var(--primary-foreground); }
@@ -510,7 +510,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .transport-down { grid-area: down; }
 .transport-prev { grid-area: prev; }
 .transport-next { grid-area: next; }
-.transport-pad { grid-area: pad; width: 110px; height: 110px; box-sizing: border-box; border: 6px solid var(--foreground); border-radius: 22px; background: var(--background); display: flex; align-items: center; justify-content: center; }
+.transport-pad { grid-area: pad; width: 80px; height: 80px; box-sizing: border-box; border: 4px solid var(--foreground); border-radius: 16px; background: var(--background); display: flex; align-items: center; justify-content: center; }
 .transport-vol { display: flex; align-items: center; gap: 1px; line-height: 1; }
 .transport-vol b { font-size: 22px; font-weight: 700; }
 .transport-db { margin-top: 6px; font-size: 22px; line-height: 1; }
@@ -519,7 +519,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 [data-on="false"] .transport { color: var(--muted-foreground); }
 [data-on="false"] .transport-pad { border-color: var(--border); }
 .transport-small .transport-grid { gap: 4px 14px; }
-.transport-small .transport-pad { width: 80px; height: 80px; border-width: 4px; border-radius: 16px; }
+.transport-small .transport-pad { width: 60px; height: 60px; border-width: 3px; border-radius: 12px; }
 .transport-small .transport-vol b { font-size: 18px; }
 .transport-small .transport-db { margin-top: 4px; font-size: 18px; }
 .transport-small .transport-db small { font-size: 14px; }
@@ -580,3 +580,20 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .music-foot { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 10px; }
 .music-page { font-size: 22px; font-weight: 700; flex-shrink: 0; }
 .amp-progress[data-status="paused"] .progress-track span { background: var(--muted-foreground); }
+
+/* Source and volume flank the physical controller; RTL mirrors only the readings. */
+.amp-transport, .radio-transport-row { margin-bottom: 12px; }
+.amp-transport .transport, .radio-transport-row .transport { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; width: 100%; direction: inherit; margin-top: 0; padding-top: 12px; border-top: 1px solid var(--border); }
+.amp-transport .transport { border-top: 0; padding-top: 0; }
+.amp-head { min-height: 0; justify-content: center; text-align: center; }
+.amp-meta { align-items: center; text-align: center; }
+.amp-art { align-self: center; margin-top: 12px; }
+.radio-now-text { flex: 0 0 128px; height: 128px; justify-content: center; align-items: center; text-align: center; margin-top: 0; }
+.radio-dial { margin-top: 10px; }
+.radio-cover { align-self: center; margin-top: 8px; }
+.radio-transport-row .transport { border-top: 0; padding-top: 0; }
+.transport-reading { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; text-align: center; }
+.transport-reading > span { font-size: 20px; color: var(--muted-foreground); }
+.transport-reading > strong { font-size: 26px; line-height: 1.2; overflow-wrap: anywhere; }
+.transport-reading .transport-db { margin-top: 0; font-size: 30px; white-space: nowrap; }
+.transport-reading .transport-db small { font-size: 18px; }

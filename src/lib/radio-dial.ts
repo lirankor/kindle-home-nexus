@@ -168,10 +168,10 @@ export type DialGeometry = {
   belowY: number;
 };
 
-/** The station dial (~150 px tall at the content width). */
+/** The station dial (~164 px tall at the content width), with fixed label gaps around the bar. */
 export const DIAL: DialGeometry = {
   width: 544,
-  height: 150,
+  height: 164,
   barY: 80,
   barH: 18,
   endBlock: 48,
@@ -185,14 +185,14 @@ export const DIAL: DialGeometry = {
   labelPx: 19,
   currentPx: 22,
   namePx: 22,
-  aboveY: 64,
-  belowY: 132,
+  aboveY: 58,
+  belowY: 146,
 };
 
 export const stationX = (index: number, count: number, g: DialGeometry = DIAL): number =>
   count <= 1 ? (g.x0 + g.x1) / 2 : g.x0 + (index * (g.x1 - g.x0)) / Math.max(1, count - 1);
 
-/** Segment rectangles of the bar: solid ends, dashes between, a longer solid stop at every `stops` x. */
+/** Segment rectangles of the bar: solid ends, dashes between, a longer solid stop at every station. */
 export function dialSegments(stops: number[], g: DialGeometry = DIAL): { x: number; w: number }[] {
   const { width, endBlock, dash, gap } = g;
   const out: { x: number; w: number }[] = [{ x: 0, w: endBlock }];
