@@ -12,6 +12,12 @@ const HEIGHT = Number(env("HEIGHT", 800));
 const REFRESH_MS = Number(env("REFRESH_MS", 30000));
 const KEY_SETTLE_MS = Number(env("KEY_SETTLE_MS", 200));
 const PAGE_RELOAD_MS = Number(env("PAGE_RELOAD_MS", 0));
+// Any single CDP call (screenshot, evaluate, reload) that takes longer than this means the renderer hung:
+// fail fast and relaunch instead of puppeteer's 180 s default.
+const PROTOCOL_TIMEOUT_MS = Number(env("PROTOCOL_TIMEOUT_MS", 20000));
+// The page keeps a 1 s heartbeat in window.__alive; if it stops advancing for this long the page's JS is
+// frozen (seen 2026-10-09: the amp view stuck on one frame while the music moved on) → reload it.
+const ALIVE_STALE_MS = Number(env("ALIVE_STALE_MS", 45000));
 
 const KEYS = {
   up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight",
@@ -30,6 +36,7 @@ let browser = null;
 let page = null;
 let latest = null; // { buf, etag }
 let lastShotAt = null;
+let lastAlive = { value: 0, seenAt: 0 };
 let starting = null;
 const frames = new EventEmitter();
 frames.setMaxListeners(0);
@@ -50,6 +57,7 @@ async function launch() {
     log("launching chromium");
     browser = await puppeteer.launch({
       headless: true,
+      protocolTimeout: PROTOCOL_TIMEOUT_MS,
       executablePath: env("PUPPETEER_EXECUTABLE_PATH", undefined) || undefined,
       args: [
         "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
@@ -61,6 +69,12 @@ async function launch() {
     browser.on("disconnected", () => { log("browser disconnected"); browser = page = null; });
     page = await browser.newPage();
     page.on("error", (e) => { log("page crash", e.message); page = null; });
+    // Heartbeat for the freeze watchdog in shoot(); evaluateOnNewDocument survives reloads.
+    await page.evaluateOnNewDocument(() => {
+      window.__alive = Date.now();
+      setInterval(() => { window.__alive = Date.now(); }, 1000);
+    });
+    lastAlive = { value: 0, seenAt: Date.now() };
     await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });
     let delay = 1000;
     for (;;) {
@@ -74,7 +88,6 @@ async function launch() {
         delay = Math.min(delay * 2, 15000);
       }
     }
-    await page.keyboard.press("ArrowDown");
     log("page ready", APP_URL);
     await injectBattery(page);
   })().finally(() => { starting = null; });
@@ -129,12 +142,25 @@ async function shoot() {
   // region via data-eink-photo="x,y,w,h" that gets e-ink specific processing (levels, sharpen, dither).
   let hint = "partial";
   let photo = null;
+  let alive = 0;
   try {
-    const ds = await p.evaluate(() => ({ r: document.documentElement.dataset.einkRefresh || "", p: document.documentElement.dataset.einkPhoto || "" }));
+    const ds = await p.evaluate(() => ({ r: document.documentElement.dataset.einkRefresh || "", p: document.documentElement.dataset.einkPhoto || "", a: window.__alive || 0 }));
     hint = ds.r === "full" ? "full" : "partial";
     const m = /^(\d+),(\d+),(\d+),(\d+)$/.exec(ds.p || "");
     if (m) photo = { x: +m[1], y: +m[2], w: +m[3], h: +m[4] };
+    alive = ds.a;
   } catch {}
+  // Freeze watchdog: the heartbeat must move between shots; a page whose timers stopped gets reloaded
+  // (same profile, so the remembered tab survives); if even that hangs, the protocol timeout relaunches.
+  if (alive) {
+    if (alive !== lastAlive.value) lastAlive = { value: alive, seenAt: Date.now() };
+    else if (Date.now() - lastAlive.seenAt > ALIVE_STALE_MS) {
+      log(`page heartbeat stalled for ${Math.round((Date.now() - lastAlive.seenAt) / 1000)} s, reloading`);
+      lastAlive = { value: 0, seenAt: Date.now() };
+      await p.reload({ waitUntil: "networkidle0", timeout: 20000 });
+      return shoot();
+    }
+  }
   let frame = sharp(png)
     .resize(WIDTH, HEIGHT, { fit: "fill" })
     .flatten({ background: "#ffffff" })
@@ -187,7 +213,6 @@ async function reloadPage() {
   return exclusive(async () => {
     const p = await ensurePage();
     await p.reload({ waitUntil: "networkidle0", timeout: 20000 });
-    await p.keyboard.press("ArrowDown");
     await sleep(KEY_SETTLE_MS);
     return shoot();
   }).catch(async (e) => {
