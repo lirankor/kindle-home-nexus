@@ -186,7 +186,7 @@ export const DIAL: DialGeometry = {
   currentPx: 22,
   namePx: 22,
   aboveY: 58,
-  belowY: 146,
+  belowY: 128,
 };
 
 export const stationX = (index: number, count: number, g: DialGeometry = DIAL): number =>
