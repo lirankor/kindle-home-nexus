@@ -7,6 +7,7 @@ import {
   Check,
   Compass,
   Disc3,
+  Heart,
   Leaf,
   MicVocal,
   Moon,
@@ -626,8 +627,54 @@ function RadioStationList({ panel, status }: { panel: MediaPanel; status: string
   );
 }
 
+/** F1 on the dial: the bands; Enter / F4 shows the chosen one on the dial (nothing is tuned). */
+function RadioBandList({ panel, status }: { panel: MediaPanel; status: string }) {
+  const { t, dialPos, radioLists, cursor } = panel;
+  return (
+    <FullModal
+      label={t("radio.bandsTitle")}
+      actions={panel.modalActions}
+      status={status}
+      compactStatus
+    >
+      <header className="modal-heading radio-list-heading">
+        <h1>{t("radio.bandsTitle")}</h1>
+        <p>{t("radio.bandsSub")}</p>
+      </header>
+      <div className="source-rows" role="listbox" aria-label={t("radio.bandsTitle")}>
+        {RADIO_BANDS.map((band, index) => {
+          const n = listById(radioLists, band)?.stations.length ?? 0;
+          const Icon = band === RADIO_BANDS[0] ? Heart : Radio;
+          return (
+            <Button
+              key={band}
+              variant="eink"
+              className="source-row"
+              role="option"
+              aria-selected={index === cursor}
+              aria-pressed={index === cursor}
+              data-current={band === dialPos.list}
+              onClick={() => panel.selectBand(band)}
+            >
+              <span className="source-row-icon">
+                <Icon size={30} strokeWidth={1.6} />
+              </span>
+              <span className="source-row-text">
+                <strong>{t(bandKey(band))}</strong>
+                <span>{t("radio.count", { n })}</span>
+              </span>
+            </Button>
+          );
+        })}
+      </div>
+    </FullModal>
+  );
+}
+
 function RadioScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   switch (panel.radioView) {
+    case "bands":
+      return <RadioBandList panel={panel} status={status} />;
     case "stations":
       return <RadioStationList panel={panel} status={status} />;
     default:

@@ -137,10 +137,8 @@ describe("Media tab and amp view", () => {
     // NET RADIO plays: straight to the radio screen, no generic now-playing screen in between.
     expect(screen.getByRole("dialog", { name: "רדיו" })).toBeVisible();
     expect(document.documentElement.getAttribute("data-eink-refresh")).toBe("full");
-    // F1 on the radio goes to the amp view (which has the source key); F1 there closes.
-    press("F1");
-    expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
-    press("F1");
+    // The radio has no back key: a tab key closes it (the shell then switches the tab).
+    press("PageDown");
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
@@ -230,8 +228,9 @@ describe("Media tab and amp view", () => {
     );
     expect(screen.getByRole("dialog", { name: "רדיו" })).toBeVisible();
     await waitFor(() => expect(document.querySelector(".radio-dial")).not.toBeNull());
-    press("F1");
-    expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
+    // F3 on the radio is the source list again.
+    press("F3");
+    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
   });
 
   it("opening the amp while it is off starts the power-on routine and shows its steps", async () => {

@@ -169,7 +169,6 @@ describe("Music screen", () => {
     renderPanel();
     await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
     press("F3"); // NET RADIO plays: the radio screen
-    press("F1"); // amp view
     press("F3"); // source list, cursor on רדיו (the current source, row 4)
     press("ArrowUp");
     press("ArrowUp");

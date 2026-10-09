@@ -117,14 +117,14 @@ describe("Panel idle behaviour and persistence", () => {
         mediaScreen: "radio",
       }),
     );
-    press("F1"); // amp view
+    press("PageUp"); // the radio has no back key: a tab key closes it and moves to the previous tab
     await waitFor(() =>
       expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toMatchObject({
-        tab: "Media",
-        mediaScreen: "now",
+        mediaScreen: null,
       }),
     );
-    press("F1");
+    expect(activeTab()).not.toBe("מדיה");
+    press("PageDown"); // back to Media, the screen stays closed
     await waitFor(() =>
       expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toMatchObject({
         tab: "Media",
@@ -202,7 +202,6 @@ describe("Panel idle behaviour and persistence", () => {
     await renderApp();
     press("PageUp");
     press("F3"); // radio screen
-    press("F1"); // amp view
     press("F3"); // source list, cursor on רדיו
     press("ArrowUp");
     press("ArrowUp");

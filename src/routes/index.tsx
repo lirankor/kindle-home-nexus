@@ -388,7 +388,6 @@ function HomeControl() {
     if (!screensaver) return;
     publishPhotoRegion();
     return () => document.documentElement.removeAttribute("data-eink-photo");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screensaver, photoSrc]);
 
   const changeLight = (index: number, amount: number) => {
@@ -582,9 +581,10 @@ function HomeControl() {
       return;
     }
     if (media.screen) {
-      // The amp view, source list and TV modal own every other key while they are open.
-      media.onKey(event);
-      return;
+      // The media screens own every key while open, except the tab keys on the amp view and the
+      // radio dial: those close the screen (returning false) and fall through to the tab switch.
+      if (media.onKey(event)) return;
+      if (event.key !== "PageUp" && event.key !== "PageDown") return;
     }
     if (modal) {
       if (event.key === "Escape" || (event.key === "Enter" && modal.kind !== "light")) {

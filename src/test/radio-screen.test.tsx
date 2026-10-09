@@ -148,8 +148,8 @@ describe("Radio screen", () => {
     const status = document.querySelector('.full-modal [role="status"]');
     expect(status?.className).toBe("sr-only");
     expect(status?.nextElementSibling?.tagName).toBe("FOOTER");
-    // Footer: back, favourite toggle, next band (Israel after Düsseldorf), station list.
-    expect(footerLabels()).toEqual(["חזרה", "מועדפים", "ישראל", "רשימת תחנות"]);
+    // Footer: band picker (named after the current band), favourite toggle, source list, station list.
+    expect(footerLabels()).toEqual(["דיסלדורף", "מועדפים", "מקור", "רשימת תחנות"]);
     expect(document.documentElement.getAttribute("data-eink-refresh")).toBe("full");
   });
 
@@ -298,12 +298,26 @@ describe("Radio screen", () => {
     expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
   });
 
-  it("cycles the band on F3 without tuning; the first right then tunes there", async () => {
+  it("F1 opens the band picker; choosing a band shows it on the dial without tuning; the first right then tunes there", async () => {
     await openRadio();
-    press("F3"); // Düsseldorf → Israel
+    const options = () => Array.from(document.querySelectorAll('[role="option"]'));
+    press("F1"); // picker: favourites, Düsseldorf (current), Israel, English
+    expect(options()).toHaveLength(4);
+    expect(options()[1]?.getAttribute("aria-selected")).toBe("true");
+    expect(options()[1]?.getAttribute("data-current")).toBe("true");
+    expect(options().map((o) => o.querySelector("strong")?.textContent)).toEqual([
+      "מועדפים",
+      "דיסלדורף",
+      "ישראל",
+      "אנגלית",
+    ]);
+    press("ArrowDown"); // Israel
+    press("Enter");
     expect(dial()?.getAttribute("data-list")).toBe("israel");
-    expect(footerLabels()[2]).toBe("אנגלית");
-    press("F3"); // → English
+    expect(footerLabels()[0]).toBe("ישראל");
+    press("F1"); // picker again, cursor on Israel; F4 = choose
+    press("ArrowDown");
+    press("F4"); // → English
     expect(dial()?.getAttribute("data-list")).toBe("english");
     expect(dial()?.getAttribute("data-index")).toBe("0");
     expect(needleX()).toBe(stationX(0, 14));
@@ -323,8 +337,12 @@ describe("Radio screen", () => {
     );
     expect(document.querySelector(".radio-now-name")?.textContent).toBe("Classic FM");
     await act(async () => settle({ ok: true }));
-    // English → favourites (wrap): the one bookmark, NRW1, under the needle.
-    press("F3");
+    // English → favourites through the picker: the one bookmark, NRW1, under the needle.
+    press("F1");
+    press("ArrowUp");
+    press("ArrowUp");
+    press("ArrowUp");
+    press("Enter");
     expect(dial()?.getAttribute("data-list")).toBe("favourites");
     expect(dial()?.querySelector("text[data-current]")?.textContent).toBe("NRW1");
     expect(footerLabels()[1]).toBe("מועדפים");
@@ -352,15 +370,17 @@ describe("Radio screen", () => {
       document.querySelector('.full-modal [data-soft-key="F2"]')?.getAttribute("aria-pressed"),
     ).toBe("true");
     expect(footerLabels()[1]).toBe("מועדפים");
-    press("F3");
-    press("F3");
-    press("F3"); // → favourites
+    press("F1"); // band picker, cursor on Düsseldorf
+    press("ArrowUp");
+    press("Enter"); // → favourites
     expect(dial()?.getAttribute("data-list")).toBe("favourites");
     expect(dial()?.querySelectorAll("rect").length).toBeGreaterThan(0);
     press("F4");
     expect(screen.getAllByRole("option")).toHaveLength(2);
     press("Escape");
-    press("F3"); // → Düsseldorf
+    press("F1"); // band picker, cursor on favourites
+    press("ArrowDown");
+    press("Enter"); // → Düsseldorf
     // NRW1 is already bookmarked: F2 on it removes.
     press("ArrowRight");
     await waitFor(() => expect(mocks.tuneRadioStation).toHaveBeenCalled());
@@ -408,9 +428,9 @@ describe("Radio screen", () => {
     press("ArrowUp");
     expect(mocks.runMediaAction).not.toHaveBeenCalled();
     // Favourites band is empty: text on the bar, no needle.
-    press("F3");
-    press("F3");
-    press("F3");
+    press("F1"); // band picker, cursor on Düsseldorf
+    press("ArrowUp");
+    press("Enter");
     expect(dial()?.getAttribute("data-list")).toBe("favourites");
     expect(dial()?.textContent).toContain("No favourites");
     expect(needleX()).toBeNull();
@@ -418,7 +438,9 @@ describe("Radio screen", () => {
     expect(mocks.tuneRadioStation).not.toHaveBeenCalled();
     expect(mocks.startAmpPowerOn).not.toHaveBeenCalled();
     // Back on Düsseldorf, right remembers the station and powers the amp on with the radio source.
-    press("F3");
+    press("F1"); // band picker, cursor on favourites
+    press("ArrowDown");
+    press("Enter");
     expect(dial()?.getAttribute("data-list")).toBe("local");
     press("ArrowRight");
     await waitFor(() =>
