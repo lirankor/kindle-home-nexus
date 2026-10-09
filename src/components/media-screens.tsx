@@ -244,21 +244,25 @@ type TransportMode = "playing" | "paused" | "stopped" | "off";
 /**
  * The 5-way as a picture: a rounded square (the Kindle's button) with the play state inside and four
  * satellites outside it — volume up above, volume down below, previous / next left / right (physical
- * directions in both languages); the dB readout underneath. The keys do the work, this only shows it.
+ * directions in both languages); source and volume flank it in a single bar. The keys do the work, this only shows it.
  */
 function TransportControl({
   db,
   label,
+  source,
+  sourceTitle,
   mode,
   small = false,
 }: {
   db: number | null;
   label: string;
+  source: string;
+  sourceTitle: string;
   mode: TransportMode;
   small?: boolean;
 }) {
   // All five icons share one size; the square only frames the centre one.
-  const icon = small ? 30 : 40;
+  const icon = small ? 22 : 30;
   const Centre =
     mode === "playing" ? Pause : mode === "paused" ? Play : mode === "stopped" ? Square : Power;
   return (
@@ -269,6 +273,10 @@ function TransportControl({
       data-mode={mode}
       data-db={db ?? ""}
     >
+      <div className="transport-reading">
+        <span>{sourceTitle}</span>
+        <strong>{source}</strong>
+      </div>
       <div className="transport-grid">
         <span className="transport-sat transport-vol transport-up" aria-hidden="true">
           <Volume2 size={icon} />
@@ -290,11 +298,14 @@ function TransportControl({
           <b>−</b>
         </span>
       </div>
-      <div className="transport-db" role="meter" aria-label={label}>
-        <Ltr>
-          <strong>{formatDb(db)}</strong>
-          <small>dB</small>
-        </Ltr>
+      <div className="transport-reading">
+        <span>{label}</span>
+        <div className="transport-db" aria-label={label}>
+          <Ltr>
+            <strong>{formatDb(db)}</strong>
+            <small>dB</small>
+          </Ltr>
+        </div>
       </div>
     </div>
   );
@@ -325,33 +336,13 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
   const position = useTrackPosition(queue);
   const db = on && s ? displayDb(s.amp) : null;
   return (
-    <FullModal
-      label={t("amp.label")}
-      actions={panel.modalActions}
-      status={status}
-      hint={queue ? t("amp.keysHint") : t("amp.keysHintRadio")}
-    >
+    <FullModal label={t("amp.label")} actions={panel.modalActions} status={status} compactStatus>
       <div className="screen-stack">
         {panel.showPowerOn ? (
           <PowerOnBlock panel={panel} />
         ) : (
           <header className="amp-head" data-on={on}>
-            <span className="amp-art" aria-hidden="true">
-              {art ? (
-                <img
-                  src={`/media/img?item=${encodeURIComponent(art)}&w=160`}
-                  alt=""
-                  width={160}
-                  height={160}
-                />
-              ) : (
-                <Glyph size={72} strokeWidth={1.4} />
-              )}
-            </span>
             <span className="amp-meta">
-              <span className="amp-badge">
-                {on ? sourceLabel(t, s?.amp.source ?? null) : t("media.amp")}
-              </span>
               <strong className="amp-title">{line1}</strong>
               <span className="amp-sub">{line2 || " "}</span>
               <span className="amp-sub amp-sub2">{line3 || " "}</span>
@@ -377,8 +368,28 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
             </div>
           </div>
         )}
+        {!panel.showPowerOn && (
+          <div className="amp-art" data-on={on} aria-hidden="true">
+            {art ? (
+              <img
+                src={`/media/img?item=${encodeURIComponent(art)}&w=240`}
+                alt=""
+                width={240}
+                height={240}
+              />
+            ) : (
+              <Glyph size={64} strokeWidth={1.4} />
+            )}
+          </div>
+        )}
         <div className="amp-transport" data-on={on}>
-          <TransportControl db={db} label={t("media.volume")} mode={transportMode(s)} />
+          <TransportControl
+            db={db}
+            label={t("media.volume")}
+            sourceTitle={t("media.source")}
+            source={sourceLabel(t, s?.amp.source ?? null)}
+            mode={transportMode(s)}
+          />
         </div>
       </div>
     </FullModal>
@@ -501,17 +512,17 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
   const db = on && s ? displayDb(s.amp) : null;
   const loading = panel.radioListsLoading && !radioLists;
   return (
-    <FullModal
-      label={t("radio.title")}
-      actions={panel.modalActions}
-      status={status}
-      hint={t("radio.hint")}
-    >
+    <FullModal label={t("radio.title")} actions={panel.modalActions} status={status} compactStatus>
       <div className="screen-stack">
         {panel.showPowerOn ? (
           <PowerOnBlock panel={panel} />
         ) : (
           <>
+            <div className="radio-now-text">
+              <strong className="radio-now-name">{name}</strong>
+              <span className="radio-now-song">{song || "\u00a0"}</span>
+              <span className="radio-now-detail">{detail ? <Ltr>{detail}</Ltr> : "\u00a0"}</span>
+            </div>
             <RadioDial
               bandName={t(bandKey(dialPos.list))}
               stations={list?.stations ?? []}
@@ -525,21 +536,23 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
                     : t("radio.empty")
               }
             />
-            <div className="radio-now" data-on={on}>
+            <div className="radio-cover" data-on={on}>
               <StationLogo
                 station={on ? playing : dialStation}
-                size={96}
+                size={128}
                 alt={t("radio.logoAlt")}
               />
-              <div className="radio-now-text">
-                <strong className="radio-now-name">{name}</strong>
-                <span className="radio-now-song">{song || "\u00a0"}</span>
-                <span className="radio-now-detail">{detail ? <Ltr>{detail}</Ltr> : "\u00a0"}</span>
-              </div>
             </div>
             {panel.radioListsError && <p className="radio-error">{panel.radioListsError}</p>}
             <div className="radio-transport-row" data-on={on}>
-              <TransportControl db={db} label={t("media.volume")} mode={transportMode(s)} small />
+              <TransportControl
+                db={db}
+                label={t("media.volume")}
+                sourceTitle={t("media.source")}
+                source={sourceLabel(t, s?.amp.source ?? null)}
+                mode={transportMode(s)}
+                small
+              />
             </div>
           </>
         )}

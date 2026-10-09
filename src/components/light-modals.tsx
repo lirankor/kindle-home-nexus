@@ -11,6 +11,7 @@ export function FullModal({
   actions,
   status,
   hint,
+  compactStatus = false,
   children,
 }: {
   label: string;
@@ -18,12 +19,14 @@ export function FullModal({
   status: string;
   /** One short key hint as the last line above the footer buttons (media screens). */
   hint?: string | undefined;
+  /** Keep media feedback accessible without a text row above the hardware footer. */
+  compactStatus?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="full-modal" role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
       <div className="full-modal-body">{children}</div>
-      <div className="demo-status" role="status">
+      <div className={compactStatus ? "sr-only" : "demo-status"} role="status">
         {status}
       </div>
       {hint && <p className="modal-foot-hint">{hint}</p>}

@@ -84,9 +84,9 @@ export function DialBar({
           <rect
             className="radio-needle"
             x={needleX - g.needleW / 2}
-            y={4}
+            y={25}
             width={g.needleW}
-            height={g.height - 8}
+            height={g.height - 49}
             rx={g.needleW / 2}
           />
           {arrows && (
@@ -134,7 +134,6 @@ export function RadioDial({
       labels={labels}
       stops={stations.map((_, i) => stationX(i, n))}
       needleX={n > 0 ? stationX(Math.min(index, n - 1), n) : null}
-      arrows
       emptyText={n === 0 ? emptyText : undefined}
       data-list={list}
       data-index={n > 0 ? index : -1}
