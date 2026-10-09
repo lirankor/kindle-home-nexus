@@ -88,15 +88,12 @@ const footerLabels = () =>
     (b) => b.textContent,
   );
 
-/** Media tab → amp view → source list (cursor on רדיו, the current source) → Enter. */
+/** Media tab → F3 opens the amp on its active source: NET RADIO plays, so the radio screen. */
 async function openRadio(lang: "he" | "en" = "he") {
   renderPanel(lang);
   const title = lang === "he" ? "פתח את המגבר" : "Open the amplifier";
   await waitFor(() => expect(screen.getByTitle(title)).toBeVisible());
   press("F3");
-  press("F3");
-  press("Enter");
-  await waitFor(() => expect(mocks.runMediaAction).toHaveBeenCalled());
   await waitFor(() => expect(dial()).not.toBeNull());
   mocks.runMediaAction.mockClear();
 }
@@ -137,18 +134,18 @@ describe("Radio screen", () => {
     // The small transport control under the station dial; only one dial bar on the screen.
     expect(knob()?.textContent).toBe("-44.5dB");
     const pad = document.querySelector(".radio-transport-row .transport");
-    expect(pad?.getAttribute("data-mode")).toBe("radio");
+    expect(pad?.getAttribute("data-mode")).toBe("playing");
     expect(pad?.querySelectorAll(".transport-pad svg")).toHaveLength(1);
     expect(pad?.querySelectorAll(".transport-sat")).toHaveLength(4);
     expect(document.querySelectorAll(".radio-dial")).toHaveLength(1);
     // The single key hint is the last line before the footer (after the status line), none in the body.
     const hint = document.querySelector(".modal-foot-hint");
-    expect(hint?.textContent).toContain("רשימת תחנות");
+    expect(hint?.textContent).toContain("נגן/עצור");
     expect(hint?.previousElementSibling?.className).toBe("demo-status");
     expect(hint?.nextElementSibling?.tagName).toBe("FOOTER");
     expect(document.querySelector(".full-modal-body .modal-hint")).toBeNull();
-    // Footer: back, favourite toggle, next band (Israel after Düsseldorf), power.
-    expect(footerLabels()).toEqual(["חזרה", "הוסף למועדפים", "ישראל", "הפעלה / כיבוי"]);
+    // Footer: back, favourite toggle, next band (Israel after Düsseldorf), station list.
+    expect(footerLabels()).toEqual(["חזרה", "הוסף למועדפים", "ישראל", "רשימת תחנות"]);
     expect(document.documentElement.getAttribute("data-eink-refresh")).toBe("full");
   });
 
@@ -193,6 +190,27 @@ describe("Radio screen", () => {
     expect(mocks.runMediaAction).not.toHaveBeenCalled();
   });
 
+  it("stops and restarts the stream on Enter, with the centre glyph following", async () => {
+    await openRadio();
+    const mode = () =>
+      document.querySelector(".radio-transport-row .transport")?.getAttribute("data-mode");
+    expect(mode()).toBe("playing");
+    let settle: (value: { ok: boolean }) => void = () => {};
+    mocks.runMediaAction.mockImplementationOnce(
+      () => new Promise<{ ok: boolean }>((resolve) => (settle = resolve)),
+    );
+    press("Enter");
+    await waitFor(() =>
+      expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
+        data: { type: "radio.playback", op: "stop" },
+      }),
+    );
+    expect(mode()).toBe("paused"); // optimistic: Play glyph while stopped
+    await act(async () => settle({ ok: true }));
+    await waitFor(() => expect(mode()).toBe("playing")); // the mock snapshot still says playing
+    expect(mocks.tuneRadioStation).not.toHaveBeenCalled();
+  });
+
   it("reverts the needle when the tune fails", async () => {
     await openRadio();
     mocks.tuneRadioStation.mockResolvedValueOnce({ ok: false, error: "Amp is off" });
@@ -225,9 +243,9 @@ describe("Radio screen", () => {
     expect(mocks.tuneRadioStation).not.toHaveBeenCalled();
   });
 
-  it("opens the station list on Enter, tunes the highlighted row and comes back to the dial", async () => {
+  it("opens the station list on F4, tunes the highlighted row and comes back to the dial", async () => {
     await openRadio();
-    press("Enter");
+    press("F4");
     const list = screen.getByRole("listbox", { name: "תחנות" });
     const rows = Array.from(list.querySelectorAll('[role="option"]'));
     expect(rows).toHaveLength(8);
@@ -269,7 +287,7 @@ describe("Radio screen", () => {
     expect(dial()).not.toBeNull();
     expect(needleX()).toBe(stationX(2, 12));
     // F1 in the list goes back without tuning; Escape on the dial goes to the amp view.
-    press("Enter");
+    press("F4");
     press("F1");
     expect(dial()).not.toBeNull();
     press("Escape");
@@ -335,7 +353,7 @@ describe("Radio screen", () => {
     press("F3"); // → favourites
     expect(dial()?.getAttribute("data-list")).toBe("favourites");
     expect(dial()?.querySelectorAll("rect").length).toBeGreaterThan(0);
-    press("Enter");
+    press("F4");
     expect(screen.getAllByRole("option")).toHaveLength(2);
     press("Escape");
     press("F3"); // → Düsseldorf

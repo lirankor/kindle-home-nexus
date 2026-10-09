@@ -151,7 +151,7 @@ export function MediaCards({ panel }: { panel: MediaPanel }) {
           className="media-card media-card-amp"
           data-on={s?.amp.on ?? false}
           title={t("media.openAmp")}
-          onClick={() => panel.open("now")}
+          onClick={() => panel.openAmp()}
         >
           <span className="media-card-heading">
             <span className={`device-icon ${s?.amp.on ? "on" : ""}`}>
@@ -239,7 +239,7 @@ function useTrackPosition(queue: QueueProgress | null): number {
 }
 
 /** What the centre of the transport pad shows. */
-type TransportMode = "playing" | "paused" | "radio" | "stopped" | "off";
+type TransportMode = "playing" | "paused" | "stopped" | "off";
 
 /**
  * The 5-way as a picture: a rounded square (the Kindle's button) with the play state inside and four
@@ -260,15 +260,7 @@ function TransportControl({
   // All five icons share one size; the square only frames the centre one.
   const icon = small ? 30 : 40;
   const Centre =
-    mode === "playing"
-      ? Pause
-      : mode === "paused"
-        ? Play
-        : mode === "radio"
-          ? Play
-          : mode === "stopped"
-            ? Square
-            : Power;
+    mode === "playing" ? Pause : mode === "paused" ? Play : mode === "stopped" ? Square : Power;
   return (
     <div
       className={`transport${small ? " transport-small" : ""}`}
@@ -289,7 +281,7 @@ function TransportControl({
             strokeWidth={2}
             aria-hidden="true"
             className="transport-centre"
-            fill={mode === "playing" || mode === "radio" ? "currentColor" : "none"}
+            fill={mode === "playing" ? "currentColor" : "none"}
           />
         </div>
         <SkipForward size={icon} aria-hidden="true" className="transport-sat transport-next" />
@@ -317,8 +309,9 @@ function transportMode(s: MediaSnapshot | null): TransportMode {
       : s.queue.status === "paused"
         ? "paused"
         : "stopped";
+  // Radio / FM: Enter stops and restarts the stream, so the centre reads like a player too.
   if (s.nowPlaying.kind === "radio" || s.nowPlaying.kind === "fm")
-    return s.amp.state === "playing" ? "radio" : "stopped";
+    return s.amp.state === "playing" ? "playing" : "paused";
   return s.amp.state === "playing" ? "playing" : "stopped";
 }
 

@@ -234,6 +234,8 @@ export type MediaAction =
   | { type: "fm.frequency"; mhz: number }
   | { type: "radio.step"; delta: 1 | -1 }
   | { type: "radio.favourite"; stationId: string; add: boolean }
+  /** NET RADIO stream stop / play (Enter on the radio screen). */
+  | { type: "radio.playback"; op: "play" | "stop" }
   | { type: "queue"; op: "next" | "prev" | "pause" | "resume" | "toggle" | "stop" }
   /** TV off, amp to standby, then (3 s later) the media plug off. */
   | { type: "all_off" };

@@ -94,15 +94,15 @@ describe("Panel idle behaviour and persistence", () => {
     });
     expect(dialog()).toBeNull();
 
-    // Amp view: Media tab, F3. It is a "now playing" view and must survive the idle timeout.
+    // Radio screen (the amp plays NET RADIO): Media tab, F3. A "now playing" view, survives the idle timeout.
     press("PageUp");
     expect(activeTab()).toBe("מדיה");
     press("F3");
-    expect(dialog()).toBe("תצוגת המגבר");
+    expect(dialog()).toBe("רדיו");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(61_000);
     });
-    expect(dialog()).toBe("תצוגת המגבר");
+    expect(dialog()).toBe("רדיו");
   });
 
   it("remembers the tab and the media screen and restores them on mount", async () => {
@@ -110,16 +110,23 @@ describe("Panel idle behaviour and persistence", () => {
     expect(activeTab()).toBe("אורות");
     press("PageUp");
     expect(activeTab()).toBe("מדיה");
-    press("F3");
+    press("F3"); // NET RADIO plays → the radio screen
     await waitFor(() =>
-      expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toEqual({
+      expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toMatchObject({
+        tab: "Media",
+        mediaScreen: "radio",
+      }),
+    );
+    press("F1"); // amp view
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toMatchObject({
         tab: "Media",
         mediaScreen: "now",
       }),
     );
     press("F1");
     await waitFor(() =>
-      expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toEqual({
+      expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toMatchObject({
         tab: "Media",
         mediaScreen: null,
       }),
@@ -131,20 +138,18 @@ describe("Panel idle behaviour and persistence", () => {
     await waitFor(() => expect(activeTab()).toBe("מדיה"));
     cleanup();
 
-    // … and to the amp view when that was open.
+    // … and, when a media screen was open, to the ACTIVE source's screen (NET RADIO → radio),
+    // whatever screen was saved.
     localStorage.setItem(KEY, JSON.stringify({ tab: "Media", mediaScreen: "now" }));
     await renderApp();
-    await waitFor(() => expect(dialog()).toBe("תצוגת המגבר"));
+    await waitFor(() => expect(dialog()).toBe("רדיו"));
     expect(activeTab()).toBe("מדיה");
   });
 
   it("remembers the radio band and index and restores the dial there", async () => {
     await renderApp();
     press("PageUp");
-    press("F3");
-    expect(dialog()).toBe("תצוגת המגבר");
-    press("F3"); // source list
-    press("Enter"); // cursor is on רדיו (the current source) → radio screen
+    press("F3"); // NET RADIO plays → the radio screen
     await waitFor(() => expect(dialog()).toBe("רדיו"));
     await waitFor(() => expect(document.querySelector(".radio-dial")).not.toBeNull());
     press("ArrowRight"); // tune to station 2 of the local band (demo: no server call needed)
@@ -196,15 +201,19 @@ describe("Panel idle behaviour and persistence", () => {
     );
     await renderApp();
     press("PageUp");
-    press("F3");
-    expect(dialog()).toBe("תצוגת המגבר");
-    press("F2"); // music screen
+    press("F3"); // radio screen
+    press("F1"); // amp view
+    press("F3"); // source list, cursor on רדיו
+    press("ArrowUp");
+    press("ArrowUp");
+    press("ArrowUp");
+    press("Enter"); // ג׳ליפין → the music screen
     await waitFor(() => expect(dialog()).toBe("מוזיקה"));
     press("ArrowLeft"); // Hebrew: the next tab (מומלצים)
     await waitFor(() => expect(document.querySelector(".music-page")?.textContent).toBe("1/2"));
     press("F3"); // next page
     await waitFor(() =>
-      expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toEqual({
+      expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toMatchObject({
         tab: "Media",
         mediaScreen: "music",
         music: { tab: "suggested", pageByTab: { suggested: 1 } },

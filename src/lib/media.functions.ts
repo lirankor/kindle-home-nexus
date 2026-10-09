@@ -60,6 +60,7 @@ const actionSchema = z.discriminatedUnion("type", [
     stationId: z.enum(RADIO_STATION_IDS),
     add: z.boolean(),
   }),
+  z.object({ type: z.literal("radio.playback"), op: z.enum(["play", "stop"]) }),
   z.object({
     type: z.literal("queue"),
     op: z.enum(["next", "prev", "pause", "resume", "toggle", "stop"]),
@@ -70,7 +71,7 @@ const actionSchema = z.discriminatedUnion("type", [
 const flags = () => ({ amp: ampConfigured(), jellyfin: jellyfinConfigured() });
 /** Actions that only need the amp's own HTTP APIs or our queue, not Home Assistant. */
 const needsHa = (a: MediaAction) =>
-  !["fm.frequency", "radio.step", "radio.favourite", "queue"].includes(a.type);
+  !["fm.frequency", "radio.step", "radio.favourite", "radio.playback", "queue"].includes(a.type);
 
 async function snapshotResult(): Promise<MediaSnapshotResult> {
   const lang = parseLang(process.env["UI_LANGUAGE"]);

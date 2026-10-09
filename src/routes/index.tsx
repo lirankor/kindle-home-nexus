@@ -262,7 +262,7 @@ function HomeControl() {
     onHomeChanged: () => void queryClient.invalidateQueries({ queryKey: ["snapshot"] }),
   });
   const mediaClose = media.close;
-  const mediaOpen = media.open;
+  const mediaOpen = media.restoreScreen;
   const mediaRestoreRadio = media.restoreRadio;
   const mediaRestoreMusic = media.restoreMusic;
   const mediaStatus =

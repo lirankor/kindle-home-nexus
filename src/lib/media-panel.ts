@@ -44,6 +44,7 @@ import {
   mediaActionLabel,
   musicItemTitle,
   screenForSource,
+  sourceHomeScreen,
   stepAction,
   toggleAction,
 } from "@/lib/media-ui";
@@ -190,6 +191,8 @@ export function useMediaPanel({
   const prevStep = useRef(step);
   /** Station chosen on the dial while the amp was off: tuned once the power-on routine is done. */
   const tuneAfterPowerOn = useRef<RadioPosition | null>(null);
+  /** Source picked in the list while the routine was already running: applied once it is done. */
+  const sourceAfterPowerOn = useRef<AmpSource | null>(null);
   /** Music item chosen while the amp was off: played once the power-on routine (source SERVER) is done. */
   const playAfterPowerOn = useRef<MusicListItem | null>(null);
   useEffect(() => {
@@ -208,12 +211,16 @@ export function useMediaPanel({
       const pendingPlay = playAfterPowerOn.current;
       playAfterPowerOn.current = null;
       if (step === "done" && pendingPlay) void sendPlay(pendingPlay);
-      // The screen must match the source the amp ended on: never the music placeholder for NET RADIO.
-      // The amp view ("now") shows any source and stays; a closed panel stays closed.
-      const want = screenForSource(powerOn?.source ?? null);
+      // Land on the screen of the source the amp ended on (NET RADIO → radio, SERVER / others →
+      // the amp view). The TV modal and a closed panel stay as they are.
+      const pendingSource = sourceAfterPowerOn.current;
+      sourceAfterPowerOn.current = null;
+      if (step === "done" && pendingSource) void act({ type: "amp.source", source: pendingSource });
+      const want = pendingSource
+        ? screenForSource(pendingSource)
+        : sourceHomeScreen(powerOn?.source ?? latest.current?.amp.source ?? null);
       const cur = screenRef.current;
-      if (step === "done" && cur !== null && cur !== "now" && cur !== "tv" && cur !== want)
-        open(want);
+      if (step === "done" && cur !== null && cur !== "tv" && cur !== want) open(want);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
@@ -285,18 +292,13 @@ export function useMediaPanel({
     [lang, refetchSnapshotSoon],
   );
 
-  /** F4: off → power-on routine (demo: plain toggle); on → turn off. */
-  const togglePower = () => {
-    const s = latest.current;
-    if (!s) return;
-    if (s.amp.on) void act({ type: "amp.power", on: false });
-    else if (!configuredRef.current) void act({ type: "amp.power", on: true });
-    else void startPowerOn();
-  };
-
+  /** Where the source list was opened from: cancel returns there. */
+  const sourceOpener = useRef<MediaScreen>("now");
   const open = useCallback((next: MediaScreen) => {
     setScreenState((current) => {
       if (current === null) opener.current = document.activeElement as HTMLElement | null;
+      if (next === "source" && current !== null && current !== "source")
+        sourceOpener.current = current;
       return next;
     });
     if (next === "source")
@@ -305,6 +307,56 @@ export function useMediaPanel({
     if (next === "music") setCursor(0);
   }, []);
   const close = useCallback(() => setScreenState(null), []);
+
+  /**
+   * Opening the amp (Media tab: F3 or Enter on the card) lands on the ACTIVE source's screen:
+   * NET RADIO → radio, SERVER / TUNER / CD / PHONO → the amp view. An amp that is off is powered on
+   * right here (step block on the amp view) and the screen of the restored source follows when done.
+   */
+  const pendingOpenAmp = useRef(false);
+  const openAmp = () => {
+    const s = latest.current;
+    if (!s) {
+      // No snapshot yet (first seconds after a page load): show the amp view and route when it comes.
+      pendingOpenAmp.current = true;
+      open("now");
+      return;
+    }
+    if (s.amp.on) open(sourceHomeScreen(s.amp.source));
+    else if (!configuredRef.current) {
+      void act({ type: "amp.power", on: true });
+      open(sourceHomeScreen(s.amp.source));
+    } else {
+      open("now");
+      if (!powerOn?.running) void startPowerOn();
+    }
+  };
+  /** Page reload: come back to the saved screen, then move to the active source's screen once known. */
+  const restoreTarget = useRef<MediaScreen | null>(null);
+  const restoreScreen = useCallback(
+    (saved: MediaScreen) => {
+      restoreTarget.current = saved === "now" || saved === "radio" ? saved : null;
+      open(saved === "source" ? "now" : saved);
+    },
+    [open],
+  );
+  const restoreSource = data?.amp.on ? (data.amp.source ?? null) : null;
+  useEffect(() => {
+    if (!data) return;
+    if (pendingOpenAmp.current) {
+      pendingOpenAmp.current = false;
+      if (screenRef.current === "now") openAmp();
+      return;
+    }
+    if (restoreTarget.current === null) return;
+    restoreTarget.current = null;
+    if (!data.amp.on) return;
+    const want = sourceHomeScreen(data.amp.source);
+    if (screenRef.current !== null && screenRef.current !== want) open(want);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restoreSource, data === null]);
+  /** Cancel in the source list: back to the screen it was opened from. */
+  const closeSourceList = () => open(sourceOpener.current);
   useFullRefresh(`${screen ?? ""}/${screen === "radio" ? radioView : ""}`);
   useEffect(() => {
     if (screen) {
@@ -320,8 +372,10 @@ export function useMediaPanel({
   /** Applies a source; an amp that is off is powered on straight into it. Radio / Jellyfin open their screens. */
   const applySource = (source: AmpSource) => {
     const s = latest.current;
-    if (s && !s.amp.on && configuredRef.current) void startPowerOn(source);
-    else void act({ type: "amp.source", source });
+    if (s && !s.amp.on && configuredRef.current) {
+      if (powerOn?.running) sourceAfterPowerOn.current = source;
+      else void startPowerOn(source);
+    } else void act({ type: "amp.source", source });
     open(screenForSource(source));
   };
 
@@ -426,6 +480,18 @@ export function useMediaPanel({
     }
     setOptimistic(applyRadioTune(before, station, pos));
     void sendTune(pos);
+  };
+
+  /** Enter on the dial: stop / restart the stream; an amp that is off is powered on into the radio. */
+  const toggleRadioPlayback = () => {
+    const s = latest.current;
+    if (!s) return;
+    if (!s.amp.on) {
+      if (!configuredRef.current) void act({ type: "amp.power", on: true });
+      else if (!powerOn?.running) void startPowerOn("NET RADIO");
+      return;
+    }
+    void act({ type: "radio.playback", op: s.amp.state === "playing" ? "stop" : "play" });
   };
 
   /** Left / right on the dial: the neighbour in the current band, wrapping at the ends. */
@@ -603,31 +669,34 @@ export function useMediaPanel({
       disabled: tvUnavailable,
       onClick: () => void act({ type: "tv", op: "toggle" }),
     },
-    { label: t("media.amp"), icon: Music2, onClick: () => open("now") },
+    { label: t("media.amp"), icon: Music2, onClick: openAmp },
     { label: t("power.allOff"), icon: Power, onClick: () => void act({ type: "all_off" }) },
   ];
-  const powerKey: DeviceAction = {
-    label: t("amp.power"),
-    icon: Power,
-    pressed: data?.amp.on ?? false,
-    onClick: togglePower,
-  };
   const backToNow: DeviceAction = {
     label: t("amp.back"),
     icon: ArrowLeft,
     onClick: () => open("now"),
   };
+  const backToTab: DeviceAction = { label: t("amp.back"), icon: ArrowLeft, onClick: close };
+  const sourceKey: DeviceAction = {
+    label: t("media.source"),
+    icon: Radio,
+    onClick: () => open("source"),
+  };
+  const serverScreen = (data?.amp.on ?? false) && data?.amp.source === "SERVER";
   const modalActions: (DeviceAction | null)[] =
     screen === "now"
       ? [
-          { label: t("amp.back"), icon: ArrowLeft, onClick: close },
-          { label: t("amp.music"), icon: ListMusic, onClick: () => open("music") },
-          { label: t("media.source"), icon: Radio, onClick: () => open("source") },
-          powerKey,
+          backToTab,
+          serverScreen
+            ? { label: t("amp.library"), icon: ListMusic, onClick: () => open("music") }
+            : null,
+          sourceKey,
+          null,
         ]
       : screen === "source"
         ? [
-            { label: t("source.cancel"), icon: X, onClick: () => open("now") },
+            { label: t("source.cancel"), icon: X, onClick: closeSourceList },
             null,
             null,
             {
@@ -673,7 +742,7 @@ export function useMediaPanel({
                     icon: Radio,
                     onClick: cycleBand,
                   },
-                  powerKey,
+                  { label: t("radio.stationList"), icon: ListMusic, onClick: openStations },
                 ]
               : [
                   { label: t("amp.back"), icon: ArrowLeft, onClick: () => setRadioView("dial") },
@@ -713,7 +782,7 @@ export function useMediaPanel({
                     disabled: musicPage >= musicPages - 1,
                     onClick: () => pageMusic(1),
                   },
-                  powerKey,
+                  null,
                 ]
               : [];
 
@@ -724,8 +793,9 @@ export function useMediaPanel({
     if (screen === "music") return onMusicKey(event);
     if (event.key === "Escape") {
       event.preventDefault();
-      if (screen === "now" || screen === "tv") close();
-      else open("now");
+      if (screen === "source") closeSourceList();
+      else if (screen === "radio") open("now");
+      else close();
       return true;
     }
     if (event.key === "Enter") {
@@ -737,7 +807,7 @@ export function useMediaPanel({
         const source = SOURCE_ROWS[cursor];
         if (source) applySource(source);
       } else if (screen === "tv") close();
-      else if (screen === "radio") openStations();
+      else if (screen === "radio") toggleRadioPlayback();
       return true;
     }
     if (!NAV_KEYS.includes(event.key)) return false;
@@ -834,6 +904,8 @@ export function useMediaPanel({
     close,
     act,
     applySource,
+    openAmp,
+    restoreScreen,
     lang,
     t,
     // Radio screen

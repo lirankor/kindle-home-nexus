@@ -168,7 +168,8 @@ describe("Music screen", () => {
   it("opens from the source list on the mixes tab, names the mixes, and switches tabs with left / right", async () => {
     renderPanel();
     await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
-    press("F3"); // amp view
+    press("F3"); // NET RADIO plays: the radio screen
+    press("F1"); // amp view
     press("F3"); // source list, cursor on רדיו (the current source, row 4)
     press("ArrowUp");
     press("ArrowUp");
@@ -189,11 +190,11 @@ describe("Music screen", () => {
     expect(rowDetails()[0]).toBe("סביב שיר אהוב · 20 שירים");
     expect(selectedRow()).toBe("מיקס יומי");
     expect(pageCounter()).toBe("1/1");
-    // Footer: back, previous (greyed on page 1), next (greyed, one page), power.
+    // Footer: back, previous (greyed on page 1), next (greyed, one page), blank (no power key).
     expect(softKey(1).textContent).toBe("חזרה");
     expect(softKey(2).disabled).toBe(true);
     expect(softKey(3).disabled).toBe(true);
-    expect(softKey(4).textContent).toBe("הפעלה / כיבוי");
+    expect(softKey(4).disabled).toBe(true);
     // Hebrew: the first tab is at the right end, so left moves on to the second tab.
     press("ArrowRight");
     expect(activeTab()).toBe("מיקסים");

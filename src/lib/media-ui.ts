@@ -52,9 +52,13 @@ const EMPTY_PLAY: NowPlaying = {
   preset: null,
 };
 
-/** The media screen that belongs to a source: radio for NET RADIO, music for SERVER, else the amp view. */
+/** Screen to open after CHOOSING a source: radio for NET RADIO, the music library for SERVER, else the amp view. */
 export const screenForSource = (source: AmpSource | null | undefined): "radio" | "music" | "now" =>
   source === "NET RADIO" ? "radio" : source === "SERVER" ? "music" : "now";
+
+/** The now-playing screen of a source: radio for NET RADIO, the amp view for everything else (SERVER included). */
+export const sourceHomeScreen = (source: AmpSource | null | undefined): "radio" | "now" =>
+  source === "NET RADIO" ? "radio" : "now";
 
 /** Order of the source list rows: Jellyfin, TV, turntable, radio, FM. */
 export const SOURCE_ROWS: readonly AmpSource[] = ["SERVER", "CD", "PHONO", "NET RADIO", "TUNER"];
@@ -116,6 +120,9 @@ export function applyMediaOptimistic(s: MediaSnapshot, action: MediaAction): Med
       break;
     case "fm.preset":
       next.nowPlaying.preset = action.preset;
+      break;
+    case "radio.playback":
+      next.amp.state = action.op === "play" ? "playing" : "idle";
       break;
     case "all_off":
       next.amp.on = false;
@@ -248,6 +255,8 @@ export function mediaActionLabel(action: MediaAction, lang: Lang, after?: MediaS
       return t("act.preset", { n: action.preset });
     case "radio.favourite":
       return t(action.add ? "act.favAdded" : "act.favRemoved");
+    case "radio.playback":
+      return t(action.op === "play" ? "act.radioPlay" : "act.radioStop");
     case "all_off":
       return t("act.allOff");
     case "queue":

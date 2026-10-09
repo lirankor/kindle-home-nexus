@@ -31,6 +31,21 @@ const liveResult = (): MediaSnapshotResult => ({
   lang: "he",
 });
 
+/** The amp on the turntable: its screen is the plain amp view. */
+const phonoResult = (): MediaSnapshotResult => {
+  const r = liveResult();
+  r.snapshot!.amp.source = "PHONO";
+  r.snapshot!.nowPlaying = {
+    ...r.snapshot!.nowPlaying,
+    kind: "phono",
+    title: null,
+    station: null,
+    stationId: null,
+  };
+  r.snapshot!.radio = null;
+  return r;
+};
+
 /** The shell's wiring in miniature: footer from the panel, soft keys first, then the panel's keys. */
 function Harness({ lang }: { lang: "he" | "en" }) {
   const panel = useMediaPanel({ active: true, lang, notify: () => {} });
@@ -115,15 +130,32 @@ describe("Media tab and amp view", () => {
     await act(async () => settle({ ok: true }));
   });
 
-  it("opens the amp view from the amp card and steps the volume on up/down", async () => {
+  it("opens the active source's screen from the amp card: the radio for NET RADIO, the amp view for the turntable", async () => {
     renderPanel();
     await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
     act(() => screen.getByTitle("פתח את המגבר").click());
+    // NET RADIO plays: straight to the radio screen, no generic now-playing screen in between.
+    expect(screen.getByRole("dialog", { name: "רדיו" })).toBeVisible();
+    expect(document.documentElement.getAttribute("data-eink-refresh")).toBe("full");
+    // F1 on the radio goes to the amp view (which has the source key); F1 there closes.
+    press("F1");
+    expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
+    press("F1");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("amp view for the turntable: volume on up / down, no library key, Enter and right / left do nothing", async () => {
+    mocks.getMediaSnapshot.mockResolvedValue(phonoResult());
+    renderPanel();
+    await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
+    press("F3");
     const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
     expect(dialog).toBeVisible();
-    expect(dialog.textContent).toContain("WDR 5");
+    expect(dialog.querySelector(".amp-title")?.textContent).toBe("פטיפון");
     expect(dialog.querySelector(".transport-db")?.textContent).toBe("-44.5dB");
-    expect(document.documentElement.getAttribute("data-eink-refresh")).toBe("full");
+    // Footer: back, no library (not the SERVER screen), source, no power key.
+    const slots = Array.from(dialog.querySelectorAll("[data-soft-key]")).map((b) => b.textContent);
+    expect(slots).toEqual(["חזרה", "\u00a0", "מקור", "\u00a0"]);
 
     let settle: (value: { ok: boolean }) => void = () => {};
     mocks.runMediaAction.mockImplementationOnce(
@@ -145,26 +177,19 @@ describe("Media tab and amp view", () => {
         data: { type: "amp.volume.step", delta: -1 },
       }),
     );
-    // Right = next station while the radio plays.
-    press("ArrowRight");
-    await waitFor(() =>
-      expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
-        data: { type: "radio.step", delta: 1 },
-      }),
-    );
-    // Enter is a no-op for radio.
     const calls = mocks.runMediaAction.mock.calls.length;
+    press("ArrowRight");
     press("Enter");
     expect(mocks.runMediaAction).toHaveBeenCalledTimes(calls);
-    // F1 closes.
     press("F1");
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("opens the source list on F3 and applies a source with Enter", async () => {
+    mocks.getMediaSnapshot.mockResolvedValue(phonoResult());
     renderPanel();
     await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
-    press("F3"); // amp view
+    press("F3"); // amp view (turntable)
     expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
     press("F3"); // source list
     const list = screen.getByRole("listbox", { name: "מקור" });
@@ -176,9 +201,8 @@ describe("Media tab and amp view", () => {
       "רדיו",
       "FM",
     ]);
-    // Cursor starts on the current source (NET RADIO = row 4).
-    expect(rows[3]).toHaveAttribute("aria-selected", "true");
-    press("ArrowUp");
+    // Cursor starts on the current source (PHONO = row 3).
+    expect(rows[2]).toHaveAttribute("aria-selected", "true");
     press("ArrowUp");
     expect(screen.getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
     press("Enter");
@@ -190,7 +214,13 @@ describe("Media tab and amp view", () => {
     // CD goes back to the amp view; Jellyfin / radio would open their screens.
     expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
     press("F3");
-    // The snapshot still says NET RADIO (the mock returned no new one), so the cursor is on רדיו.
+    // The snapshot still says PHONO (the mock returned no new one), so the cursor is on פטיפון.
+    expect(screen.getAllByRole("option")[2]).toHaveAttribute("aria-selected", "true");
+    // Cancel returns to where the list was opened from.
+    press("F1");
+    expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
+    press("F3");
+    press("ArrowDown");
     expect(screen.getAllByRole("option")[3]).toHaveAttribute("aria-selected", "true");
     press("F4");
     await waitFor(() =>
@@ -204,7 +234,7 @@ describe("Media tab and amp view", () => {
     expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
   });
 
-  it("starts the power-on routine from F4 when the amp is off and shows its steps", async () => {
+  it("opening the amp while it is off starts the power-on routine and shows its steps", async () => {
     const off = liveResult();
     off.snapshot!.amp.on = false;
     off.snapshot!.amp.state = "off";
@@ -224,9 +254,7 @@ describe("Media tab and amp view", () => {
     await waitFor(() => expect(screen.getByTitle("Open the amplifier")).toBeVisible());
     press("F3");
     const dialog = screen.getByRole("dialog", { name: "Amplifier view" });
-    expect(dialog.textContent).toContain("The amplifier is off");
     expect(dialog.querySelector(".transport-db")?.textContent).toBe("—dB");
-    press("F4");
     await waitFor(() => expect(mocks.startAmpPowerOn).toHaveBeenCalledWith({ data: {} }));
     await waitFor(() => expect(dialog.textContent).toContain("Waiting for the amplifier…"));
     expect(dialog.querySelector('[data-state="active"]')?.textContent).toContain("Waiting");
@@ -259,27 +287,29 @@ describe("Media tab and amp view", () => {
     });
     renderPanel();
     await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
-    press("F3");
-    const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
-    await waitFor(() => expect(dialog.textContent).toContain("המגבר כבוי"));
     const snapshots = mocks.getMediaSnapshot.mock.calls.length;
+    press("F3"); // opening the amp while off starts the routine
+    const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
     mocks.getMediaSnapshot.mockResolvedValue(liveResult()); // the refetch sees the amp on
-    press("F4");
     await waitFor(() => expect(mocks.startAmpPowerOn).toHaveBeenCalledWith({ data: {} }));
     await waitFor(() => expect(mocks.getPowerOnStatus).toHaveBeenCalled());
     await waitFor(() => expect(dialog.textContent).not.toContain("מדליק את המגבר"), {
       timeout: 3000,
     });
     expect(dialog.querySelector(".poweron")).toBeNull();
-    // The snapshot was refetched after "done": the amp shows as on with its volume.
+    // The snapshot was refetched after "done": the amp is on NET RADIO, so the radio screen shows
+    // with its volume.
     await waitFor(() =>
       expect(mocks.getMediaSnapshot.mock.calls.length).toBeGreaterThan(snapshots),
     );
-    await waitFor(() => expect(dialog.querySelector(".transport-db")?.textContent).toBe("-44.5dB"));
-    expect(dialog.textContent).toContain("WDR 5");
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "רדיו" })).toBeVisible());
+    const radio = screen.getByRole("dialog", { name: "רדיו" });
+    await waitFor(() => expect(radio.querySelector(".transport-db")?.textContent).toBe("-44.5dB"));
+    expect(radio.textContent).toContain("WDR 5");
   });
 
   it("refetches the snapshot when a screen opens and again 2 s after an action", async () => {
+    mocks.getMediaSnapshot.mockResolvedValue(phonoResult());
     renderPanel();
     await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
     const before = mocks.getMediaSnapshot.mock.calls.length;
@@ -329,9 +359,8 @@ describe("Media tab and amp view", () => {
     await waitFor(() =>
       expect(dialog.querySelector('[data-state="active"]')?.textContent).toContain("מתחבר"),
     );
-    // The user wandered to the music placeholder; the routine ends on NET RADIO → radio screen.
-    press("F2");
-    expect(screen.getByRole("dialog", { name: "מוזיקה" })).toBeVisible();
+    // Opening the amp did not start a second routine; it ends on NET RADIO → radio screen.
+    expect(mocks.startAmpPowerOn).not.toHaveBeenCalled();
     mocks.getPowerOnStatus.mockResolvedValue({
       ...running,
       running: false,

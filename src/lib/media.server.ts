@@ -268,6 +268,12 @@ export const amp = {
   /** Move the cursor to absolute line n (1-based, any page). */
   jumpLine: (n: number) => ampXml("PUT", netRadioControlXml(`<Jump_Line>${n}</Jump_Line>`)),
   cursorSel: () => ampXml("PUT", netRadioControlXml("<Cursor>Sel</Cursor>")),
+  /** NET RADIO stream: Playback Play / Stop (Enter on the radio screen). */
+  netRadioPlayback: (op: "play" | "stop") =>
+    ampXml(
+      "PUT",
+      `<NET_RADIO><Play_Control><Playback>${op === "play" ? "Play" : "Stop"}</Playback></Play_Control></NET_RADIO>`,
+    ),
   /** Poll List_Info until Menu_Status is Ready (after an initial settle delay). */
   async waitReady(settleMs = STEP_SETTLE_MS, timeoutMs = 12000): Promise<ListInfo> {
     if (settleMs > 0) await sleep(settleMs);
@@ -1468,6 +1474,9 @@ export async function performMediaAction(a: MediaAction): Promise<void> {
       break;
     case "radio.favourite":
       await setFavourite(a.stationId, a.add);
+      break;
+    case "radio.playback":
+      await amp.netRadioPlayback(a.op);
       break;
     case "queue":
       await queueCommand(a.op);
