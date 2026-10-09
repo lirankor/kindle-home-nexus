@@ -507,7 +507,7 @@ function HomeControl() {
           ).map(({ name, icon }) => ({
             label: t(`scene.${name}`),
             icon,
-            pressed: scene === name || (name === "Movie" && data.movieActive),
+            pressed: scene === name,
             onClick: () => applyScene(name),
           })),
           {

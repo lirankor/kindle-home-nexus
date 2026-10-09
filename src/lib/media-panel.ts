@@ -657,10 +657,10 @@ export function useMediaPanel({
   const tvUnavailable = !data || data.tv.state === "unavailable" || data.tv.state === "unknown";
   const actions: (DeviceAction | null)[] = [
     {
+      // A routine, not a state: every press runs the movie script; nothing to toggle off.
       label: t("media.movie"),
       icon: Film,
-      pressed: data?.movieActive ?? false,
-      onClick: () => void act({ type: "movie", on: !(data?.movieActive ?? false) }),
+      onClick: () => void act({ type: "movie", on: true }),
     },
     {
       label: t("media.tv"),
