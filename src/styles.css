@@ -227,6 +227,9 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .eink-button:focus-visible { box-shadow: none; }
 .eink-button[data-active="true"], .eink-button[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
 .eink-button[data-active="true"]:hover, .eink-button[aria-pressed="true"]:hover { background: var(--primary); }
+/* Selection is always an outline (e-ink: no ghosting), never a fill: list rows and picker cells get the
+   same thick frame that focused cards get, drawn inside the gap so neighbours stay apart. */
+.source-row.eink-button[aria-pressed="true"], .picker-grid .eink-button[aria-pressed="true"] { background: var(--background); color: var(--foreground); border-color: var(--foreground); outline: 3px solid var(--foreground); outline-offset: -1px; }
 .device-tabs .eink-button { height: 56px; border: 0; font-size: 15px; gap: 8px; }
 .device-tabs .eink-button svg { width: 20px; height: 20px; }
 .content { padding: 20px 26px 0; flex: 1; min-height: 0; line-height: 1.25; }
@@ -398,7 +401,6 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .demo-status { font-size: 16px; }
 .device-actions .eink-button { font-size: 19px; }
 .light-card.eink-button { display: flex; flex-direction: column; align-items: stretch; justify-content: space-between; text-align: start; white-space: normal; height: 220px; padding: 18px 14px; font-weight: 400; }
-.light-card[data-on="true"], .power-row[data-on="true"] { border: 2px solid var(--foreground); }
 .light-card .light-card-heading { display: flex; gap: 12px; align-items: center; }
 .light-card .device-icon, .power-row .device-icon { width: 56px; height: 60px; border: 1px solid var(--foreground); flex-shrink: 0; }
 .light-card .device-info strong, .power-row .device-info strong { display: block; font-size: 26px; line-height: 1.1; font-weight: 700; }
@@ -475,7 +477,6 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 /* Media rework M2: read-only media cards, the amp view (knob + dB), power-on steps, source list, TV modal. */
 .media-cards { display: flex; flex-direction: column; gap: 14px; }
 .media-card.eink-button { display: flex; flex-direction: column; align-items: stretch; justify-content: space-between; width: 100%; height: 214px; text-align: start; padding: 18px 16px; white-space: normal; border: 1px solid var(--border); font-weight: 400; }
-.media-card[data-on="true"] { border: 2px solid var(--foreground); }
 .media-card-heading { display: flex; gap: 12px; align-items: flex-start; }
 .media-card .device-icon { width: 56px; height: 60px; border: 1px solid var(--foreground); flex-shrink: 0; }
 .media-card .device-info { text-align: start; display: flex; flex-direction: column; min-width: 0; margin: 0; }
@@ -535,7 +536,9 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .poweron-steps li[data-state="pending"] .poweron-dot { border-color: var(--border); }
 .source-rows { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
 .source-row.eink-button { display: flex; width: 100%; height: 74px; justify-content: flex-start; align-items: center; gap: 16px; text-align: start; padding: 0 16px; white-space: normal; font-weight: 400; border: 1px solid var(--border); }
-.source-row[data-current="true"] { border: 2px solid var(--foreground); }
+/* The active source / the station under the needle: a filled icon box (like a lit light), never a border. */
+.source-row[data-current="true"] .source-row-icon { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+.radio-row[data-current="true"] .source-row-text strong { text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 4px; }
 .source-row-icon { width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; border: 1px solid currentColor; flex-shrink: 0; }
 .source-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .source-row-text strong { font-size: 28px; line-height: 1.15; font-weight: 700; }

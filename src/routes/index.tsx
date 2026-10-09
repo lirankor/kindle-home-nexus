@@ -326,6 +326,18 @@ function HomeControl() {
     opener.current = null;
     if (target?.isConnected) target.focus();
   }, [modalOpen]);
+  // A tab opens with its main control already selected (the first light card on Lights), so every
+  // light is at most two moves away instead of a first press only "waking" the selection on the
+  // screensaver icon.
+  useEffect(() => {
+    if (modalOpen || screensaver) return;
+    const content = screen.current?.querySelector<HTMLElement>(".content");
+    if (!content || content.contains(document.activeElement)) return;
+    (
+      content.querySelector<HTMLElement>("[data-autofocus]") ??
+      content.querySelector<HTMLElement>("button:not(:disabled)")
+    )?.focus();
+  }, [tab, modalOpen, screensaver]);
 
   // Light / plug / picker modals close after 30 s without a key press and when the screensaver starts.
   // The media screens (amp view, source list, radio, music) are "now playing" views and stay open.
@@ -625,7 +637,9 @@ function HomeControl() {
     );
     const active = document.activeElement;
     if (!(active instanceof HTMLElement) || !controls.includes(active as HTMLButtonElement)) {
-      controls[0]?.focus();
+      (
+        screen.current?.querySelector<HTMLElement>(".content [data-autofocus]") ?? controls[0]
+      )?.focus();
       return;
     }
     const origin = active.getBoundingClientRect();
@@ -760,6 +774,7 @@ function HomeControl() {
                         className="light-card"
                         key={meta.id}
                         data-on={light.on}
+                        data-autofocus={index === 0 || undefined}
                         title={t("lights.open", { name })}
                         aria-label={`${name}, ${lightLine(light)}`}
                         onClick={() => openModal("light", index)}
