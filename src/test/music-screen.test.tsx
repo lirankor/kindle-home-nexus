@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   tuneRadioStation: vi.fn(),
   getMusicLists: vi.fn(),
   playMusic: vi.fn(),
+  getQueueTracks: vi.fn(),
 }));
 vi.mock("@/lib/media.functions", () => mocks);
 
@@ -304,6 +305,40 @@ describe("Music screen", () => {
     expect(dialog.querySelector(".amp-title")?.textContent).toBe("New Born");
     expect(dialog.querySelector(".amp-queue-pos")?.textContent).toBe("1 מתוך 4");
     expect(dialog.querySelector(".amp-progress")).not.toBeNull();
+  });
+
+  it("F4 on the amp view opens the playlist: the current track is marked, Enter plays the chosen one", async () => {
+    mocks.getMediaSnapshot.mockResolvedValue(musicResult());
+    const tracks = demoTracks().slice(0, 4);
+    mocks.getQueueTracks.mockResolvedValue({
+      title: "Origin of Symmetry",
+      index: 1,
+      status: "playing",
+      tracks,
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
+    press("F3"); // amp view (SERVER plays)
+    expect(document.querySelector('.full-modal [data-soft-key="F4"]')?.textContent?.trim()).toBe(
+      "רשימת השמעה",
+    );
+    press("F4");
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "רשימת השמעה" })).toBeVisible());
+    const options = () => Array.from(document.querySelectorAll('[role="option"]'));
+    await waitFor(() => expect(options()).toHaveLength(4));
+    // Cursor and the "current" mark both on track 2 (the one playing).
+    expect(options()[1]?.getAttribute("aria-selected")).toBe("true");
+    expect(options()[1]?.getAttribute("data-current")).toBe("true");
+    expect(options()[1]?.querySelector("strong")?.textContent).toBe("New Born");
+    expect(options()[0]?.getAttribute("data-current")).toBe("false");
+    press("ArrowDown");
+    press("Enter");
+    await waitFor(() =>
+      expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
+        data: { type: "queue.jump", index: 2 },
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
   });
 
   it("reports a failed play and stays on the list", async () => {

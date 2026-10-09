@@ -11,6 +11,7 @@ import {
   Film,
   Heart,
   ListMusic,
+  ListOrdered,
   Music2,
   Power,
   Radio,
@@ -35,6 +36,7 @@ import type {
   RadioListsResult,
   RadioPosition,
   RadioStationView,
+  QueueList,
 } from "@/lib/media";
 import {
   SOURCE_ROWS,
@@ -52,6 +54,7 @@ import {
   getMediaSnapshot,
   getMusicLists,
   getPowerOnStatus,
+  getQueueTracks,
   getRadioLists,
   playMusic,
   runMediaAction,
@@ -79,11 +82,12 @@ const AFTER_ACTION_MS = 2000;
 const FAILED_SHOWN_MS = 2 * 60 * 1000;
 const NAV_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"];
 
-export type MediaScreen = "now" | "source" | "radio" | "music" | "tv";
+export type MediaScreen = "now" | "source" | "radio" | "music" | "tv" | "queue";
 /** Sub-views of the radio screen: the dial and the station list of the band. */
 export type RadioView = "dial" | "stations" | "bands";
 export type MediaNotice = { text: string; error?: boolean };
 export const RADIO_PAGE_SIZE = 8;
+export const QUEUE_PAGE_SIZE = 8;
 /** Not under ["media"]: a volume step must not refetch the YTuner lists. */
 const RADIO_LISTS_KEY = ["radioLists"] as const;
 /** Jellyfin lists, one entry per tab and page; kept for a while so tabs come back instantly. */
@@ -305,6 +309,7 @@ export function useMediaPanel({
       setCursor(Math.max(0, SOURCE_ROWS.indexOf(latest.current?.amp.source ?? "SERVER")));
     if (next === "radio") setRadioView("dial");
     if (next === "music") setCursor(0);
+    if (next === "queue") setCursor(Math.max(0, latest.current?.queue?.index ?? 0));
   }, []);
   const close = useCallback(() => setScreenState(null), []);
 
@@ -659,6 +664,30 @@ export function useMediaPanel({
     void sendPlay(item);
   };
 
+  // ---- Playlist screen: the server-owned queue (F4 on the amp view while Jellyfin plays) ----
+  const queueQuery = useQuery<QueueList | null>({
+    queryKey: ["media", "queue"],
+    queryFn: () => getQueueTracks(),
+    enabled: screen === "queue",
+    refetchInterval: screen === "queue" ? POLL_MS : false,
+  });
+  const queueList = queueQuery.data ?? null;
+  const queueTracks = queueList?.tracks ?? [];
+  const queueCursor = Math.min(cursor, Math.max(0, queueTracks.length - 1));
+  const queuePages = Math.max(1, Math.ceil(queueTracks.length / QUEUE_PAGE_SIZE));
+  const queuePage = Math.floor(queueCursor / QUEUE_PAGE_SIZE);
+  const pageQueue = (delta: 1 | -1) => {
+    const page = queuePage + delta;
+    if (page < 0 || page >= queuePages) return;
+    setCursor(Math.min(queueTracks.length - 1, page * QUEUE_PAGE_SIZE));
+  };
+  /** Enter / F4 on a row: the queue continues from that track; back to the amp view. */
+  const jumpQueueTo = (index: number) => {
+    if (!queueTracks[index]) return;
+    void act({ type: "queue.jump", index });
+    open("now");
+  };
+
   const tvOn =
     data?.tv.state !== undefined && !["off", "unavailable", "unknown"].includes(data.tv.state);
   const tvUnavailable = !data || data.tv.state === "unavailable" || data.tv.state === "unknown";
@@ -699,7 +728,9 @@ export function useMediaPanel({
             ? { label: t("amp.library"), icon: ListMusic, onClick: () => open("music") }
             : null,
           sourceKey,
-          null,
+          serverScreen && data?.queue
+            ? { label: t("amp.playlist"), icon: ListOrdered, onClick: () => open("queue") }
+            : null,
         ]
       : screen === "source"
         ? [
@@ -785,24 +816,45 @@ export function useMediaPanel({
                       },
                     },
                   ]
-            : screen === "music"
+            : screen === "queue"
               ? [
                   backToNow,
                   {
                     label: t("radio.prevPage"),
                     icon: ChevronLeft,
-                    disabled: musicPage === 0,
-                    onClick: () => pageMusic(-1),
+                    disabled: queuePage === 0,
+                    onClick: () => pageQueue(-1),
                   },
                   {
                     label: t("radio.nextPage"),
                     icon: ChevronRight,
-                    disabled: musicPage >= musicPages - 1,
-                    onClick: () => pageMusic(1),
+                    disabled: queuePage >= queuePages - 1,
+                    onClick: () => pageQueue(1),
                   },
-                  null,
+                  {
+                    label: t("source.apply"),
+                    icon: Check,
+                    onClick: () => jumpQueueTo(queueCursor),
+                  },
                 ]
-              : [];
+              : screen === "music"
+                ? [
+                    backToNow,
+                    {
+                      label: t("radio.prevPage"),
+                      icon: ChevronLeft,
+                      disabled: musicPage === 0,
+                      onClick: () => pageMusic(-1),
+                    },
+                    {
+                      label: t("radio.nextPage"),
+                      icon: ChevronRight,
+                      disabled: musicPage >= musicPages - 1,
+                      onClick: () => pageMusic(1),
+                    },
+                    null,
+                  ]
+                : [];
 
   /** Keys while a media screen is open (soft keys are handled by the shell first). Returns handled. */
   const onKey = (event: KeyboardEvent): boolean => {
@@ -810,6 +862,7 @@ export function useMediaPanel({
     if (screen === "radio" && radioView === "bands") return onRadioBandsKey(event);
     if (screen === "radio" && radioView === "stations") return onRadioListKey(event);
     if (screen === "music") return onMusicKey(event);
+    if (screen === "queue") return onQueueKey(event);
     if (event.key === "Escape") {
       event.preventDefault();
       if (screen === "source") closeSourceList();
@@ -937,6 +990,28 @@ export function useMediaPanel({
     return true;
   };
 
+  /** Keys on the playlist: up/down move (page keys jump a page), Enter plays that track, Escape backs out. */
+  const onQueueKey = (event: KeyboardEvent): boolean => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      open("now");
+      return true;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      jumpQueueTo(queueCursor);
+      return true;
+    }
+    if (!NAV_KEYS.includes(event.key)) return false;
+    event.preventDefault();
+    const last = Math.max(0, queueTracks.length - 1);
+    if (event.key === "ArrowUp") setCursor((c) => Math.max(0, c - 1));
+    else if (event.key === "ArrowDown") setCursor((c) => Math.min(last, c + 1));
+    else if (event.key === "PageUp") pageQueue(-1);
+    else if (event.key === "PageDown") pageQueue(1);
+    return true;
+  };
+
   return {
     screen,
     data,
@@ -987,6 +1062,14 @@ export function useMediaPanel({
     restoreMusic,
     selectMusicTab,
     playItem,
+    // Playlist screen
+    queueList,
+    queueTracks,
+    queueCursor,
+    queuePage,
+    queuePages,
+    queueListLoading: queueQuery.isPending,
+    jumpQueueTo,
   };
 }
 export type MediaPanel = ReturnType<typeof useMediaPanel>;

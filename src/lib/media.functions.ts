@@ -21,6 +21,7 @@ import type {
   QueueProgress,
   RadioListsResult,
   RadioPosition,
+  QueueList,
 } from "@/lib/media";
 import { haConfigured } from "./home.server";
 import {
@@ -36,6 +37,7 @@ import {
   readRadioLists,
   startPowerOn,
   tuneRadio,
+  getQueueList,
 } from "./media.server";
 
 const sourceSchema = z.enum(AMP_SOURCES);
@@ -65,13 +67,21 @@ const actionSchema = z.discriminatedUnion("type", [
     type: z.literal("queue"),
     op: z.enum(["next", "prev", "pause", "resume", "toggle", "stop"]),
   }),
+  z.object({ type: z.literal("queue.jump"), index: z.number().int().min(0).max(9999) }),
   z.object({ type: z.literal("all_off") }),
 ]);
 
 const flags = () => ({ amp: ampConfigured(), jellyfin: jellyfinConfigured() });
 /** Actions that only need the amp's own HTTP APIs or our queue, not Home Assistant. */
 const needsHa = (a: MediaAction) =>
-  !["fm.frequency", "radio.step", "radio.favourite", "radio.playback", "queue"].includes(a.type);
+  ![
+    "fm.frequency",
+    "radio.step",
+    "radio.favourite",
+    "radio.playback",
+    "queue",
+    "queue.jump",
+  ].includes(a.type);
 
 async function snapshotResult(): Promise<MediaSnapshotResult> {
   const lang = parseLang(process.env["UI_LANGUAGE"]);
@@ -159,6 +169,10 @@ export const playMusic = createServerFn({ method: "POST" })
 
 export const getQueueState = createServerFn({ method: "GET" }).handler(
   async (): Promise<QueueProgress | null> => getQueueProgress(),
+);
+/** The playlist screen: every queued track plus the current index. */
+export const getQueueTracks = createServerFn({ method: "GET" }).handler(
+  async (): Promise<QueueList | null> => getQueueList(),
 );
 
 export type PowerOnResult = { ok: boolean; error?: string; status: PowerOnStatus | null };

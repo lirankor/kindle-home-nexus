@@ -229,6 +229,8 @@ export type QueueState = {
   /** SetNextAVTransportURI already sent for index + 1. */
   nextPushed: boolean;
 };
+/** The whole queue for the playlist screen (stream URLs stripped). */
+export type QueueList = { title: string; index: number; status: QueueStatus; tracks: MusicTrack[] };
 export type QueueProgress = {
   title: string;
   index: number;
@@ -257,6 +259,8 @@ export type MediaAction =
   /** NET RADIO stream stop / play (Enter on the radio screen). */
   | { type: "radio.playback"; op: "play" | "stop" }
   | { type: "queue"; op: "next" | "prev" | "pause" | "resume" | "toggle" | "stop" }
+  /** Playlist screen: play track `index` of the queue. */
+  | { type: "queue.jump"; index: number }
   /** TV off, amp to standby, then (3 s later) the media plug off. */
   | { type: "all_off" };
 export type MediaActionResult = { ok: boolean; error?: string; snapshot?: MediaSnapshot | null };

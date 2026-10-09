@@ -371,7 +371,8 @@ function HomeControl() {
     }
     restored.current = true;
   }, [mediaOpen, mediaRestoreRadio, mediaRestoreMusic]);
-  const mediaScreenToSave = persistableScreen(media.screen);
+  // The playlist is a detour from the amp view: a reload comes back to the amp view.
+  const mediaScreenToSave = persistableScreen(media.screen === "queue" ? "now" : media.screen);
   const radioToSave = media.radioState;
   const musicToSave = media.musicState;
   useEffect(() => {

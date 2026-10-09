@@ -580,6 +580,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .music-row .source-row-text strong { font-size: 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .music-row .source-row-text span { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .music-note { font-size: 24px; text-align: center; color: var(--muted-foreground); margin: 40px 0; }
+.queue-row .source-row-icon.queue-num { width: 46px; height: 46px; font-size: 22px; font-weight: 700; }
 .music-foot { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 10px; }
 .music-page { font-size: 22px; font-weight: 700; flex-shrink: 0; }
 .amp-progress[data-status="paused"] .progress-track span { background: var(--muted-foreground); }

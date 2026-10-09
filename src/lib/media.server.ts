@@ -42,6 +42,7 @@ import type {
   RadioListsResult,
   RadioPosition,
   RadioStationView,
+  QueueList,
 } from "@/lib/media";
 import {
   trackIdFromUri,
@@ -72,6 +73,7 @@ import {
   streamMime,
   yamahaCmd,
   yamahaRc,
+  stripStream,
 } from "@/lib/media-protocol";
 import type { ListInfo, NetRadioPlayInfo, YtunerStation } from "@/lib/media-protocol";
 
@@ -1539,6 +1541,22 @@ async function setQueue(q: QueueState | null) {
 export async function getQueueProgress(): Promise<QueueProgress | null> {
   return queueProgress((await loadState()).queue, Date.now());
 }
+export async function getQueueList(): Promise<QueueList | null> {
+  const q = (await loadState()).queue;
+  return q
+    ? { title: q.title, index: q.index, status: q.status, tracks: q.tracks.map(stripStream) }
+    : null;
+}
+/** Playlist screen: play the queue from `index` (Enter / F4 on a row). */
+export async function queueJumpTo(index: number): Promise<QueueProgress | null> {
+  const q = (await loadState()).queue;
+  if (!q) throw new MediaError("No queue");
+  if (!q.tracks[index]) throw new MediaError("No such track");
+  const n = queueJump(q, index, Date.now());
+  await pushTrack(n.tracks[n.index]!, n.tracks[n.index + 1]);
+  ensureQueueTimer();
+  return setQueue({ ...n, startedAt: Date.now(), nextPushed: n.index + 1 < n.tracks.length });
+}
 
 export async function startQueue(
   title: string,
@@ -1779,6 +1797,9 @@ export async function performMediaAction(a: MediaAction): Promise<void> {
       break;
     case "queue":
       await queueCommand(a.op);
+      break;
+    case "queue.jump":
+      await queueJumpTo(a.index);
       break;
   }
 }

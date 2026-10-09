@@ -141,6 +141,13 @@ export function applyMediaOptimistic(s: MediaSnapshot, action: MediaAction): Med
         else if (action.op === "stop") next.queue.status = "stopped";
       }
       break;
+    case "queue.jump":
+      if (next.queue) {
+        next.queue.index = action.index;
+        next.queue.positionMs = 0;
+        next.queue.status = "playing";
+      }
+      break;
     default:
       break;
   }
@@ -259,6 +266,8 @@ export function mediaActionLabel(action: MediaAction, lang: Lang, after?: MediaS
       return t(action.op === "play" ? "act.radioPlay" : "act.radioStop");
     case "all_off":
       return t("act.allOff");
+    case "queue.jump":
+      return t("act.track", { n: action.index + 1 });
     case "queue":
       return action.op === "next"
         ? t("act.next")

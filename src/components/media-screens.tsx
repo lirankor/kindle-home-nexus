@@ -49,7 +49,7 @@ import {
   musicItemTitle,
   powerOnStepKey,
 } from "@/lib/media-ui";
-import { RADIO_PAGE_SIZE } from "@/lib/media-panel";
+import { QUEUE_PAGE_SIZE, RADIO_PAGE_SIZE } from "@/lib/media-panel";
 import type { MediaPanel } from "@/lib/media-panel";
 import { RADIO_BANDS, bandKey, listById, stationDetail } from "@/lib/radio-dial";
 
@@ -798,10 +798,74 @@ function MusicScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   );
 }
 
+/** F4 on the amp view while Jellyfin plays: the queue, 8 rows per page, Enter / F4 jumps to a track. */
+function QueueScreen({ panel, status }: { panel: MediaPanel; status: string }) {
+  const { t, queueList, queueTracks, queueCursor, queuePage, queuePages } = panel;
+  const rows = queueTracks.slice(queuePage * QUEUE_PAGE_SIZE, (queuePage + 1) * QUEUE_PAGE_SIZE);
+  const current = queueList?.index ?? -1;
+  return (
+    <FullModal label={t("queue.title")} actions={panel.modalActions} status={status} compactStatus>
+      <header className="modal-heading radio-list-heading">
+        <h1>{t("queue.title")}</h1>
+        <p>
+          {queueList?.title ?? (panel.queueListLoading ? "…" : t("queue.empty"))}
+          {queueList && (
+            <>
+              {" · "}
+              <Ltr>
+                {current + 1}/{queueTracks.length}
+              </Ltr>
+              {queuePages > 1 && (
+                <>
+                  {" · "}
+                  <Ltr>
+                    {queuePage + 1}/{queuePages}
+                  </Ltr>
+                </>
+              )}
+            </>
+          )}
+        </p>
+      </header>
+      <div className="source-rows music-rows" role="listbox" aria-label={t("queue.title")}>
+        {queueList && rows.length === 0 && <p className="radio-empty">{t("queue.empty")}</p>}
+        {rows.map((track, i) => {
+          const index = queuePage * QUEUE_PAGE_SIZE + i;
+          return (
+            <Button
+              key={`${index}-${track.id}`}
+              variant="eink"
+              className="source-row music-row queue-row"
+              role="option"
+              aria-selected={index === queueCursor}
+              aria-pressed={index === queueCursor}
+              data-current={index === current}
+              onClick={() => panel.jumpQueueTo(index)}
+            >
+              <span className="source-row-icon queue-num">
+                <Ltr>{index + 1}</Ltr>
+              </span>
+              <span className="source-row-text">
+                <strong>{track.title}</strong>
+                <span>{track.artist ?? "\u00a0"}</span>
+              </span>
+              <span className="radio-row-detail">
+                <Ltr>{mmss(track.durationMs)}</Ltr>
+              </span>
+            </Button>
+          );
+        })}
+      </div>
+    </FullModal>
+  );
+}
+
 export function MediaModal({ panel, status }: { panel: MediaPanel; status: string }) {
   switch (panel.screen) {
     case "now":
       return <AmpView panel={panel} status={status} />;
+    case "queue":
+      return <QueueScreen panel={panel} status={status} />;
     case "source":
       return <SourceList panel={panel} status={status} />;
     case "tv":
