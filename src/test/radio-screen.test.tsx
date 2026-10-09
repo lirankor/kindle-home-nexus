@@ -113,9 +113,10 @@ describe("Radio screen", () => {
 
   it("renders the band row, the dial with the needle on the playing station and the footer", async () => {
     await openRadio();
-    // WDR 5 is local index 0: needle on the first stop with the "<|>" arrows, bold FM label, band
-    // name at the left end.
-    expect(dial()?.querySelector(".radio-needle-arrows")).not.toBeNull();
+    // WDR 5 is local index 0: needle on the first stop (plain, no "<|>" arrows), bold FM label,
+    // band name at the left end.
+    expect(dial()?.querySelector(".radio-needle")).not.toBeNull();
+    expect(dial()?.querySelector(".radio-needle-arrows")).toBeNull();
     expect(dial()?.getAttribute("data-list")).toBe("local");
     expect(dial()?.getAttribute("data-index")).toBe("0");
     expect(needleX()).toBe(stationX(0, 12));
@@ -126,11 +127,13 @@ describe("Radio screen", () => {
     expect(labels.length).toBeGreaterThanOrEqual(9);
     expect(labels).toContain("95.1");
     // Now playing block from the snapshot.
-    const now = document.querySelector(".radio-now")!;
+    const now = document.querySelector(".radio-now-text")!;
     expect(now.querySelector(".radio-now-name")?.textContent).toBe("WDR 5");
     expect(now.querySelector(".radio-now-song")?.textContent).toBe("Zara Larsson - Memory Lane");
     expect(now.querySelector(".radio-now-detail")?.textContent).toBe("128k · MP3");
-    expect(now.querySelector("img")?.getAttribute("src")).toBe("/media/img?station=wdr-5&w=96");
+    expect(document.querySelector(".radio-cover img")?.getAttribute("src")).toBe(
+      "/media/img?station=wdr-5&w=128",
+    );
     // The small transport control under the station dial; only one dial bar on the screen.
     expect(knob()?.textContent).toBe("-44.5dB");
     const pad = document.querySelector(".radio-transport-row .transport");
@@ -138,14 +141,15 @@ describe("Radio screen", () => {
     expect(pad?.querySelectorAll(".transport-pad svg")).toHaveLength(1);
     expect(pad?.querySelectorAll(".transport-sat")).toHaveLength(4);
     expect(document.querySelectorAll(".radio-dial")).toHaveLength(1);
-    // The single key hint is the last line before the footer (after the status line), none in the body.
-    const hint = document.querySelector(".modal-foot-hint");
-    expect(hint?.textContent).toContain("נגן/עצור");
-    expect(hint?.previousElementSibling?.className).toBe("demo-status");
-    expect(hint?.nextElementSibling?.tagName).toBe("FOOTER");
+    // No key hint and no visible status row: the status stays readable to assistive tech only and
+    // the footer follows it directly.
+    expect(document.querySelector(".modal-foot-hint")).toBeNull();
     expect(document.querySelector(".full-modal-body .modal-hint")).toBeNull();
+    const status = document.querySelector('.full-modal [role="status"]');
+    expect(status?.className).toBe("sr-only");
+    expect(status?.nextElementSibling?.tagName).toBe("FOOTER");
     // Footer: back, favourite toggle, next band (Israel after Düsseldorf), station list.
-    expect(footerLabels()).toEqual(["חזרה", "הוסף למועדפים", "ישראל", "רשימת תחנות"]);
+    expect(footerLabels()).toEqual(["חזרה", "מועדפים", "ישראל", "רשימת תחנות"]);
     expect(document.documentElement.getAttribute("data-eink-refresh")).toBe("full");
   });
 
@@ -163,8 +167,8 @@ describe("Radio screen", () => {
     expect(needleX()).toBe(stationX(1, 12));
     expect(document.querySelector(".radio-now-name")?.textContent).toBe("NRW1");
     // NRW1 has no logo in the catalog: the placeholder glyph, no <img>.
-    expect(document.querySelector(".radio-now img")).toBeNull();
-    expect(document.querySelector(".radio-now .radio-logo svg")).not.toBeNull();
+    expect(document.querySelector(".radio-cover img")).toBeNull();
+    expect(document.querySelector(".radio-cover .radio-logo svg")).not.toBeNull();
     await act(async () => settle({ ok: true }));
     // Wrap at the start: left from index 1 → 0 → 11.
     press("ArrowLeft");
@@ -323,7 +327,7 @@ describe("Radio screen", () => {
     press("F3");
     expect(dial()?.getAttribute("data-list")).toBe("favourites");
     expect(dial()?.querySelector("text[data-current]")?.textContent).toBe("NRW1");
-    expect(footerLabels()[1]).toBe("הסר ממועדפים");
+    expect(footerLabels()[1]).toBe("מועדפים");
   });
 
   it("adds or removes the station under the needle with F2 and updates the favourites band", async () => {
@@ -347,7 +351,7 @@ describe("Radio screen", () => {
     expect(
       document.querySelector('.full-modal [data-soft-key="F2"]')?.getAttribute("aria-pressed"),
     ).toBe("true");
-    expect(footerLabels()[1]).toBe("הסר ממועדפים");
+    expect(footerLabels()[1]).toBe("מועדפים");
     press("F3");
     press("F3");
     press("F3"); // → favourites

@@ -551,7 +551,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .radio-now { display: flex; gap: 18px; align-items: center; margin-top: 16px; min-height: 110px; }
 .radio-logo { flex-shrink: 0; border: 1px solid var(--foreground); display: flex; align-items: center; justify-content: center; background: var(--background); overflow: hidden; box-sizing: content-box; }
 .radio-logo img { width: 100%; height: 100%; object-fit: contain; filter: grayscale(1) contrast(1.15); display: block; }
-.radio-now[data-on="false"] .radio-logo { color: var(--muted-foreground); }
+.radio-now[data-on="false"] .radio-logo, .radio-cover[data-on="false"] .radio-logo { color: var(--muted-foreground); }
 .radio-now-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .radio-now-name { font-size: 34px; line-height: 1.15; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .radio-now-song { font-size: 23px; line-height: 1.2; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }

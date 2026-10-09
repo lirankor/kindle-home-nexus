@@ -185,7 +185,9 @@ describe("Music screen", () => {
     await waitFor(() =>
       expect(mocks.getMusicLists).toHaveBeenCalledWith({ data: { tab: "mixes", page: 0 } }),
     );
-    await waitFor(() => expect(rowTitles().slice(0, 4)).toEqual(["מיקס יומי", "גילוי", "מסיבה", "ריקודים"]));
+    await waitFor(() =>
+      expect(rowTitles().slice(0, 4)).toEqual(["מיקס יומי", "גילוי", "מסיבה", "ריקודים"]),
+    );
     expect(activeTab()).toBe("מיקסים");
     expect(rowDetails()[0]).toBe("סביב שיר אהוב · 20 שירים");
     expect(selectedRow()).toBe("מיקס יומי");
@@ -297,7 +299,9 @@ describe("Music screen", () => {
     await act(async () => settle({ ok: true, queue }));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible());
     const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
-    expect(dialog.querySelector(".amp-badge")?.textContent).toBe("ג׳ליפין");
+    expect(dialog.querySelector(".amp-transport .transport-reading strong")?.textContent).toBe(
+      "ג׳ליפין",
+    );
     expect(dialog.querySelector(".amp-title")?.textContent).toBe("New Born");
     expect(dialog.querySelector(".amp-queue-pos")?.textContent).toBe("1 מתוך 4");
     expect(dialog.querySelector(".amp-progress")).not.toBeNull();
@@ -326,7 +330,9 @@ describe("Music screen", () => {
     expect(dialog.querySelector(".amp-times")?.textContent).toContain("6:05");
     const width = () => dialog.querySelector<HTMLElement>(".progress-track span")!.style.width;
     expect(parseFloat(width())).toBeCloseTo((30000 / 365000) * 100, 1);
-    expect(dialog.textContent).toContain("Enter נגן/השהה");
+    // No key hint line any more; the status row is visually hidden.
+    expect(dialog.querySelector(".modal-foot-hint")).toBeNull();
+    expect(dialog.querySelector('[role="status"]')?.className).toBe("sr-only");
     // Client-side ticker: a second later the position moved on without a new snapshot.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2100);
