@@ -185,7 +185,7 @@ describe("Music screen", () => {
     await waitFor(() =>
       expect(mocks.getMusicLists).toHaveBeenCalledWith({ data: { tab: "mixes", page: 0 } }),
     );
-    await waitFor(() => expect(rowTitles()).toEqual(["מיקס יומי", "גילוי", "רגוע", "ערב"]));
+    await waitFor(() => expect(rowTitles().slice(0, 4)).toEqual(["מיקס יומי", "גילוי", "מסיבה", "ריקודים"]));
     expect(activeTab()).toBe("מיקסים");
     expect(rowDetails()[0]).toBe("סביב שיר אהוב · 20 שירים");
     expect(selectedRow()).toBe("מיקס יומי");
@@ -219,7 +219,7 @@ describe("Music screen", () => {
     expect(
       Array.from(document.querySelectorAll('[role="tab"]')).map((el) => el.textContent),
     ).toEqual(["Mixes", "Picks", "Artists", "Albums", "Recent"]);
-    expect(rowTitles()).toEqual(["Daily mix", "Discover", "Relaxed", "Evening"]);
+    expect(rowTitles().slice(0, 4)).toEqual(["Daily mix", "Discover", "Party", "Dancing"]);
     expect(rowDetails()[1]).toBe("Tracks never played · 20 tracks");
     press("ArrowRight");
     expect(activeTab()).toBe("Picks");
@@ -419,7 +419,7 @@ describe("Music screen", () => {
       elapsedMs: 120000,
     });
     await waitFor(
-      () => expect(mocks.playMusic).toHaveBeenCalledWith({ data: { kind: "mix", id: "relaxed" } }),
+      () => expect(mocks.playMusic).toHaveBeenCalledWith({ data: { kind: "mix", id: "party" } }),
       { timeout: 4000 },
     );
     await waitFor(() => expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible());

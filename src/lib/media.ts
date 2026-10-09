@@ -190,7 +190,27 @@ export type MusicListResult = {
   items: MusicListItem[];
 };
 export type PlaySelection = { kind: MusicItemKind; id: string };
-export const MIX_IDS = ["daily", "discover", "relaxed", "evening"] as const;
+export const MIX_IDS = [
+  "daily",
+  "discover",
+  "party",
+  "dancing",
+  "rock",
+  "pop",
+  "s60",
+  "s70",
+  "s80",
+  "s90",
+  "s2000",
+  "relaxed",
+  "evening",
+  "jazz",
+  "blues",
+  "punk",
+  "metal",
+  "electronic",
+  "classical",
+] as const;
 export type MixId = (typeof MIX_IDS)[number];
 
 // ---- Playback queue (server-owned; the browser only ever sees QueueProgress) ----

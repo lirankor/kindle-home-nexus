@@ -4,7 +4,7 @@
 // without AMP_HOST / JELLYFIN_* the callers fall back to demo data (see media.functions.ts).
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { createConnection } from "node:net";
 import os from "node:os";
@@ -126,8 +126,11 @@ type Runtime = {
   queueBusy: boolean;
   powerOn: PowerOnStatus | null;
   ytunerIds: { at: number; byUrl: Map<string, YtunerStation> } | null;
-  mixes: { day: string; items: Map<MixId, MusicTrack[]> } | null;
+  mixes: { day: string; builtAt: number; items: Map<MixId, MusicTrack[]> } | null;
+  mixBuilding: Promise<Map<MixId, MusicTrack[]>> | null;
+  mixTimer: ReturnType<typeof setInterval> | null;
   lists: Map<string, { at: number; items: MusicListItem[] }>;
+  imgNegative: Map<string, number>;
 };
 const g = globalThis as unknown as {
   __kindleMediaRuntime?: Runtime;
@@ -141,7 +144,10 @@ const rt: Runtime = (g.__kindleMediaRuntime ??= {
   powerOn: null,
   ytunerIds: null,
   mixes: null,
+  mixBuilding: null,
+  mixTimer: null,
   lists: new Map(),
+  imgNegative: new Map(),
 });
 
 // ---- Persistence (MEDIA_STATE_DIR, default os.tmpdir()) ----
@@ -384,6 +390,7 @@ type JfItem = {
   ProductionYear?: number;
   ImageTags?: Record<string, string>;
   AlbumPrimaryImageTag?: string;
+  AlbumArtists?: { Id: string; Name: string }[];
 };
 type JfList = { Items?: JfItem[]; TotalRecordCount?: number };
 
@@ -421,12 +428,14 @@ export const toTrack = (i: JfItem): MusicTrack => ({
     i.AlbumId && i.AlbumPrimaryImageTag ? i.AlbumId : i.ImageTags?.["Primary"] ? i.Id : null,
 });
 const artOf = (i: JfItem) => (i.ImageTags?.["Primary"] ? i.Id : null);
+/** Albums without their own cover (about 40 % here) fall back to the album artist's picture. */
+const albumArtOf = (i: JfItem) => artOf(i) ?? i.AlbumArtists?.[0]?.Id ?? null;
 const albumItem = (i: JfItem): MusicListItem => ({
   kind: "album",
   id: i.Id,
   title: i.Name,
   detail: [i.AlbumArtist, i.ProductionYear].filter(Boolean).join(" · "),
-  artItemId: artOf(i),
+  artItemId: albumArtOf(i),
 });
 const trackItem = (t: MusicTrack): MusicListItem => ({
   kind: "track",
@@ -603,9 +612,31 @@ export async function imageFor(q: {
   }
   if (q.item) {
     if (!/^[0-9a-fA-F-]{8,40}$/.test(q.item) || !jellyfinConfigured()) return null;
-    return grayscalePng(jellyfin.artUrl(q.item, Math.max(200, width)), width);
+    const key = `${q.item}@${width}`;
+    const neg = rt.imgNegative.get(key);
+    if (neg && neg > Date.now()) return null;
+    const png = await grayscalePng(jellyfin.artUrl(q.item, Math.max(200, width)), width);
+    if (!png) rt.imgNegative.set(key, Date.now() + 60 * 60_000); // no cover: do not retry for an hour
+    return png;
   }
   return null;
+}
+
+/** Background pre-warm of the resized-image cache so list rows and the amp view show art on first paint. */
+export async function warmArt(
+  ids: Array<string | null | undefined>,
+  width: number,
+  concurrency = 2,
+) {
+  const todo = [...new Set(ids.filter((x): x is string => !!x))];
+  let i = 0;
+  const worker = async () => {
+    while (i < todo.length) {
+      const id = todo[i++]!;
+      await imageFor({ item: id, width }).catch(() => null);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, todo.length) }, worker));
 }
 
 // ---- HA helpers for the media devices ----
@@ -1080,33 +1111,296 @@ async function setFavourite(stationId: string, add: boolean) {
 // ---- Music lists (Jellyfin) ----
 const LIST_TTL_MS = 10 * 60_000;
 const MIX_SIZE = 40;
-const GENRE_MIX: Partial<Record<MixId, string>> = {
-  relaxed: "Ambient|Classical|Jazz|Acoustic",
-  evening: "Blues|Jazz|Vocal|Lounge",
+type MixSpec =
+  | { kind: "seed" }
+  | { kind: "unplayed" }
+  | { kind: "genres"; genres: string }
+  | { kind: "years"; from: number; to: number }
+  | { kind: "artists"; names: string[] };
+/** What each mix is built from. Verified against this library on 2026-10-09: genres are sparse
+ * (Blues 665, Punk 792, Jazz 405, Heavy Metal 219, Electronic 205, Classical 174 tracks), years are
+ * well filled (90s/2000s thousands, 80s ~1.4k, 70s ~750), so party/dance/rock/pop use artist seeds. */
+export const MIX_SPECS: Record<MixId, MixSpec> = {
+  daily: { kind: "seed" },
+  discover: { kind: "unplayed" },
+  party: {
+    kind: "artists",
+    names: [
+      "ABBA",
+      "Black Eyed Peas",
+      "Michael Jackson",
+      "Madonna",
+      "Bee Gees",
+      "Pitbull",
+      "Rihanna",
+      "Shakira",
+      "Daft Punk",
+      "Lady Gaga",
+      "Bruno Mars",
+      "Kool & The Gang",
+      "Earth, Wind & Fire",
+      "Gloria Gaynor",
+      "Ricky Martin",
+      "Queen",
+    ],
+  },
+  dancing: {
+    kind: "artists",
+    names: [
+      "Ace Of Base",
+      "Snap!",
+      "Haddaway",
+      "2 Unlimited",
+      "Culture Beat",
+      "Dr. Alban",
+      "Scooter",
+      "Activate",
+      "La Bouche",
+      "Corona",
+      "Vengaboys",
+      "Eiffel 65",
+      "Alice Deejay",
+      "Modern Talking",
+      "Boney M.",
+      "Chic",
+      "Donna Summer",
+      "David Guetta",
+      "Avicii",
+      "Calvin Harris",
+    ],
+  },
+  rock: {
+    kind: "artists",
+    names: [
+      "AC-DC",
+      "AC/DC",
+      "Aerosmith",
+      "Led Zeppelin",
+      "Deep Purple",
+      "Guns N' Roses",
+      "Metallica",
+      "Scorpions",
+      "Pink Floyd",
+      "The Rolling Stones",
+      "Bon Jovi",
+      "Nirvana",
+      "Red Hot Chili Peppers",
+      "Foo Fighters",
+      "Dire Straits",
+      "Alice Cooper",
+      "ZZ Top",
+      "Bruce Springsteen",
+      "U2",
+      "Queen",
+    ],
+  },
+  pop: {
+    kind: "artists",
+    names: [
+      "Madonna",
+      "Michael Jackson",
+      "The Beatles",
+      "Elton John",
+      "George Michael",
+      "Robbie Williams",
+      "Britney Spears",
+      "Coldplay",
+      "Oasis",
+      "Alanis Morissette",
+      "Phil Collins",
+      "Sting",
+      "Whitney Houston",
+      "Celine Dion",
+      "Adele",
+      "Ed Sheeran",
+      "Justin Timberlake",
+      "Maroon 5",
+      "Roxette",
+      "ABBA",
+    ],
+  },
+  s60: { kind: "years", from: 1960, to: 1969 },
+  s70: { kind: "years", from: 1970, to: 1979 },
+  s80: { kind: "years", from: 1980, to: 1989 },
+  s90: { kind: "years", from: 1990, to: 1999 },
+  s2000: { kind: "years", from: 2000, to: 2009 },
+  relaxed: { kind: "genres", genres: "Ambient|Classical|Jazz|Acoustic" },
+  evening: { kind: "genres", genres: "Blues|Jazz|Vocal|Lounge" },
+  jazz: { kind: "genres", genres: "Jazz" },
+  blues: { kind: "genres", genres: "Blues" },
+  punk: { kind: "genres", genres: "Punk" },
+  metal: { kind: "genres", genres: "Heavy Metal|Metal" },
+  electronic: { kind: "genres", genres: "Electronic|Dance" },
+  classical: { kind: "genres", genres: "Classical" },
 };
-
-async function buildMixes(): Promise<Map<MixId, MusicTrack[]>> {
-  const day = new Date().toISOString().slice(0, 10);
-  if (rt.mixes && rt.mixes.day === day) return rt.mixes.items;
-  const seed =
-    (await jellyfin.randomTracks(1, { Filters: "IsFavorite" }))[0] ??
-    (await jellyfin.randomTracks(1, { Filters: "IsPlayed" }))[0] ??
-    (await jellyfin.randomTracks(1))[0];
-  const [daily, discover, relaxed, evening] = await Promise.all([
-    seed ? jellyfin.instantMix(seed.id, MIX_SIZE) : Promise.resolve([]),
-    jellyfin.randomTracks(MIX_SIZE, { Filters: "IsUnplayed" }),
-    jellyfin.randomTracks(MIX_SIZE, { Genres: GENRE_MIX.relaxed! }),
-    jellyfin.randomTracks(MIX_SIZE, { Genres: GENRE_MIX.evening! }),
-  ]);
-  const items = new Map<MixId, MusicTrack[]>([
-    ["daily", daily],
-    ["discover", discover],
-    ["relaxed", relaxed],
-    ["evening", evening],
-  ]);
-  rt.mixes = { day, items };
-  return items;
+export const MIX_MIN_TRACKS = 15;
+export const yearsParam = (from: number, to: number) =>
+  Array.from({ length: to - from + 1 }, (_, i) => String(from + i)).join(",");
+export function dedupeShuffle<T extends { id: string }>(tracks: T[], size: number): T[] {
+  const seen = new Set<string>();
+  const out = tracks.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out.slice(0, size);
 }
+const mixesFile = () => path.join(env("MEDIA_STATE_DIR") || os.tmpdir(), "kindle-mixes.json");
+/** Calendar day in Europe/Berlin (the amp's living room), e.g. "2026-10-09". */
+export const berlinDay = (d = new Date()) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+const berlinHour = (d = new Date()) =>
+  Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Berlin",
+      hour: "2-digit",
+      hour12: false,
+    }).format(d),
+  );
+
+async function artistIds(names: string[]): Promise<string[]> {
+  const ids: string[] = [];
+  for (const name of names) {
+    try {
+      const r = await jf<JfList>("/Artists", {
+        userId: env("JELLYFIN_USER_ID"),
+        searchTerm: name,
+        limit: 3,
+      });
+      const hit =
+        (r.Items ?? []).find((a) => a.Name.toLowerCase() === name.toLowerCase()) ??
+        (r.Items ?? [])[0];
+      if (hit && hit.Name.toLowerCase().startsWith(name.toLowerCase().slice(0, 4)))
+        ids.push(hit.Id);
+    } catch {
+      /* skip unknown artist */
+    }
+    if (ids.length >= 8) break;
+  }
+  return ids;
+}
+async function buildMix(id: MixId): Promise<MusicTrack[]> {
+  const spec = MIX_SPECS[id];
+  switch (spec.kind) {
+    case "seed": {
+      const seed =
+        (await jellyfin.randomTracks(1, { Filters: "IsFavorite" }))[0] ??
+        (await jellyfin.randomTracks(1, { Filters: "IsPlayed" }))[0] ??
+        (await jellyfin.randomTracks(1))[0];
+      return seed ? jellyfin.instantMix(seed.id, MIX_SIZE) : [];
+    }
+    case "unplayed":
+      return jellyfin.randomTracks(MIX_SIZE, { Filters: "IsUnplayed" });
+    case "genres":
+      return dedupeShuffle(
+        await jellyfin.randomTracks(MIX_SIZE, { Genres: spec.genres }),
+        MIX_SIZE,
+      );
+    case "years":
+      return dedupeShuffle(
+        await jellyfin.randomTracks(MIX_SIZE, { Years: yearsParam(spec.from, spec.to) }),
+        MIX_SIZE,
+      );
+    case "artists": {
+      const ids = await artistIds(spec.names);
+      if (ids.length === 0) return [];
+      const parts = await Promise.all(
+        ids.map(async (aid) => {
+          const own = await jellyfin.randomTracks(6, { ArtistIds: aid });
+          const seed = own[0];
+          const mix = seed ? await jellyfin.instantMix(seed.id, 10).catch(() => []) : [];
+          return [...own, ...mix];
+        }),
+      );
+      return dedupeShuffle(parts.flat(), MIX_SIZE);
+    }
+  }
+}
+function loadMixesFromDisk(): typeof rt.mixes {
+  try {
+    const f = mixesFile();
+    if (!existsSync(f)) return null;
+    const raw = JSON.parse(readFileSync(f, "utf8")) as {
+      day: string;
+      builtAt: number;
+      items: Record<string, MusicTrack[]>;
+    };
+    const items = new Map<MixId, MusicTrack[]>();
+    for (const id of MIX_IDS) if (raw.items[id]?.length) items.set(id, raw.items[id]!);
+    return items.size ? { day: raw.day, builtAt: raw.builtAt, items } : null;
+  } catch {
+    return null;
+  }
+}
+/** Builds every mix (sequentially, Jellyfin is a small server), persists them and pre-warms the art. */
+export async function buildAllMixes(): Promise<Map<MixId, MusicTrack[]>> {
+  if (rt.mixBuilding) return rt.mixBuilding;
+  rt.mixBuilding = (async () => {
+    const items = new Map<MixId, MusicTrack[]>();
+    for (const id of MIX_IDS) {
+      try {
+        const tracks = await buildMix(id);
+        if (tracks.length >= MIX_MIN_TRACKS) items.set(id, tracks);
+        else console.log(`mix ${id}: only ${tracks.length} tracks, skipped`);
+      } catch (e) {
+        console.warn(`mix ${id} failed:`, e);
+      }
+    }
+    const day = berlinDay();
+    rt.mixes = { day, builtAt: Date.now(), items };
+    try {
+      mkdirSync(path.dirname(mixesFile()), { recursive: true });
+      writeFileSync(
+        mixesFile(),
+        JSON.stringify({ day, builtAt: rt.mixes.builtAt, items: Object.fromEntries(items) }),
+        "utf8",
+      );
+    } catch (e) {
+      console.warn("mixes save failed:", e);
+    }
+    rt.lists.delete("mixes");
+    console.log(`mixes built for ${day}: ${[...items.keys()].join(", ")}`);
+    void warmArt(
+      [...items.values()].flatMap((ts) => [
+        ts.find((t) => t.artItemId)?.artItemId,
+        ...ts.slice(0, 12).map((t) => t.artItemId),
+      ]),
+      64,
+    ).catch(() => undefined);
+    return items;
+  })().finally(() => {
+    rt.mixBuilding = null;
+  });
+  return rt.mixBuilding;
+}
+/** Mixes come from the daily build (disk/memory); only the very first run builds on demand. */
+async function buildMixes(): Promise<Map<MixId, MusicTrack[]>> {
+  if (!rt.mixes) rt.mixes = loadMixesFromDisk();
+  if (rt.mixes) {
+    if (rt.mixes.day !== berlinDay() && Date.now() - rt.mixes.builtAt > 36 * 3600_000)
+      void buildAllMixes();
+    return rt.mixes.items;
+  }
+  return buildAllMixes();
+}
+/** Startup (+20 s) and every day at 04:00 Berlin time. */
+export function scheduleMixBuilds() {
+  if (rt.mixTimer || !jellyfinConfigured()) return;
+  setTimeout(() => {
+    if (!rt.mixes) rt.mixes = loadMixesFromDisk();
+    if (!rt.mixes || rt.mixes.day !== berlinDay()) void buildAllMixes();
+  }, 20_000).unref?.();
+  rt.mixTimer = setInterval(() => {
+    if (berlinHour() === 4 && rt.mixes?.day !== berlinDay()) void buildAllMixes();
+  }, 10 * 60_000);
+  rt.mixTimer.unref?.();
+}
+scheduleMixBuilds();
 
 async function listItems(tab: MusicTab): Promise<MusicListItem[]> {
   const cached = rt.lists.get(tab);
@@ -1141,6 +1435,10 @@ async function listItems(tab: MusicTab): Promise<MusicListItem[]> {
       break;
   }
   rt.lists.set(tab, { at: Date.now(), items });
+  void warmArt(
+    items.map((i) => i.artItemId),
+    64,
+  ).catch(() => undefined);
   return items;
 }
 
@@ -1207,6 +1505,7 @@ async function ensureServerSource() {
 /** SetAVTransportURI (retrying while the amp still answers 501 during the input switch) → Play → SetNext. */
 async function pushTrack(t: QueueTrack, next: QueueTrack | undefined, seekMs = 0) {
   if (!ampConfigured()) return;
+  void warmArt([t.artItemId, next?.artItemId], 160).catch(() => undefined);
   await ensureServerSource();
   const didl = didlFor(t);
   for (let attempt = 0; ; attempt++) {

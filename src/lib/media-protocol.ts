@@ -318,7 +318,7 @@ export const streamMime = (container: string | null) => {
   return "audio/mpeg";
 };
 export const artUrlFor = (base: string, itemId: string, width = 200) =>
-  `${base.replace(/\/+$/, "")}/Items/${itemId}/Images/Primary?maxWidth=${width}`;
+  `${base.replace(/\/+$/, "")}/Items/${itemId}/Images/Primary?fillWidth=${width}&fillHeight=${width}&quality=70&format=Jpg`;
 /** Jellyfin item id inside a stream URL the amp reports back as TrackURI. */
 export const trackIdFromUri = (uri: string): string | null => {
   const m = /\/Audio\/([^/?]+)\//.exec(uri);

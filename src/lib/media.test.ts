@@ -20,9 +20,22 @@ import {
   xmlEscape,
   xmlUnescape,
 } from "./media-protocol";
-import { CATALOG_LOGO_HOSTS, FAVOURITES_LIST_ID, RADIO_LISTS, demoMusicList } from "./media";
+import {
+  CATALOG_LOGO_HOSTS,
+  FAVOURITES_LIST_ID,
+  MIX_IDS,
+  RADIO_LISTS,
+  demoMusicList,
+} from "./media";
 import type { QueueState, QueueTrack } from "./media";
-import { buildMediaSnapshot, imageHostAllowed } from "./media.server";
+import {
+  MIX_SPECS,
+  berlinDay,
+  buildMediaSnapshot,
+  dedupeShuffle,
+  imageHostAllowed,
+  yearsParam,
+} from "./media.server";
 import type { HaState } from "./home.server";
 
 // Real responses captured from the R-N500 on 2026-10-08.
@@ -376,12 +389,18 @@ describe("snapshot from HA states", () => {
     expect(buildMediaSnapshot(new Map()).amp.available).toBe(false);
   });
   it("demo music lists page", () => {
-    expect(demoMusicList("mixes", 0).items.map((i) => i.id)).toEqual([
-      "daily",
-      "discover",
-      "relaxed",
-      "evening",
-    ]);
+    expect(demoMusicList("mixes", 0).items.map((i) => i.id)).toEqual([...MIX_IDS]);
+  });
+});
+
+describe("mix building helpers", () => {
+  it("builds a Jellyfin years list and dedupes/shuffles/limits tracks", () => {
+    expect(yearsParam(1980, 1983)).toBe("1980,1981,1982,1983");
+    const out = dedupeShuffle([{ id: "a" }, { id: "b" }, { id: "a" }, { id: "c" }], 2);
+    expect(out).toHaveLength(2);
+    expect(new Set(out.map((x) => x.id)).size).toBe(2);
+    expect(Object.keys(MIX_SPECS).sort()).toEqual([...MIX_IDS].sort());
+    expect(berlinDay(new Date("2026-10-09T01:30:00Z"))).toBe("2026-10-09");
   });
 });
 
