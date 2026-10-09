@@ -3,6 +3,8 @@
 // Env vars are read per request from process.env and never reach the browser. Nothing runs at import time;
 // without AMP_HOST / JELLYFIN_* the callers fall back to demo data (see media.functions.ts).
 import { createHash } from "node:crypto";
+import { makeT, parseLang } from "@/lib/i18n";
+import type { Key } from "@/lib/i18n";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
@@ -1458,6 +1460,9 @@ export async function readMusicList(tab: MusicTab, page: number): Promise<MusicL
   };
 }
 
+/** Queue title for a mix: its name in the panel's language (the id would show as "rock"). */
+const mixTitle = (id: string): string =>
+  makeT(parseLang(process.env["UI_LANGUAGE"]))(`music.mix.${id}` as Key);
 async function tracksFor(sel: PlaySelection): Promise<{ title: string; tracks: MusicTrack[] }> {
   if (!jellyfinConfigured()) return { title: sel.id, tracks: demoTracks() };
   switch (sel.kind) {
@@ -1478,7 +1483,7 @@ async function tracksFor(sel: PlaySelection): Promise<{ title: string; tracks: M
     }
     case "mix": {
       const mixes = await buildMixes();
-      return { title: sel.id, tracks: mixes.get(sel.id as MixId) ?? [] };
+      return { title: mixTitle(sel.id), tracks: mixes.get(sel.id as MixId) ?? [] };
     }
   }
 }
