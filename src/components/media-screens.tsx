@@ -524,6 +524,13 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
               <span className="radio-now-song">{song || "\u00a0"}</span>
               <span className="radio-now-detail">{detail ? <Ltr>{detail}</Ltr> : "\u00a0"}</span>
             </div>
+            <div className="radio-cover" data-on={on}>
+              <StationLogo
+                station={on ? playing : dialStation}
+                size={200}
+                alt={t("radio.logoAlt")}
+              />
+            </div>
             <RadioDial
               bandName={t(bandKey(dialPos.list))}
               stations={list?.stations ?? []}
@@ -537,13 +544,6 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
                     : t("radio.empty")
               }
             />
-            <div className="radio-cover" data-on={on}>
-              <StationLogo
-                station={on ? playing : dialStation}
-                size={128}
-                alt={t("radio.logoAlt")}
-              />
-            </div>
             {panel.radioListsError && <p className="radio-error">{panel.radioListsError}</p>}
             <div className="radio-transport-row" data-on={on}>
               <TransportControl

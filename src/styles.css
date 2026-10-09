@@ -594,8 +594,10 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .amp-art { align-self: center; margin-top: 12px; }
 .radio-now-text { flex: 0 0 128px; height: 128px; justify-content: center; align-items: center; text-align: center; margin-top: 0; }
 .radio-dial { margin-top: 10px; }
-.radio-cover { align-self: center; margin-top: 8px; }
+.radio-cover { align-self: center; margin-top: 0; }
 .radio-transport-row .transport { border-top: 0; padding-top: 0; }
+.radio-transport-row .transport-reading > strong { font-size: 29px; }
+.radio-transport-row .transport-reading .transport-db { font-size: 27px; }
 .transport-reading { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; text-align: center; }
 .transport-reading > span { font-size: 20px; color: var(--muted-foreground); }
 .transport-reading > strong { font-size: 26px; line-height: 1.2; overflow-wrap: anywhere; }

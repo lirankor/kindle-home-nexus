@@ -132,7 +132,7 @@ describe("Radio screen", () => {
     expect(now.querySelector(".radio-now-song")?.textContent).toBe("Zara Larsson - Memory Lane");
     expect(now.querySelector(".radio-now-detail")?.textContent).toBe("128k · MP3");
     expect(document.querySelector(".radio-cover img")?.getAttribute("src")).toBe(
-      "/media/img?station=wdr-5&w=128",
+      "/media/img?station=wdr-5&w=200",
     );
     // The small transport control under the station dial; only one dial bar on the screen.
     expect(knob()?.textContent).toBe("-44.5dB");
