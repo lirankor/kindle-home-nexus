@@ -398,6 +398,7 @@ type JfItem = {
   RunTimeTicks?: number;
   Container?: string;
   ProductionYear?: number;
+  PremiereDate?: string;
   ImageTags?: Record<string, string>;
   AlbumPrimaryImageTag?: string;
   AlbumArtists?: { Id: string; Name: string }[];
@@ -523,7 +524,7 @@ export const jellyfin = {
         Recursive: true,
         SortBy: "ProductionYear,SortName",
         SortOrder: "Ascending",
-        Fields: "Genres,ProductionYear",
+        Fields: "Genres,ProductionYear,PremiereDate",
       }),
       userItems({
         AlbumArtistIds: artistId,
@@ -544,6 +545,7 @@ export const jellyfin = {
       detail: "",
       artItemId: albumArtOf(i),
       year: i.ProductionYear ?? null,
+      releaseDate: i.PremiereDate?.slice(0, 10) ?? null,
       trackCount: counts.get(i.Id) ?? null,
       genre: i.Genres?.[0] ?? null,
     }));

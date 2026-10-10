@@ -177,8 +177,10 @@ export type MusicListItem = {
   title: string;
   detail: string;
   artItemId: string | null;
-  /** Album rows on the artist screen: year, number of tracks and the first genre, when known. */
+  /** Album rows on the artist screen: year, release date (yyyy-mm-dd, often just "yyyy-01-01" when
+   *  the tags only knew the year), number of tracks and the first genre, when known. */
   year?: number | null;
+  releaseDate?: string | null;
   trackCount?: number | null;
   genre?: string | null;
 };
@@ -417,6 +419,7 @@ export function demoArtistAlbums(artistId: string, page: number): ArtistAlbumsRe
       detail: "",
       artItemId: null,
       year: 1999,
+      releaseDate: "1999-04-17",
       trackCount: 4,
       genre: "Jazz",
     }));

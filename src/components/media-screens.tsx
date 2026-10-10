@@ -45,6 +45,7 @@ import {
   SEARCH_KEYS,
   SEARCH_KEY_ROWS,
   SOURCE_ROWS,
+  albumDateLabel,
   displayDb,
   formatDb,
   musicItemDetail,
@@ -808,7 +809,7 @@ function ArtistScreen({ panel, status }: { panel: MediaPanel; status: string }) 
   const title = artistData?.artist.title || artistItem?.title || "";
   const albumDetail = (item: MusicListItem) =>
     [
-      item.year ?? null,
+      albumDateLabel(item, panel.lang),
       item.trackCount ? t("music.tracks", { n: item.trackCount }) : null,
       item.genre ?? null,
     ]

@@ -232,6 +232,25 @@ export function musicItemDetail(item: Pick<MusicListItem, "kind" | "id" | "detai
   return item.detail;
 }
 
+/** Release date of an album row: the full date ("17 Apr 1973") when the tags have a real day, the
+ *  year alone when they only knew that (Jellyfin stores a year-only tag as 1 January), else null. */
+export function albumDateLabel(
+  item: Pick<MusicListItem, "year" | "releaseDate">,
+  lang: Lang,
+): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(item.releaseDate ?? "");
+  if (m && !(m[2] === "01" && m[3] === "01")) {
+    const date = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    return new Intl.DateTimeFormat(lang === "he" ? "he-IL" : "en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    }).format(date);
+  }
+  return item.year ? String(item.year) : (m?.[1] ?? null);
+}
+
 /** Left/right in the amp view: the server decides how, the kind decides what. Null = nothing to do. */
 export function stepAction(s: MediaSnapshot | null, delta: 1 | -1): MediaAction | null {
   if (!s || !s.amp.on) return null;

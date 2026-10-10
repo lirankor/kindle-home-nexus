@@ -198,6 +198,7 @@ describe("Music screen", () => {
               detail: "",
               artItemId: null,
               year: 1976,
+              releaseDate: "1976-10-11",
               trackCount: 10,
               genre: "Pop",
             },
@@ -618,7 +619,7 @@ describe("Music screen", () => {
       Array.from(artist.querySelectorAll(".artist-row .source-row-text span")).map(
         (el) => el.textContent,
       ),
-    ).toEqual(["1976 · 10 tracks · Pop", "1979"]);
+    ).toEqual(["11 Oct 1976 · 10 tracks · Pop", "1979"]);
     expect(softKey(1).textContent).toBe("Back");
     expect(softKey(4).textContent).toBe("Shuffle");
     press("ArrowDown");
