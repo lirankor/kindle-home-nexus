@@ -18,6 +18,7 @@ import {
   Power,
   Radio,
   Search,
+  Shuffle,
   Space,
   Tv,
   VolumeX,
@@ -37,6 +38,7 @@ import {
 } from "@/lib/media";
 import type {
   AmpSource,
+  ArtistAlbumsResult,
   MediaAction,
   MediaSnapshot,
   MediaSnapshotResult,
@@ -66,6 +68,7 @@ import {
   toggleAction,
 } from "@/lib/media-ui";
 import {
+  getArtistAlbums,
   getMediaSnapshot,
   getMusicLists,
   getPowerOnStatus,
@@ -98,7 +101,8 @@ const AFTER_ACTION_MS = 2000;
 const FAILED_SHOWN_MS = 2 * 60 * 1000;
 const NAV_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"];
 
-export type MediaScreen = "now" | "source" | "radio" | "music" | "tv" | "queue" | "search";
+export type MediaScreen =
+  "now" | "source" | "radio" | "music" | "tv" | "queue" | "search" | "artist";
 /** Sub-views of the radio screen: the dial and the station list of the band. */
 export type RadioView = "dial" | "stations" | "bands";
 export type MediaNotice = { text: string; error?: boolean };
@@ -110,6 +114,12 @@ const SEARCH_STALE_MS = 60_000;
 /** Search screen state: the typed text, which half has the cursor, and the highlighted key. */
 type SearchState = { query: string; focus: "keys" | "results"; key: number };
 const EMPTY_SEARCH: SearchState = { query: "", focus: "keys", key: 0 };
+/** Artist screen: the artist row that opened it, the page shown, and where to return on back. */
+type ArtistState = {
+  item: MusicListItem;
+  page: number;
+  from: { screen: MediaScreen; cursor: number; focus: SearchState["focus"] };
+};
 /** Not under ["media"]: a volume step must not refetch the YTuner lists. */
 const RADIO_LISTS_KEY = ["radioLists"] as const;
 /** Jellyfin lists, one entry per tab and page; kept for a while so tabs come back instantly. */
@@ -336,6 +346,7 @@ export function useMediaPanel({
       setSearch(EMPTY_SEARCH);
       setCursor(0);
     }
+    if (next === "artist") setCursor(0);
   }, []);
   const close = useCallback(() => setScreenState(null), []);
 
@@ -672,8 +683,8 @@ export function useMediaPanel({
       refetchSnapshotSoon();
     }
   };
-  /** Enter on a row: plays it; an amp that is off is powered on into SERVER first and plays when ready. */
-  const playItem = (item: MusicListItem) => {
+  /** Plays a row; an amp that is off is powered on into SERVER first and plays when ready. */
+  const startPlay = (item: MusicListItem) => {
     const before = latest.current ?? demoMediaSnapshot();
     if (!configuredRef.current) {
       const title = musicItemTitle(item, t);
@@ -689,9 +700,72 @@ export function useMediaPanel({
     }
     void sendPlay(item);
   };
+  /** Enter on a row: an artist opens the list of their albums, anything else plays. */
+  const playItem = (item: MusicListItem) => {
+    if (item.kind === "artist") openArtist(item);
+    else startPlay(item);
+  };
+
+  // Search screen state lives here because the artist screen remembers where it was opened from.
+  const [search, setSearch] = useState<SearchState>(EMPTY_SEARCH);
+
+  // ---- Artist screen (Enter on an artist): their albums, Enter plays one, F4 shuffles them all ----
+  const [artist, setArtist] = useState<ArtistState | null>(null);
+  const artistQuery = useQuery<ArtistAlbumsResult>({
+    queryKey: ["artistAlbums", artist?.item.id ?? "", artist?.page ?? 0],
+    queryFn: () =>
+      getArtistAlbums({ data: { artistId: artist?.item.id ?? "", page: artist?.page ?? 0 } }),
+    enabled: screen === "artist" && !!artist,
+    staleTime: MUSIC_LIST_STALE_MS,
+    placeholderData: keepPreviousData,
+  });
+  const artistData = artistQuery.data ?? null;
+  const artistRows: MusicListItem[] = artistData?.items ?? [];
+  const artistPages = artistData?.pages ?? 1;
+  const artistPage = artist?.page ?? 0;
+  const artistCursor = Math.min(cursor, Math.max(0, artistRows.length - 1));
+  const artistError = artistQuery.isError ? t("err.server") : (artistData?.error ?? null);
+  function openArtist(item: MusicListItem) {
+    setArtist({ item, page: 0, from: { screen: screen ?? "music", cursor, focus: search.focus } });
+    open("artist");
+  }
+  /** F1 / Escape: back to the list the artist was chosen from, highlight where it was. */
+  const backFromArtist = () => {
+    const from = artist?.from;
+    if (!from) {
+      open("music");
+      return;
+    }
+    setScreenState(from.screen);
+    setCursor(from.cursor);
+    if (from.screen === "search") setSearch((s) => ({ ...s, focus: from.focus }));
+  };
+  const pageArtist = (delta: 1 | -1) => {
+    const page = artistPage + delta;
+    if (page < 0 || page >= artistPages) return;
+    setArtist((a) => (a ? { ...a, page } : a));
+    setCursor(0);
+  };
+  const stepArtistRow = (delta: 1 | -1) => {
+    const next = artistCursor + delta;
+    if (next < 0) {
+      if (artistPage > 0) {
+        setArtist((a) => (a ? { ...a, page: artistPage - 1 } : a));
+        setCursor(MUSIC_PAGE_SIZE - 1);
+      }
+    } else if (next >= artistRows.length) {
+      if (artistPage < artistPages - 1) {
+        setArtist((a) => (a ? { ...a, page: artistPage + 1 } : a));
+        setCursor(0);
+      }
+    } else setCursor(next);
+  };
+  /** F4: everything by the artist, shuffled (the server builds the mix). */
+  const shuffleArtist = () => {
+    if (artist) startPlay(artist.item);
+  };
 
   // ---- Search screen (F4 on the music screen): on-screen keyboard, results from the second character ----
-  const [search, setSearch] = useState<SearchState>(EMPTY_SEARCH);
   const [searchTerm, setSearchTerm] = useState("");
   useEffect(() => {
     const term = search.query.trim();
@@ -946,29 +1020,51 @@ export function useMediaPanel({
                     },
                     { label: t("search.title"), icon: Search, onClick: () => open("search") },
                   ]
-                : screen === "search"
+                : screen === "artist"
                   ? [
-                      { label: t("source.cancel"), icon: X, onClick: () => open("music") },
+                      { label: t("amp.back"), icon: ArrowLeft, onClick: backFromArtist },
                       {
-                        label: t("search.backspace"),
-                        icon: Delete,
-                        disabled: search.query === "",
-                        onClick: searchBackspace,
+                        label: t("radio.prevPage"),
+                        icon: ChevronLeft,
+                        disabled: artistPage === 0,
+                        onClick: () => pageArtist(-1),
                       },
                       {
-                        label: t("search.space"),
-                        icon: Space,
-                        disabled: search.query === "",
-                        onClick: searchSpace,
+                        label: t("radio.nextPage"),
+                        icon: ChevronRight,
+                        disabled: artistPage >= artistPages - 1,
+                        onClick: () => pageArtist(1),
                       },
                       {
-                        label: t("search.enter"),
-                        icon: CornerDownLeft,
-                        disabled: searchRows.length === 0,
-                        onClick: searchEnter,
+                        label: t("artist.shuffle"),
+                        icon: Shuffle,
+                        disabled: !artist,
+                        onClick: shuffleArtist,
                       },
                     ]
-                  : [];
+                  : screen === "search"
+                    ? [
+                        { label: t("source.cancel"), icon: X, onClick: () => open("music") },
+                        {
+                          label: t("search.backspace"),
+                          icon: Delete,
+                          disabled: search.query === "",
+                          onClick: searchBackspace,
+                        },
+                        {
+                          label: t("search.space"),
+                          icon: Space,
+                          disabled: search.query === "",
+                          onClick: searchSpace,
+                        },
+                        {
+                          label: t("search.enter"),
+                          icon: CornerDownLeft,
+                          disabled: searchRows.length === 0,
+                          onClick: searchEnter,
+                        },
+                      ]
+                    : [];
 
   /** Keys while a media screen is open (soft keys are handled by the shell first). Returns handled. */
   const onKey = (event: KeyboardEvent): boolean => {
@@ -977,6 +1073,7 @@ export function useMediaPanel({
     if (screen === "radio" && radioView === "stations") return onRadioListKey(event);
     if (screen === "music") return onMusicKey(event);
     if (screen === "search") return onSearchKey(event);
+    if (screen === "artist") return onArtistKey(event);
     if (screen === "queue") return onQueueKey(event);
     if (event.key === "Escape") {
       event.preventDefault();
@@ -1058,6 +1155,29 @@ export function useMediaPanel({
       const forward = event.key === "ArrowRight" ? !isRtl(lang) : isRtl(lang);
       stepMusicTab(forward ? 1 : -1);
     }
+    return true;
+  };
+
+  /** Keys on the artist screen: up/down move (across pages; page keys jump a page), Enter plays the
+   *  album, Escape backs out to the list the artist came from. */
+  const onArtistKey = (event: KeyboardEvent): boolean => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      backFromArtist();
+      return true;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const item = artistRows[artistCursor];
+      if (item) startPlay(item);
+      return true;
+    }
+    if (!NAV_KEYS.includes(event.key)) return false;
+    event.preventDefault();
+    if (event.key === "ArrowUp") stepArtistRow(-1);
+    else if (event.key === "ArrowDown") stepArtistRow(1);
+    else if (event.key === "PageUp") pageArtist(-1);
+    else if (event.key === "PageDown") pageArtist(1);
     return true;
   };
 
@@ -1217,6 +1337,17 @@ export function useMediaPanel({
     restoreMusic,
     selectMusicTab,
     playItem,
+    // Artist screen
+    artistItem: artist?.item ?? null,
+    artistData,
+    artistRows,
+    artistCursor,
+    artistPage,
+    artistPages,
+    artistLoading: artistQuery.isPending,
+    artistError,
+    backFromArtist,
+    shuffleArtist,
     // Search screen
     searchQuery: search.query,
     searchFocus: search.focus,

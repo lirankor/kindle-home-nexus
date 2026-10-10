@@ -177,6 +177,10 @@ export type MusicListItem = {
   title: string;
   detail: string;
   artItemId: string | null;
+  /** Album rows on the artist screen: year, number of tracks and the first genre, when known. */
+  year?: number | null;
+  trackCount?: number | null;
+  genre?: string | null;
 };
 export const MUSIC_TABS = ["mixes", "suggested", "artists", "albums", "recent"] as const;
 export type MusicTab = (typeof MUSIC_TABS)[number];
@@ -199,6 +203,16 @@ export type MusicSearchResult = {
   configured: boolean;
   error?: string;
   query: string;
+  items: MusicListItem[];
+};
+/** Artist screen (Enter on an artist in the lists or the search): their albums, oldest first. */
+export type ArtistAlbumsResult = {
+  configured: boolean;
+  error?: string;
+  artist: { id: string; title: string; artItemId: string | null };
+  page: number;
+  pages: number;
+  total: number;
   items: MusicListItem[];
 };
 export const MIX_IDS = [
@@ -383,6 +397,37 @@ export function demoMusicList(tab: MusicTab, page: number): MusicListResult {
               artItemId: null,
             }));
   return { configured: false, tab, page: 0, pages: 1, items: page === 0 ? items : [] };
+}
+
+/** Demo artist screen: the demo albums of that demo artist (`artist-<track id>`). */
+export function demoArtistAlbums(artistId: string, page: number): ArtistAlbumsResult {
+  const tracks = demoTracks();
+  const seed = tracks.find((t) => `artist-${t.id}` === artistId);
+  const name = seed?.artist ?? "";
+  const seen = new Set<string>();
+  const items: MusicListItem[] = tracks
+    .filter(
+      (t) =>
+        t.artist === name && t.album && !seen.has(t.albumId ?? t.id) && seen.add(t.albumId ?? t.id),
+    )
+    .map((t) => ({
+      kind: "album",
+      id: t.albumId ?? t.id,
+      title: t.album ?? "",
+      detail: "",
+      artItemId: null,
+      year: 1999,
+      trackCount: 4,
+      genre: "Jazz",
+    }));
+  return {
+    configured: false,
+    artist: { id: artistId, title: name, artItemId: null },
+    page: 0,
+    pages: 1,
+    total: items.length,
+    items: page === 0 ? items : [],
+  };
 }
 
 /** Demo search: the demo artists and albums whose name contains the query (artists first). */

@@ -800,6 +800,79 @@ function MusicScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   );
 }
 
+/** Enter on an artist (lists or search): their albums, oldest first, 8 per page. Enter plays the
+ *  album, F2 / F3 page, F4 shuffles everything by the artist, F1 returns to where they were chosen. */
+function ArtistScreen({ panel, status }: { panel: MediaPanel; status: string }) {
+  const { t, artistItem, artistData, artistRows, artistCursor, artistPage, artistPages } = panel;
+  const loading = panel.artistLoading && !panel.artistError;
+  const title = artistData?.artist.title || artistItem?.title || "";
+  const albumDetail = (item: MusicListItem) =>
+    [
+      item.year ?? null,
+      item.trackCount ? t("music.tracks", { n: item.trackCount }) : null,
+      item.genre ?? null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  return (
+    <FullModal
+      label={title || t("music.tab.artists")}
+      actions={panel.modalActions}
+      status={status}
+      hint={t("artist.hint")}
+      compactStatus
+    >
+      <header className="modal-heading radio-list-heading artist-heading">
+        {artistItem && <MusicArt item={artistItem} size={64} alt="" />}
+        <div>
+          <h1>{title || "…"}</h1>
+          <p>
+            {artistData ? t("music.albums", { n: artistData.total }) : t("music.loading")}
+            {artistPages > 1 && (
+              <>
+                {" · "}
+                <Ltr>
+                  {artistPage + 1}/{artistPages}
+                </Ltr>
+              </>
+            )}
+          </p>
+        </div>
+      </header>
+      <div
+        className="source-rows music-rows artist-rows"
+        role="listbox"
+        aria-label={t("music.tab.albums")}
+        aria-busy={loading}
+      >
+        {loading && <p className="music-note">{t("music.loading")}</p>}
+        {panel.artistError && <p className="radio-error">{panel.artistError}</p>}
+        {!loading && !panel.artistError && artistRows.length === 0 && (
+          <p className="music-note">{t("artist.empty")}</p>
+        )}
+        {artistRows.map((item, index) => (
+          <Button
+            key={item.id}
+            variant="eink"
+            className="source-row music-row artist-row"
+            role="option"
+            aria-selected={index === artistCursor}
+            aria-pressed={index === artistCursor}
+            data-kind={item.kind}
+            onClick={() => panel.playItem(item)}
+          >
+            <MusicArt item={item} size={56} alt="" />
+            <span className="source-row-text">
+              <strong>{item.title}</strong>
+              <span>{albumDetail(item) || "\u00a0"}</span>
+            </span>
+          </Button>
+        ))}
+      </div>
+    </FullModal>
+  );
+}
+
 /** F4 on the music screen: typed text, an on-screen keyboard for the 5-way, and the matching artists
  *  and albums (from the second character) below it. F1 cancel, F2 delete, F3 space, F4 enter. */
 function SearchScreen({ panel, status }: { panel: MediaPanel; status: string }) {
@@ -979,6 +1052,8 @@ export function MediaModal({ panel, status }: { panel: MediaPanel; status: strin
       return <MusicScreen panel={panel} status={status} />;
     case "search":
       return <SearchScreen panel={panel} status={status} />;
+    case "artist":
+      return <ArtistScreen panel={panel} status={status} />;
     default:
       return null;
   }

@@ -13,6 +13,7 @@ import {
   demoRadioLists,
 } from "@/lib/media";
 import type {
+  ArtistAlbumsResult,
   MediaAction,
   MediaActionResult,
   MediaSnapshot,
@@ -35,6 +36,7 @@ import {
   playSelection,
   powerOnStatus,
   readMediaSnapshot,
+  readArtistAlbums,
   readMusicList,
   readMusicSearch,
   readRadioLists,
@@ -152,6 +154,27 @@ export const getMusicLists = createServerFn({ method: "GET" })
         tab: data.tab,
         page: data.page,
         pages: 1,
+        items: [],
+      };
+    }
+  });
+
+/** Artist screen: the artist's albums, one page at a time. */
+export const getArtistAlbums = createServerFn({ method: "GET" })
+  .validator(
+    z.object({ artistId: z.string().min(1).max(64), page: z.number().int().min(0).default(0) }),
+  )
+  .handler(async ({ data }): Promise<ArtistAlbumsResult> => {
+    try {
+      return await readArtistAlbums(data.artistId, data.page);
+    } catch (e) {
+      return {
+        configured: true,
+        error: mediaErrorMessage(e),
+        artist: { id: data.artistId, title: "", artItemId: null },
+        page: 0,
+        pages: 1,
+        total: 0,
         items: [],
       };
     }

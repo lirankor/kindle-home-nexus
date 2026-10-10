@@ -22,6 +22,7 @@ import {
   RADIO_LISTS,
   SEARCH_MIN_CHARS,
   SEARCH_RESULT_ROWS,
+  demoArtistAlbums,
   demoMusicList,
   demoMusicSearch,
   demoTracks,
@@ -30,6 +31,7 @@ import {
 } from "@/lib/media";
 import type {
   AmpSource,
+  ArtistAlbumsResult,
   MediaAction,
   MediaSnapshot,
   MixId,
@@ -399,6 +401,8 @@ type JfItem = {
   ImageTags?: Record<string, string>;
   AlbumPrimaryImageTag?: string;
   AlbumArtists?: { Id: string; Name: string }[];
+  ChildCount?: number;
+  Genres?: string[];
 };
 type JfList = { Items?: JfItem[]; TotalRecordCount?: number };
 
@@ -508,6 +512,40 @@ export const jellyfin = {
     (await userItems({ ParentId: albumId, IncludeItemTypes: "Audio", SortBy: "SortName" })).map(
       toTrack,
     ),
+  /** The artist's albums, oldest first; the detail is the year alone (the list is theirs already). */
+  artistAlbums: async (artistId: string): Promise<MusicListItem[]> =>
+    (
+      await userItems({
+        AlbumArtistIds: artistId,
+        IncludeItemTypes: "MusicAlbum",
+        Recursive: true,
+        SortBy: "ProductionYear,SortName",
+        SortOrder: "Ascending",
+        Fields: "ChildCount,Genres,ProductionYear",
+      })
+    ).map((i) => ({
+      kind: "album",
+      id: i.Id,
+      title: i.Name,
+      detail: "",
+      artItemId: albumArtOf(i),
+      year: i.ProductionYear ?? null,
+      trackCount: i.ChildCount ?? null,
+      genre: i.Genres?.[0] ?? null,
+    })),
+  artistItem: async (artistId: string): Promise<JfItem> =>
+    jf<JfItem>(`/Users/${env("JELLYFIN_USER_ID")}/Items/${artistId}`),
+  /** Everything by the artist (as album artist or performer), shuffled, one screenful of a mix. */
+  artistTracks: async (artistId: string, limit: number) =>
+    (
+      await userItems({
+        ArtistIds: artistId,
+        IncludeItemTypes: "Audio",
+        Recursive: true,
+        SortBy: "Random",
+        Limit: limit,
+      })
+    ).map(toTrack),
   artistRandomAlbum: async (artistId: string) =>
     (
       await userItems({
@@ -1509,6 +1547,33 @@ export async function readMusicSearch(query: string): Promise<MusicSearchResult>
   return { configured: true, query: q, items };
 }
 
+/** Artist screen: the artist's albums, MUSIC_PAGE_SIZE per page. */
+export async function readArtistAlbums(
+  artistId: string,
+  page: number,
+): Promise<ArtistAlbumsResult> {
+  if (!jellyfinConfigured()) return demoArtistAlbums(artistId, page);
+  const [artist, albums] = await Promise.all([
+    jellyfin.artistItem(artistId),
+    jellyfin.artistAlbums(artistId),
+  ]);
+  const pages = Math.max(1, Math.ceil(albums.length / MUSIC_PAGE_SIZE));
+  const p = Math.max(0, Math.min(pages - 1, page));
+  const items = albums.slice(p * MUSIC_PAGE_SIZE, (p + 1) * MUSIC_PAGE_SIZE);
+  void warmArt(
+    items.map((i) => i.artItemId),
+    64,
+  ).catch(() => undefined);
+  return {
+    configured: true,
+    artist: { id: artist.Id, title: artist.Name, artItemId: artOf(artist) },
+    page: p,
+    pages,
+    total: albums.length,
+    items,
+  };
+}
+
 /** Queue title for a mix: its name in the panel's language (the id would show as "rock"). */
 const mixTitle = (id: string): string =>
   makeT(parseLang(process.env["UI_LANGUAGE"]))(`music.mix.${id}` as Key);
@@ -1520,9 +1585,13 @@ async function tracksFor(sel: PlaySelection): Promise<{ title: string; tracks: M
       return { title: tracks[0]?.album ?? "", tracks };
     }
     case "artist": {
-      const album = await jellyfin.artistRandomAlbum(sel.id);
-      if (!album) throw new MediaError("No album");
-      return { title: album.Name, tracks: await jellyfin.albumTracks(album.Id) };
+      // F4 "shuffle" on the artist screen: their tracks across all albums, shuffled.
+      const [artist, tracks] = await Promise.all([
+        jellyfin.artistItem(sel.id),
+        jellyfin.artistTracks(sel.id, MIX_SIZE * 2),
+      ]);
+      if (!tracks.length) throw new MediaError("No tracks");
+      return { title: artist.Name, tracks: dedupeShuffle(tracks, MIX_SIZE) };
     }
     case "track": {
       const mix = await jellyfin.instantMix(sel.id, MIX_SIZE);

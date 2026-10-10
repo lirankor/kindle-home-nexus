@@ -373,7 +373,11 @@ function HomeControl() {
   }, [mediaOpen, mediaRestoreRadio, mediaRestoreMusic]);
   // The playlist is a detour from the amp view: a reload comes back to the amp view.
   const mediaScreenToSave = persistableScreen(
-    media.screen === "queue" ? "now" : media.screen === "search" ? "music" : media.screen,
+    media.screen === "queue"
+      ? "now"
+      : media.screen === "search" || media.screen === "artist"
+        ? "music"
+        : media.screen,
   );
   const radioToSave = media.radioState;
   const musicToSave = media.musicState;

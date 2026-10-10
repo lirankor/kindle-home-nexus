@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   tuneRadioStation: vi.fn(),
   getMusicLists: vi.fn(),
   searchMusic: vi.fn(),
+  getArtistAlbums: vi.fn(),
   playMusic: vi.fn(),
   getQueueTracks: vi.fn(),
 }));
@@ -176,6 +177,42 @@ describe("Music screen", () => {
           },
         ],
       }),
+    );
+    mocks.getArtistAlbums.mockImplementation(
+      ({ data }: { data: { artistId: string; page: number } }) =>
+        Promise.resolve({
+          configured: true,
+          artist: {
+            id: data.artistId,
+            title: data.artistId === "artist-abba" ? "ABBA" : "Some Artist",
+            artItemId: null,
+          },
+          page: 0,
+          pages: 1,
+          total: 2,
+          items: [
+            {
+              kind: "album",
+              id: "album-arrival",
+              title: "Arrival",
+              detail: "",
+              artItemId: null,
+              year: 1976,
+              trackCount: 10,
+              genre: "Pop",
+            },
+            {
+              kind: "album",
+              id: "album-voulez",
+              title: "Voulez-Vous",
+              detail: "",
+              artItemId: null,
+              year: 1979,
+              trackCount: null,
+              genre: null,
+            },
+          ],
+        }),
     );
     mocks.playMusic.mockResolvedValue({ ok: true, queue: musicQueue() });
   });
@@ -556,5 +593,83 @@ describe("Music screen", () => {
     press("F1");
     expect(screen.getByRole("dialog", { name: "Music" })).toBeVisible();
     expect(rowTitles()[0]).toBe("Daily mix");
+  });
+
+  it("an artist opens the list of their albums: Enter plays an album, F4 shuffles the artist, F1 returns to the search with the text kept", async () => {
+    await openMusic("en");
+    press("F4");
+    press("Enter"); // A
+    press("ArrowRight");
+    press("Enter"); // B
+    const search = screen.getByRole("dialog", { name: "Search" });
+    await waitFor(() => expect(search.querySelectorAll(".search-row").length).toBe(2));
+    press("F4"); // onto the results, ABBA first
+    press("Enter");
+    await waitFor(() =>
+      expect(mocks.getArtistAlbums).toHaveBeenCalledWith({
+        data: { artistId: "artist-abba", page: 0 },
+      }),
+    );
+    expect(mocks.playMusic).not.toHaveBeenCalled();
+    const artist = await screen.findByRole("dialog", { name: "ABBA" });
+    await waitFor(() => expect(artist.querySelectorAll(".artist-row").length).toBe(2));
+    expect(artist.querySelector(".artist-heading p")?.textContent).toBe("2 albums");
+    expect(
+      Array.from(artist.querySelectorAll(".artist-row .source-row-text span")).map(
+        (el) => el.textContent,
+      ),
+    ).toEqual(["1976 · 10 tracks · Pop", "1979"]);
+    expect(softKey(1).textContent).toBe("Back");
+    expect(softKey(4).textContent).toBe("Shuffle");
+    press("ArrowDown");
+    press("Enter");
+    await waitFor(() =>
+      expect(mocks.playMusic).toHaveBeenCalledWith({ data: { kind: "album", id: "album-voulez" } }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible(),
+    );
+    // Back in the library, search again: F4 on the artist screen shuffles everything by them.
+    act(() => screen.getByTestId("open-music").click());
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Music" })).toBeVisible());
+    press("F4");
+    press("Enter");
+    press("ArrowRight");
+    press("Enter");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("dialog", { name: "Search" }).querySelectorAll(".search-row").length,
+      ).toBe(2),
+    );
+    press("F4");
+    press("Enter");
+    await screen.findByRole("dialog", { name: "ABBA" });
+    press("F1");
+    const back = screen.getByRole("dialog", { name: "Search" });
+    expect(back.querySelector(".search-field")?.textContent).toBe("AB");
+    expect(back.querySelector('.search-row[aria-selected="true"] strong')?.textContent).toBe(
+      "ABBA",
+    );
+    press("Enter");
+    await screen.findByRole("dialog", { name: "ABBA" });
+    press("F4");
+    await waitFor(() =>
+      expect(mocks.playMusic).toHaveBeenCalledWith({ data: { kind: "artist", id: "artist-abba" } }),
+    );
+  });
+
+  it("Enter on the Artists tab opens the artist's albums instead of playing", async () => {
+    await openMusic();
+    press("ArrowLeft");
+    press("ArrowLeft");
+    expect(activeTab()).toBe("אמנים");
+    await waitFor(() => expect(rowTitles()[0]).toBe("McCoy Tyner Trio"));
+    press("Enter");
+    const dialog = await screen.findByRole("dialog", { name: "Some Artist" });
+    expect(dialog).toBeVisible();
+    expect(mocks.playMusic).not.toHaveBeenCalled();
+    press("Escape");
+    expect(screen.getByRole("dialog", { name: "מוזיקה" })).toBeVisible();
+    expect(selectedRow()).toBe("McCoy Tyner Trio");
   });
 });

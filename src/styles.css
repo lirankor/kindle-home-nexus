@@ -587,10 +587,16 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .search-caret { display: inline-block; width: 3px; height: 34px; background: var(--foreground); margin-left: 3px; flex-shrink: 0; }
 .search-keys { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .search-keys [role="row"] { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; }
-.search-keys .eink-button.search-key { height: 50px; padding: 0; font-size: 26px; font-weight: 700; }
+.search-keys .eink-button.search-key { height: 46px; padding: 0; font-size: 26px; font-weight: 700; }
 .search-keys[data-focus="results"] .eink-button[aria-pressed="true"] { outline-width: 1px; }
-.music-rows.search-rows { min-height: 295px; margin-top: 14px; }
+.music-rows.search-rows { min-height: 330px; margin-top: 14px; gap: 6px; }
+/* Result and album rows breathe: text sits clear of the border top and bottom. */
+.source-row.music-row.search-row, .source-row.music-row.artist-row { height: 62px; padding: 5px 12px; }
 .search-rows .music-note { margin: 24px 0; }
+.artist-heading { display: flex; align-items: center; gap: 16px; }
+.artist-heading .radio-logo { flex-shrink: 0; }
+.artist-heading h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-rows.artist-rows { min-height: 0; margin-top: 16px; gap: 6px; }
 .music-foot { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 10px; }
 .music-page { font-size: 22px; font-weight: 700; flex-shrink: 0; }
 .amp-progress[data-status="paused"] .progress-track span { background: var(--muted-foreground); }
