@@ -46,6 +46,9 @@ import {
 } from "./media.server";
 
 const sourceSchema = z.enum(AMP_SOURCES);
+/** Jellyfin ids (32 hex) and the demo / mix ids: no slashes, dots or query characters, since the id
+ *  becomes part of a Jellyfin URL path. */
+const itemIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("amp.power"), on: z.boolean() }),
   z.object({ type: z.literal("amp.source"), source: sourceSchema }),
@@ -161,9 +164,7 @@ export const getMusicLists = createServerFn({ method: "GET" })
 
 /** Artist screen: the artist's albums, one page at a time. */
 export const getArtistAlbums = createServerFn({ method: "GET" })
-  .validator(
-    z.object({ artistId: z.string().min(1).max(64), page: z.number().int().min(0).default(0) }),
-  )
+  .validator(z.object({ artistId: itemIdSchema, page: z.number().int().min(0).default(0) }))
   .handler(async ({ data }): Promise<ArtistAlbumsResult> => {
     try {
       return await readArtistAlbums(data.artistId, data.page);
@@ -193,9 +194,7 @@ export const searchMusic = createServerFn({ method: "GET" })
 
 export type PlayResult = { ok: boolean; error?: string; queue?: QueueProgress | null };
 export const playMusic = createServerFn({ method: "POST" })
-  .validator(
-    z.object({ kind: z.enum(["album", "artist", "track", "mix"]), id: z.string().min(1).max(64) }),
-  )
+  .validator(z.object({ kind: z.enum(["album", "artist", "track", "mix"]), id: itemIdSchema }))
   .handler(async ({ data }): Promise<PlayResult> => {
     try {
       return { ok: true, queue: await playSelection(data) };

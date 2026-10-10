@@ -534,7 +534,7 @@ export const jellyfin = {
       genre: i.Genres?.[0] ?? null,
     })),
   artistItem: async (artistId: string): Promise<JfItem> =>
-    jf<JfItem>(`/Users/${env("JELLYFIN_USER_ID")}/Items/${artistId}`),
+    jf<JfItem>(`/Users/${env("JELLYFIN_USER_ID")}/Items/${encodeURIComponent(artistId)}`),
   /** Everything by the artist (as album artist or performer), shuffled, one screenful of a mix. */
   artistTracks: async (artistId: string, limit: number) =>
     (
@@ -558,8 +558,12 @@ export const jellyfin = {
     )[0] ?? null,
   instantMix: async (itemId: string, limit: number) =>
     (
-      (await jf<JfList>(`/Items/${itemId}/InstantMix`, { userId: env("JELLYFIN_USER_ID"), limit }))
-        .Items ?? []
+      (
+        await jf<JfList>(`/Items/${encodeURIComponent(itemId)}/InstantMix`, {
+          userId: env("JELLYFIN_USER_ID"),
+          limit,
+        })
+      ).Items ?? []
     ).map(toTrack),
   suggestions: async (limit: number) =>
     (
