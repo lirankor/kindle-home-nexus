@@ -512,27 +512,42 @@ export const jellyfin = {
     (await userItems({ ParentId: albumId, IncludeItemTypes: "Audio", SortBy: "SortName" })).map(
       toTrack,
     ),
-  /** The artist's albums, oldest first; the detail is the year alone (the list is theirs already). */
-  artistAlbums: async (artistId: string): Promise<MusicListItem[]> =>
-    (
-      await userItems({
+  /** The artist's albums, oldest first, with year, first genre and track count. The count comes from
+   *  one query over the artist's songs: Jellyfin's `ChildCount` field runs a query per album and took
+   *  1.6–6.6 s for seven albums, this takes about 30 ms. */
+  artistAlbums: async (artistId: string): Promise<MusicListItem[]> => {
+    const [albums, songs] = await Promise.all([
+      userItems({
         AlbumArtistIds: artistId,
         IncludeItemTypes: "MusicAlbum",
         Recursive: true,
         SortBy: "ProductionYear,SortName",
         SortOrder: "Ascending",
-        Fields: "ChildCount,Genres,ProductionYear",
-      })
-    ).map((i) => ({
+        Fields: "Genres,ProductionYear",
+      }),
+      userItems({
+        AlbumArtistIds: artistId,
+        IncludeItemTypes: "Audio",
+        Recursive: true,
+        EnableImages: false,
+        EnableUserData: false,
+        Limit: 2000,
+      }),
+    ]);
+    const counts = new Map<string, number>();
+    for (const song of songs)
+      if (song.AlbumId) counts.set(song.AlbumId, (counts.get(song.AlbumId) ?? 0) + 1);
+    return albums.map((i) => ({
       kind: "album",
       id: i.Id,
       title: i.Name,
       detail: "",
       artItemId: albumArtOf(i),
       year: i.ProductionYear ?? null,
-      trackCount: i.ChildCount ?? null,
+      trackCount: counts.get(i.Id) ?? null,
       genre: i.Genres?.[0] ?? null,
-    })),
+    }));
+  },
   artistItem: async (artistId: string): Promise<JfItem> =>
     jf<JfItem>(`/Users/${env("JELLYFIN_USER_ID")}/Items/${encodeURIComponent(artistId)}`),
   /** Everything by the artist (as album artist or performer), shuffled, one screenful of a mix. */
