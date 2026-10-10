@@ -20,7 +20,10 @@ import {
   MIX_IDS,
   MUSIC_PAGE_SIZE,
   RADIO_LISTS,
+  SEARCH_MIN_CHARS,
+  SEARCH_RESULT_ROWS,
   demoMusicList,
+  demoMusicSearch,
   demoTracks,
   findStation,
   isAmpSource,
@@ -32,6 +35,7 @@ import type {
   MixId,
   MusicListItem,
   MusicListResult,
+  MusicSearchResult,
   MusicTab,
   MusicTrack,
   NowPlaying,
@@ -479,6 +483,27 @@ export const jellyfin = {
         })
       ).Items ?? []
     ).map((i) => ({ kind: "artist", id: i.Id, title: i.Name, detail: "", artItemId: artOf(i) })),
+  /** Jellyfin's searchTerm matches the start of any word in the name ("son" finds "Sons of Anarchy"). */
+  searchAlbumArtists: async (term: string, limit: number): Promise<MusicListItem[]> =>
+    (
+      (
+        await jf<JfList>("/Artists/AlbumArtists", {
+          userId: env("JELLYFIN_USER_ID"),
+          searchTerm: term,
+          limit,
+        })
+      ).Items ?? []
+    ).map((i) => ({ kind: "artist", id: i.Id, title: i.Name, detail: "", artItemId: artOf(i) })),
+  searchAlbums: async (term: string, limit: number): Promise<MusicListItem[]> =>
+    (
+      await userItems({
+        IncludeItemTypes: "MusicAlbum",
+        Recursive: true,
+        searchTerm: term,
+        SortBy: "SortName",
+        Limit: limit,
+      })
+    ).map(albumItem),
   albumTracks: async (albumId: string) =>
     (await userItems({ ParentId: albumId, IncludeItemTypes: "Audio", SortBy: "SortName" })).map(
       toTrack,
@@ -1458,6 +1483,30 @@ export async function readMusicList(tab: MusicTab, page: number): Promise<MusicL
     pages,
     items: items.slice(p * MUSIC_PAGE_SIZE, (p + 1) * MUSIC_PAGE_SIZE),
   };
+}
+
+/** Search screen: up to two artists, albums fill the rest of the screen (more artists if albums are short). */
+export async function readMusicSearch(query: string): Promise<MusicSearchResult> {
+  const q = query.trim();
+  if (!jellyfinConfigured()) return demoMusicSearch(q);
+  if (q.length < SEARCH_MIN_CHARS) return { configured: true, query: q, items: [] };
+  const [artists, albums] = await Promise.all([
+    jellyfin.searchAlbumArtists(q, SEARCH_RESULT_ROWS),
+    jellyfin.searchAlbums(q, SEARCH_RESULT_ROWS),
+  ]);
+  const leadArtists = artists.slice(
+    0,
+    Math.min(2, Math.max(0, SEARCH_RESULT_ROWS - albums.length)),
+  );
+  const items = [...leadArtists, ...albums, ...artists.slice(leadArtists.length)].slice(
+    0,
+    SEARCH_RESULT_ROWS,
+  );
+  void warmArt(
+    items.map((i) => i.artItemId),
+    64,
+  ).catch(() => undefined);
+  return { configured: true, query: q, items };
 }
 
 /** Queue title for a mix: its name in the panel's language (the id would show as "rock"). */

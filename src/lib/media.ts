@@ -190,6 +190,17 @@ export type MusicListResult = {
   items: MusicListItem[];
 };
 export type PlaySelection = { kind: MusicItemKind; id: string };
+/** Search screen (F4 on the music screen): artists and albums whose names start with the typed words.
+ *  Results appear from the second character; the list holds one screen, no paging. */
+export const SEARCH_MIN_CHARS = 2;
+export const SEARCH_RESULT_ROWS = 5;
+export const SEARCH_MAX_CHARS = 40;
+export type MusicSearchResult = {
+  configured: boolean;
+  error?: string;
+  query: string;
+  items: MusicListItem[];
+};
 export const MIX_IDS = [
   "daily",
   "discover",
@@ -372,4 +383,18 @@ export function demoMusicList(tab: MusicTab, page: number): MusicListResult {
               artItemId: null,
             }));
   return { configured: false, tab, page: 0, pages: 1, items: page === 0 ? items : [] };
+}
+
+/** Demo search: the demo artists and albums whose name contains the query (artists first). */
+export function demoMusicSearch(query: string): MusicSearchResult {
+  const q = query.trim().toLowerCase();
+  const seen = new Set<string>();
+  const items = [...demoMusicList("artists", 0).items, ...demoMusicList("albums", 0).items].filter(
+    (item) => {
+      if (!q || seen.has(item.id) || !item.title.toLowerCase().includes(q)) return false;
+      seen.add(item.id);
+      return true;
+    },
+  );
+  return { configured: false, query, items: items.slice(0, SEARCH_RESULT_ROWS) };
 }

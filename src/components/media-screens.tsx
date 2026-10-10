@@ -32,7 +32,7 @@ import { RadioDial } from "@/components/dial-bar";
 import { FullModal } from "@/components/light-modals";
 import { tryT } from "@/lib/i18n";
 import type { Key, Lang } from "@/lib/i18n";
-import { MUSIC_TABS } from "@/lib/media";
+import { MUSIC_TABS, SEARCH_MIN_CHARS } from "@/lib/media";
 import type {
   AmpSource,
   MediaSnapshot,
@@ -42,6 +42,8 @@ import type {
   RadioStationView,
 } from "@/lib/media";
 import {
+  SEARCH_KEYS,
+  SEARCH_KEY_ROWS,
   SOURCE_ROWS,
   displayDb,
   formatDb,
@@ -798,6 +800,107 @@ function MusicScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   );
 }
 
+/** F4 on the music screen: typed text, an on-screen keyboard for the 5-way, and the matching artists
+ *  and albums (from the second character) below it. F1 cancel, F2 delete, F3 space, F4 enter. */
+function SearchScreen({ panel, status }: { panel: MediaPanel; status: string }) {
+  const { t, searchQuery, searchFocus, searchKey, searchRows, searchCursor } = panel;
+  const typed = searchQuery.trim().length >= SEARCH_MIN_CHARS;
+  const loading = typed && panel.searchLoading && searchRows.length === 0 && !panel.searchError;
+  const kindLabel = (item: MusicListItem) =>
+    item.kind === "artist" ? t("search.artist") : item.kind === "album" ? t("search.album") : "";
+  let keyIndex = 0;
+  return (
+    <FullModal
+      label={t("search.title")}
+      actions={panel.modalActions}
+      status={status}
+      hint={t("search.hint")}
+      compactStatus
+    >
+      <div
+        className="search-field"
+        dir="ltr"
+        data-empty={searchQuery === ""}
+        role="textbox"
+        aria-readonly="true"
+        aria-label={t("search.title")}
+      >
+        {searchQuery === "" ? (
+          <span className="search-placeholder">{t("search.placeholder")}</span>
+        ) : (
+          <>
+            <span className="search-text">{searchQuery}</span>
+            <span className="search-caret" aria-hidden />
+          </>
+        )}
+      </div>
+      <div
+        className="search-keys"
+        dir="ltr"
+        role="grid"
+        aria-label={t("search.keyboard")}
+        data-focus={searchFocus}
+      >
+        {SEARCH_KEY_ROWS.en.map((row, r) => (
+          <div key={r} role="row">
+            {row.map((ch) => {
+              const index = keyIndex++;
+              const active = index === searchKey;
+              return (
+                <Button
+                  key={ch}
+                  variant="eink"
+                  className="search-key"
+                  role="gridcell"
+                  aria-selected={searchFocus === "keys" && active}
+                  aria-pressed={active}
+                  tabIndex={-1}
+                  onClick={() => {
+                    panel.setSearchKey(index);
+                    panel.typeSearchChar(SEARCH_KEYS[index] ?? ch);
+                  }}
+                >
+                  {ch}
+                </Button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      <div
+        className="source-rows music-rows search-rows"
+        role="listbox"
+        aria-label={t("search.results")}
+        aria-busy={loading}
+      >
+        {loading && <p className="music-note">{t("music.loading")}</p>}
+        {panel.searchError && <p className="radio-error">{panel.searchError}</p>}
+        {typed && !loading && !panel.searchError && searchRows.length === 0 && (
+          <p className="music-note">{t("search.empty")}</p>
+        )}
+        {searchRows.map((item, index) => (
+          <Button
+            key={`${item.kind}:${item.id}`}
+            variant="eink"
+            className="source-row music-row search-row"
+            role="option"
+            aria-selected={searchFocus === "results" && index === searchCursor}
+            aria-pressed={searchFocus === "results" && index === searchCursor}
+            data-kind={item.kind}
+            onClick={() => panel.playItem(item)}
+          >
+            <MusicArt item={item} size={46} alt="" />
+            <span className="source-row-text">
+              <strong>{item.title}</strong>
+              <span>{[kindLabel(item), musicItemDetail(item, t)].filter(Boolean).join(" · ")}</span>
+            </span>
+          </Button>
+        ))}
+      </div>
+    </FullModal>
+  );
+}
+
 /** F4 on the amp view while Jellyfin plays: the queue, 8 rows per page, Enter / F4 jumps to a track. */
 function QueueScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   const { t, queueList, queueTracks, queueCursor, queuePage, queuePages } = panel;
@@ -874,6 +977,8 @@ export function MediaModal({ panel, status }: { panel: MediaPanel; status: strin
       return <RadioScreen panel={panel} status={status} />;
     case "music":
       return <MusicScreen panel={panel} status={status} />;
+    case "search":
+      return <SearchScreen panel={panel} status={status} />;
     default:
       return null;
   }

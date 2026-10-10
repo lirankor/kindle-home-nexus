@@ -8,6 +8,7 @@ import {
   MUSIC_TABS,
   RADIO_LIST_IDS,
   RADIO_STATION_IDS,
+  SEARCH_MAX_CHARS,
   demoMediaSnapshot,
   demoRadioLists,
 } from "@/lib/media";
@@ -17,6 +18,7 @@ import type {
   MediaSnapshot,
   MediaSnapshotResult,
   MusicListResult,
+  MusicSearchResult,
   PowerOnStatus,
   QueueProgress,
   RadioListsResult,
@@ -34,6 +36,7 @@ import {
   powerOnStatus,
   readMediaSnapshot,
   readMusicList,
+  readMusicSearch,
   readRadioLists,
   startPowerOn,
   tuneRadio,
@@ -151,6 +154,17 @@ export const getMusicLists = createServerFn({ method: "GET" })
         pages: 1,
         items: [],
       };
+    }
+  });
+
+/** Search screen: artists and albums matching the typed text (results from the second character). */
+export const searchMusic = createServerFn({ method: "GET" })
+  .validator(z.object({ query: z.string().min(1).max(SEARCH_MAX_CHARS) }))
+  .handler(async ({ data }): Promise<MusicSearchResult> => {
+    try {
+      return await readMusicSearch(data.query);
+    } catch (e) {
+      return { configured: true, error: mediaErrorMessage(e), query: data.query, items: [] };
     }
   });
 

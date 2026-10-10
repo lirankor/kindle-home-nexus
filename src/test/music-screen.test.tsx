@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   getRadioLists: vi.fn(),
   tuneRadioStation: vi.fn(),
   getMusicLists: vi.fn(),
+  searchMusic: vi.fn(),
   playMusic: vi.fn(),
   getQueueTracks: vi.fn(),
 }));
@@ -160,6 +161,22 @@ describe("Music screen", () => {
     mocks.getRadioLists.mockResolvedValue({ ...demoRadioLists(), configured: true });
     mocks.tuneRadioStation.mockResolvedValue({ ok: true });
     mocks.getMusicLists.mockImplementation(musicLists);
+    mocks.searchMusic.mockImplementation(({ data }: { data: { query: string } }) =>
+      Promise.resolve({
+        configured: true,
+        query: data.query,
+        items: [
+          { kind: "artist", id: "artist-abba", title: "ABBA", detail: "", artItemId: null },
+          {
+            kind: "album",
+            id: "album-abbey",
+            title: "Abbey Road",
+            detail: "The Beatles · 1969",
+            artItemId: null,
+          },
+        ],
+      }),
+    );
     mocks.playMusic.mockResolvedValue({ ok: true, queue: musicQueue() });
   });
   afterEach(() => {
@@ -192,11 +209,11 @@ describe("Music screen", () => {
     expect(rowDetails()[0]).toBe("סביב שיר אהוב · 20 שירים");
     expect(selectedRow()).toBe("מיקס יומי");
     expect(pageCounter()).toBe("1/1");
-    // Footer: back, previous (greyed on page 1), next (greyed, one page), blank (no power key).
+    // Footer: back, previous (greyed on page 1), next (greyed, one page), search.
     expect(softKey(1).textContent).toBe("חזרה");
     expect(softKey(2).disabled).toBe(true);
     expect(softKey(3).disabled).toBe(true);
-    expect(softKey(4).disabled).toBe(true);
+    expect(softKey(4).textContent).toBe("חיפוש");
     // Hebrew: the first tab is at the right end, so left moves on to the second tab.
     press("ArrowRight");
     expect(activeTab()).toBe("מיקסים");
@@ -463,5 +480,81 @@ describe("Music screen", () => {
       { timeout: 4000 },
     );
     await waitFor(() => expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible());
+  });
+  it("F4 on the music screen opens search: the 5-way types on the key grid, results come from the second character, F4 moves onto them and Enter plays", async () => {
+    await openMusic("en");
+    expect(softKey(4).textContent).toBe("Search");
+    press("F4");
+    const dialog = screen.getByRole("dialog", { name: "Search" });
+    expect(dialog).toBeVisible();
+    const field = () => dialog.querySelector(".search-field")!;
+    const selectedKey = () =>
+      dialog.querySelector('.search-key[aria-selected="true"]')?.textContent ?? null;
+    const resultTitles = () =>
+      Array.from(dialog.querySelectorAll(".search-row strong")).map((el) => el.textContent);
+    const selectedResult = () =>
+      dialog.querySelector('.search-row[aria-selected="true"] strong')?.textContent ?? null;
+    expect(field().textContent).toBe("Type two letters or more");
+    expect(selectedKey()).toBe("A");
+    expect(softKey(1).textContent).toBe("Cancel");
+    expect(softKey(2).textContent).toBe("Delete");
+    expect(softKey(2).disabled).toBe(true);
+    expect(softKey(3).textContent).toBe("Space");
+    expect(softKey(4).textContent).toBe("Enter");
+    expect(softKey(4).disabled).toBe(true);
+    // One character: shown, but no request yet.
+    press("Enter");
+    expect(field().textContent).toBe("A");
+    press("ArrowRight");
+    expect(selectedKey()).toBe("B");
+    // Down a row lands on L (ten columns), up comes back.
+    press("ArrowDown");
+    expect(selectedKey()).toBe("L");
+    press("ArrowUp");
+    press("Enter");
+    expect(field().textContent).toBe("AB");
+    await waitFor(() => expect(mocks.searchMusic).toHaveBeenCalledWith({ data: { query: "AB" } }));
+    expect(mocks.searchMusic).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(resultTitles()).toEqual(["ABBA", "Abbey Road"]));
+    expect(
+      Array.from(dialog.querySelectorAll(".search-row .source-row-text span")).map(
+        (el) => el.textContent,
+      ),
+    ).toEqual(["Artist", "Album · The Beatles · 1969"]);
+    // F3 space, F2 delete: a trailing space is not sent as a new search.
+    press("F3");
+    expect(field().textContent).toBe("AB ");
+    press("F2");
+    expect(field().textContent).toBe("AB");
+    expect(mocks.searchMusic).toHaveBeenCalledTimes(1);
+    // The highlight stays on the keyboard until F4 (or down past the last row) moves it to the results.
+    expect(selectedResult()).toBeNull();
+    press("F4");
+    expect(selectedResult()).toBe("ABBA");
+    expect(selectedKey()).toBeNull();
+    press("ArrowDown");
+    expect(selectedResult()).toBe("Abbey Road");
+    press("ArrowUp");
+    press("ArrowUp");
+    expect(selectedResult()).toBeNull();
+    expect(selectedKey()).toBe("B");
+    press("F4");
+    press("ArrowDown");
+    press("Enter");
+    await waitFor(() =>
+      expect(mocks.playMusic).toHaveBeenCalledWith({ data: { kind: "album", id: "album-abbey" } }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible(),
+    );
+  });
+
+  it("F1 on the search screen returns to the music lists", async () => {
+    await openMusic("en");
+    press("F4");
+    expect(screen.getByRole("dialog", { name: "Search" })).toBeVisible();
+    press("F1");
+    expect(screen.getByRole("dialog", { name: "Music" })).toBeVisible();
+    expect(rowTitles()[0]).toBe("Daily mix");
   });
 });

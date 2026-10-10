@@ -63,6 +63,25 @@ export const sourceHomeScreen = (source: AmpSource | null | undefined): "radio" 
 /** Order of the source list rows: Jellyfin, TV, turntable, radio, FM. */
 export const SOURCE_ROWS: readonly AmpSource[] = ["SERVER", "CD", "PHONO", "NET RADIO", "TUNER"];
 
+/** On-screen keyboard of the search screen, driven by the 5-way: an alphabetic grid scans faster
+ *  than QWERTY when there is a cursor instead of fingers. Ten columns, so left / right walk a row
+ *  and up / down jump a row; a Hebrew layout can be added as a second entry later. */
+export const SEARCH_KEY_ROWS: Record<"en", readonly (readonly string[])[]> = {
+  en: [
+    ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"],
+    ["K", "L", "M", "N", "O", "P", "Q", "R", "S", "T"],
+    ["U", "V", "W", "X", "Y", "Z", "'", "&", "-", "."],
+    ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+  ],
+};
+export const SEARCH_KEY_COLS = 10;
+export const SEARCH_KEYS: readonly string[] = SEARCH_KEY_ROWS.en.flat();
+/** Adds a typed character: letters are kept as shown, a second space in a row is ignored. */
+export function appendSearchChar(query: string, ch: string, max: number): string {
+  if (ch === " " && (query === "" || query.endsWith(" "))) return query;
+  return (query + ch).slice(0, max);
+}
+
 /** Station id to treat as current: what the amp reports beats the persisted cursor. */
 export const currentStationId = (s: MediaSnapshot | null): string | null =>
   s?.nowPlaying.stationId ?? null;

@@ -1,13 +1,15 @@
 // State and key handling for the media screens (no JSX, so it can sit beside the other lib code).
 // The shell calls `useMediaPanel`, renders `MediaCards` / `MediaModal` from media-screens.tsx with
 // the returned panel, feeds the footer from `actions` / `modalActions` and forwards keys to `onKey`.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   Check,
   ChevronLeft,
   ChevronRight,
+  CornerDownLeft,
+  Delete,
   Film,
   Heart,
   ListMusic,
@@ -15,6 +17,8 @@ import {
   Music2,
   Power,
   Radio,
+  Search,
+  Space,
   Tv,
   VolumeX,
   X,
@@ -23,7 +27,14 @@ import type { DeviceAction } from "@/components/device-actions";
 import { useFullRefresh } from "@/lib/eink";
 import { isRtl, makeT } from "@/lib/i18n";
 import type { Lang } from "@/lib/i18n";
-import { MUSIC_PAGE_SIZE, MUSIC_TABS, demoMediaSnapshot, demoQueue } from "@/lib/media";
+import {
+  MUSIC_PAGE_SIZE,
+  MUSIC_TABS,
+  SEARCH_MAX_CHARS,
+  SEARCH_MIN_CHARS,
+  demoMediaSnapshot,
+  demoQueue,
+} from "@/lib/media";
 import type {
   AmpSource,
   MediaAction,
@@ -31,6 +42,7 @@ import type {
   MediaSnapshotResult,
   MusicListItem,
   MusicListResult,
+  MusicSearchResult,
   MusicTab,
   PowerOnStatus,
   RadioListsResult,
@@ -39,7 +51,10 @@ import type {
   QueueList,
 } from "@/lib/media";
 import {
+  SEARCH_KEYS,
+  SEARCH_KEY_COLS,
   SOURCE_ROWS,
+  appendSearchChar,
   applyMediaOptimistic,
   applyMusicPlay,
   applyRadioTune,
@@ -58,6 +73,7 @@ import {
   getRadioLists,
   playMusic,
   runMediaAction,
+  searchMusic,
   startAmpPowerOn,
   tuneRadioStation,
 } from "@/lib/media.functions";
@@ -82,12 +98,18 @@ const AFTER_ACTION_MS = 2000;
 const FAILED_SHOWN_MS = 2 * 60 * 1000;
 const NAV_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"];
 
-export type MediaScreen = "now" | "source" | "radio" | "music" | "tv" | "queue";
+export type MediaScreen = "now" | "source" | "radio" | "music" | "tv" | "queue" | "search";
 /** Sub-views of the radio screen: the dial and the station list of the band. */
 export type RadioView = "dial" | "stations" | "bands";
 export type MediaNotice = { text: string; error?: boolean };
 export const RADIO_PAGE_SIZE = 8;
 export const QUEUE_PAGE_SIZE = 8;
+/** Search screen: the results request waits this long after the last typed character. */
+export const SEARCH_DEBOUNCE_MS = 250;
+const SEARCH_STALE_MS = 60_000;
+/** Search screen state: the typed text, which half has the cursor, and the highlighted key. */
+type SearchState = { query: string; focus: "keys" | "results"; key: number };
+const EMPTY_SEARCH: SearchState = { query: "", focus: "keys", key: 0 };
 /** Not under ["media"]: a volume step must not refetch the YTuner lists. */
 const RADIO_LISTS_KEY = ["radioLists"] as const;
 /** Jellyfin lists, one entry per tab and page; kept for a while so tabs come back instantly. */
@@ -310,6 +332,10 @@ export function useMediaPanel({
     if (next === "radio") setRadioView("dial");
     if (next === "music") setCursor(0);
     if (next === "queue") setCursor(Math.max(0, latest.current?.queue?.index ?? 0));
+    if (next === "search") {
+      setSearch(EMPTY_SEARCH);
+      setCursor(0);
+    }
   }, []);
   const close = useCallback(() => setScreenState(null), []);
 
@@ -664,6 +690,72 @@ export function useMediaPanel({
     void sendPlay(item);
   };
 
+  // ---- Search screen (F4 on the music screen): on-screen keyboard, results from the second character ----
+  const [search, setSearch] = useState<SearchState>(EMPTY_SEARCH);
+  const [searchTerm, setSearchTerm] = useState("");
+  useEffect(() => {
+    const term = search.query.trim();
+    if (term.length < SEARCH_MIN_CHARS) {
+      setSearchTerm("");
+      return;
+    }
+    const timer = setTimeout(() => setSearchTerm(term), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search.query]);
+  const searchQuery = useQuery<MusicSearchResult>({
+    queryKey: ["musicSearch", searchTerm],
+    queryFn: () => searchMusic({ data: { query: searchTerm } }),
+    enabled: screen === "search" && searchTerm.length >= SEARCH_MIN_CHARS,
+    staleTime: SEARCH_STALE_MS,
+    // Keep the previous list on screen while the next one loads: no blank flash on e-ink.
+    placeholderData: keepPreviousData,
+  });
+  const searchActive = search.query.trim().length >= SEARCH_MIN_CHARS;
+  const searchRows: MusicListItem[] = searchActive ? (searchQuery.data?.items ?? []) : [];
+  const searchError = !searchActive
+    ? null
+    : searchQuery.isError
+      ? t("err.server")
+      : (searchQuery.data?.error ?? null);
+  const searchLoading = searchActive && (searchQuery.isFetching || searchTerm === "");
+  const searchCursor = Math.min(cursor, Math.max(0, searchRows.length - 1));
+  const setSearchQueryText = (f: (q: string) => string) =>
+    setSearch((s) => {
+      const query = f(s.query);
+      return query === s.query ? s : { ...s, query, focus: "keys" };
+    });
+  /** Enter on a key (or a tap on it): appends the character. */
+  const typeSearchChar = (ch: string) => {
+    setSearchQueryText((q) => appendSearchChar(q, ch, SEARCH_MAX_CHARS));
+    setCursor(0);
+  };
+  const searchBackspace = () => {
+    setSearchQueryText((q) => q.slice(0, -1));
+    setCursor(0);
+  };
+  const searchSpace = () => typeSearchChar(" ");
+  const focusSearchKeys = () => setSearch((s) => ({ ...s, focus: "keys" }));
+  /** F4 / down past the last key row: the highlight moves onto the first result. */
+  const focusSearchResults = () => {
+    if (!searchRows.length) return;
+    setSearch((s) => ({ ...s, focus: "results" }));
+    setCursor(0);
+  };
+  const setSearchKey = (key: number) =>
+    setSearch((s) => ({
+      ...s,
+      focus: "keys",
+      key: Math.max(0, Math.min(SEARCH_KEYS.length - 1, key)),
+    }));
+  /** F4 ("enter"): onto the results from the keyboard, plays the highlighted result from the list. */
+  const searchEnter = () => {
+    if (search.focus === "keys") focusSearchResults();
+    else {
+      const item = searchRows[searchCursor];
+      if (item) playItem(item);
+    }
+  };
+
   // ---- Playlist screen: the server-owned queue (F4 on the amp view while Jellyfin plays) ----
   const queueQuery = useQuery<QueueList | null>({
     queryKey: ["media", "queue"],
@@ -852,9 +944,31 @@ export function useMediaPanel({
                       disabled: musicPage >= musicPages - 1,
                       onClick: () => pageMusic(1),
                     },
-                    null,
+                    { label: t("search.title"), icon: Search, onClick: () => open("search") },
                   ]
-                : [];
+                : screen === "search"
+                  ? [
+                      { label: t("source.cancel"), icon: X, onClick: () => open("music") },
+                      {
+                        label: t("search.backspace"),
+                        icon: Delete,
+                        disabled: search.query === "",
+                        onClick: searchBackspace,
+                      },
+                      {
+                        label: t("search.space"),
+                        icon: Space,
+                        disabled: search.query === "",
+                        onClick: searchSpace,
+                      },
+                      {
+                        label: t("search.enter"),
+                        icon: CornerDownLeft,
+                        disabled: searchRows.length === 0,
+                        onClick: searchEnter,
+                      },
+                    ]
+                  : [];
 
   /** Keys while a media screen is open (soft keys are handled by the shell first). Returns handled. */
   const onKey = (event: KeyboardEvent): boolean => {
@@ -862,6 +976,7 @@ export function useMediaPanel({
     if (screen === "radio" && radioView === "bands") return onRadioBandsKey(event);
     if (screen === "radio" && radioView === "stations") return onRadioListKey(event);
     if (screen === "music") return onMusicKey(event);
+    if (screen === "search") return onSearchKey(event);
     if (screen === "queue") return onQueueKey(event);
     if (event.key === "Escape") {
       event.preventDefault();
@@ -943,6 +1058,46 @@ export function useMediaPanel({
       const forward = event.key === "ArrowRight" ? !isRtl(lang) : isRtl(lang);
       stepMusicTab(forward ? 1 : -1);
     }
+    return true;
+  };
+
+  /** Keys on the search screen. Keyboard half: the 5-way walks the key grid (left / right along a
+   *  row, up / down a row), Enter types the key, down past the last row moves onto the results.
+   *  Results half: up / down move, up from the first row returns to the keys, Enter plays. The tab
+   *  keys jump between the halves; Escape backs out to the music screen. */
+  const onSearchKey = (event: KeyboardEvent): boolean => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      open("music");
+      return true;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (search.focus === "keys") {
+        const ch = SEARCH_KEYS[search.key];
+        if (ch) typeSearchChar(ch);
+      } else {
+        const item = searchRows[searchCursor];
+        if (item) playItem(item);
+      }
+      return true;
+    }
+    if (!NAV_KEYS.includes(event.key)) return false;
+    event.preventDefault();
+    if (event.key === "PageUp") focusSearchKeys();
+    else if (event.key === "PageDown") focusSearchResults();
+    else if (search.focus === "keys") {
+      const last = SEARCH_KEYS.length - 1;
+      if (event.key === "ArrowLeft") setSearchKey(search.key - 1);
+      else if (event.key === "ArrowRight") setSearchKey(search.key + 1);
+      else if (event.key === "ArrowUp") setSearchKey(search.key - SEARCH_KEY_COLS);
+      else if (search.key + SEARCH_KEY_COLS > last) focusSearchResults();
+      else setSearchKey(search.key + SEARCH_KEY_COLS);
+    } else if (event.key === "ArrowUp") {
+      if (searchCursor === 0) focusSearchKeys();
+      else setCursor(searchCursor - 1);
+    } else if (event.key === "ArrowDown")
+      setCursor(Math.min(Math.max(0, searchRows.length - 1), searchCursor + 1));
     return true;
   };
 
@@ -1062,6 +1217,17 @@ export function useMediaPanel({
     restoreMusic,
     selectMusicTab,
     playItem,
+    // Search screen
+    searchQuery: search.query,
+    searchFocus: search.focus,
+    searchKey: search.key,
+    searchRows,
+    searchCursor,
+    searchLoading,
+    searchError,
+    typeSearchChar,
+    setSearchKey,
+    focusSearchResults,
     // Playlist screen
     queueList,
     queueTracks,

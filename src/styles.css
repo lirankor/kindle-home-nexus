@@ -229,7 +229,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .eink-button[data-active="true"]:hover, .eink-button[aria-pressed="true"]:hover { background: var(--primary); }
 /* Selection is always an outline (e-ink: no ghosting), never a fill: list rows and picker cells get the
    same thick frame that focused cards get, drawn inside the gap so neighbours stay apart. */
-.source-row.eink-button[aria-pressed="true"], .picker-grid .eink-button[aria-pressed="true"] { background: var(--background); color: var(--foreground); border-color: var(--foreground); outline: 3px solid var(--foreground); outline-offset: -1px; }
+.source-row.eink-button[aria-pressed="true"], .picker-grid .eink-button[aria-pressed="true"], .search-keys .eink-button[aria-pressed="true"] { background: var(--background); color: var(--foreground); border-color: var(--foreground); outline: 3px solid var(--foreground); outline-offset: -1px; }
 .device-tabs .eink-button { height: 56px; border: 0; font-size: 15px; gap: 8px; }
 .device-tabs .eink-button svg { width: 20px; height: 20px; }
 .content { padding: 20px 26px 0; flex: 1; min-height: 0; line-height: 1.25; }
@@ -581,6 +581,16 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .music-row .source-row-text span { font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .music-note { font-size: 24px; text-align: center; color: var(--muted-foreground); margin: 40px 0; }
 .queue-row .source-row-icon.queue-num { width: 46px; height: 46px; font-size: 22px; font-weight: 700; }
+/* Search screen: typed text, the 10-column key grid, one screen of results below it. */
+.search-field { height: 56px; border: 2px solid var(--foreground); display: flex; align-items: center; padding: 0 14px; font-size: 30px; font-weight: 700; line-height: 1; overflow: hidden; white-space: pre; }
+.search-field[data-empty="true"] { color: var(--muted-foreground); font-weight: 400; font-size: 24px; }
+.search-caret { display: inline-block; width: 3px; height: 34px; background: var(--foreground); margin-left: 3px; flex-shrink: 0; }
+.search-keys { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.search-keys [role="row"] { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; }
+.search-keys .eink-button.search-key { height: 50px; padding: 0; font-size: 26px; font-weight: 700; }
+.search-keys[data-focus="results"] .eink-button[aria-pressed="true"] { outline-width: 1px; }
+.music-rows.search-rows { min-height: 295px; margin-top: 14px; }
+.search-rows .music-note { margin: 24px 0; }
 .music-foot { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 10px; }
 .music-page { font-size: 22px; font-weight: 700; flex-shrink: 0; }
 .amp-progress[data-status="paused"] .progress-track span { background: var(--muted-foreground); }
