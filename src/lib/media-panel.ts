@@ -95,6 +95,11 @@ import {
 } from "@/lib/radio-dial";
 
 const POLL_MS = 10000;
+/** While our Jellyfin queue plays and the Media tab (or a media screen) is showing: the snapshot is
+ *  polled this often and the Kindle is told, through <html data-eink-poll>, to re-fetch its screen
+ *  this often too, so a track change lands within a few seconds instead of its idle 20 s. Radio and
+ *  the other tabs keep the slow cadence. */
+export const QUEUE_POLL_MS = 5000;
 const POWER_ON_POLL_MS = 2000;
 /** HA publishes the new state a moment after an action: refetch the snapshot this long after it resolved. */
 const AFTER_ACTION_MS = 2000;
@@ -125,6 +130,9 @@ const RADIO_LISTS_KEY = ["radioLists"] as const;
 /** Jellyfin lists, one entry per tab and page; kept for a while so tabs come back instantly. */
 const MUSIC_LIST_KEY = "musicList";
 const MUSIC_LIST_STALE_MS = 5 * 60_000;
+
+const queuePlaying = (s: MediaSnapshot | null | undefined): boolean =>
+  !!s && s.amp.on && s.nowPlaying.kind === "music" && s.queue?.status === "playing";
 
 export function useMediaPanel({
   active,
@@ -178,10 +186,24 @@ export function useMediaPanel({
   const query = useQuery<MediaSnapshotResult>({
     queryKey: ["media"],
     queryFn: () => getMediaSnapshot(),
-    refetchInterval: active || screen !== null ? POLL_MS : false,
+    refetchInterval: (q) =>
+      !(active || screen !== null)
+        ? false
+        : queuePlaying(q.state.data?.snapshot)
+          ? QUEUE_POLL_MS
+          : POLL_MS,
     refetchIntervalInBackground: true,
   });
   const result = query.data;
+  const fastPoll = (active || screen !== null) && queuePlaying(result?.snapshot);
+  useEffect(() => {
+    const el = document.documentElement;
+    if (fastPoll) el.dataset["einkPoll"] = String(QUEUE_POLL_MS / 1000);
+    else delete el.dataset["einkPoll"];
+    return () => {
+      delete el.dataset["einkPoll"];
+    };
+  }, [fastPoll]);
   const configured = result?.configured ?? true;
   if (result?.configured && result.snapshot) lastGood.current = result.snapshot;
   const data: MediaSnapshot | null =

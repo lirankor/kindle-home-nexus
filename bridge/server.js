@@ -276,6 +276,19 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
       return res.end("ok\n");
     }
+    if (path === "/poll") {
+      // Seconds the Kindle should sleep before its next screen poll: the app's <html data-eink-poll>
+      // (5 while a Jellyfin queue plays on the Media tab), else the Kindle's own default.
+      const dflt = Math.min(Math.max(Number(url.searchParams.get("default")) || 20, 1), 600);
+      let seconds = dflt;
+      try {
+        const v = await exclusive(async () => (await ensurePage()).evaluate(() => document.documentElement.dataset.einkPoll || ""));
+        const n = Number(v);
+        if (Number.isFinite(n) && n >= 1 && n <= 600) seconds = Math.round(n);
+      } catch {}
+      res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
+      return res.end(seconds + "\n");
+    }
     if (path === "/hint") {
       // "full" or "partial": how the Kindle should draw the current frame.
       res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store", ETag: latest?.etag ?? "" });
@@ -284,7 +297,8 @@ const server = http.createServer(async (req, res) => {
     if (path === "/screen.png") {
       const since = url.searchParams.get("since");
       const wait = Math.min(Math.max(Number(url.searchParams.get("wait")) || 0, 0), 60000);
-      if (!latest) await safeShoot();
+      // fresh=1: screenshot now instead of serving the last frame (polls; keys always shoot).
+      if (!latest || url.searchParams.get("fresh") === "1") await safeShoot();
       if (since && latest.etag === since) {
         if (!wait) { res.writeHead(304, { ETag: since, "Cache-Control": "no-store" }); return res.end(); }
         const frame = await new Promise((resolve) => {

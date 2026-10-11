@@ -418,6 +418,8 @@ describe("Music screen", () => {
     expect(dialog.querySelector(".amp-title")?.textContent).toBe("New Born");
     expect(dialog.querySelector(".amp-sub")?.textContent).toBe("Muse");
     expect(dialog.querySelector(".amp-queue-pos")?.textContent).toBe("2 מתוך 4");
+    // The Kindle is told to poll every 5 s while the queue plays.
+    expect(document.documentElement.dataset["einkPoll"]).toBe("5");
     expect(dialog.querySelector(".amp-time-pos")?.textContent).toBe("0:30");
     expect(dialog.querySelector(".amp-times")?.textContent).toContain("6:05");
     const width = () => dialog.querySelector<HTMLElement>(".progress-track span")!.style.width;
@@ -479,6 +481,7 @@ describe("Music screen", () => {
     await waitFor(() =>
       expect(dialog.querySelector(".amp-progress")?.getAttribute("data-status")).toBe("paused"),
     );
+    expect(document.documentElement.dataset["einkPoll"]).toBeUndefined();
     press("Enter");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({

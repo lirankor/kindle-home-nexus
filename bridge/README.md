@@ -19,6 +19,8 @@ and serves 8-bit grayscale PNG screenshots (WIDTH x HEIGHT) for a Kindle to draw
 
 - `/screen.png` latest frame. Headers `ETag` (sha1) and `Cache-Control: no-store`.
   Long-poll with `?since=<etag>&wait=<ms>` (max 60000): returns 304 if nothing changed in time.
+  `?fresh=1` takes a new screenshot first instead of serving the last frame (the Kindle's polls).
+- `GET /poll?default=<s>`: seconds the Kindle should sleep before its next poll: the app's `<html data-eink-poll>` (5 while a Jellyfin queue plays on the Media tab), else `default`.
 - `/key/<name>` press a key, settle, return a fresh frame. Names: `up down left right select enter ok back escape prev pageup next pagedown home menu keyboard`. Unknown name gives 400.
 - `/reload` reload the page, return a frame.
 - `/healthz` JSON `{ok, etag, lastShotAt, appUrl}`.

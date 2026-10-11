@@ -48,7 +48,14 @@ report_battery() { # tell the bridge our battery level and charging state (shown
   [ -n "$lvl" ] && wget -q -O /dev/null "$BRIDGE_URL/$BRIDGE_TOKEN/battery?level=$lvl&charging=${chg:-0}" 2>/dev/null
 }
 
-poller() { while :; do report_battery >/dev/null 2>&1; sleep $POLL_SECONDS; echo "0 0 poll 0 0"; done; }
+poller() { # sleep what the bridge says (5 s while music plays on the Media tab), else POLL_SECONDS
+  while :; do
+    report_battery >/dev/null 2>&1
+    s=$(wget -q -O - "$BRIDGE_URL/$BRIDGE_TOKEN/poll?default=$POLL_SECONDS" 2>/dev/null | tr -dc 0-9)
+    [ -n "$s" ] && [ "$s" -ge 1 ] && [ "$s" -le 600 ] || s=$POLL_SECONDS
+    sleep $s; echo "0 0 poll 0 0"
+  done
+}
 
 keyname() { # keyname <code>
   case $1 in
@@ -78,7 +85,7 @@ run() {
   trap "kill $R0 $R1 $P 2>/dev/null; killall dd 2>/dev/null; exit 0" TERM INT
   fetch /reload full || fetch /screen.png full
   while read sec usec type code value; do
-    if [ "$type" = "poll" ]; then fetch /screen.png; continue; fi
+    if [ "$type" = "poll" ]; then fetch "/screen.png?fresh=1"; continue; fi
     [ "$type" = "1" ] && [ "$value" = "1" ] || continue
     k=$(keyname $code)
     [ -n "$k" ] || continue

@@ -12,7 +12,7 @@ then add to `/etc/crontab/root` (rootfs must be remounted rw):
 While running it stops the Kindle reader framework, reads the hardware buttons from
 `/dev/input/event0` (keypad) and `event1` (5-way), sends each press to the bridge as
 `GET /key/<name>` and draws the returned PNG with `eips -g`. Idle refresh every
-`POLL_SECONDS`. Create `/mnt/us/nexus/DISABLED` to keep it from autostarting.
+`POLL_SECONDS` (the idle cadence; the bridge's `/poll` shortens it to 5 s while music plays on the Media tab). Create `/mnt/us/nexus/DISABLED` to keep it from autostarting.
 
 Button map: 5-way = up/down/left/right/select, upper side buttons = prev tab,
 lower side buttons = next tab, Back = escape, Menu = menu, Home = home, keyboard = keyboard.
