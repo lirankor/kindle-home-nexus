@@ -43,8 +43,8 @@ wget -q -O /tmp/s.png http://HOST:8790/key/next && eips -g /tmp/s.png
 
 - The Kindle's bottom button row (Back, Keyboard, Menu, Home) is sent as keyboard keys `F1`..`F4`,
   matching the app's four footer buttons left to right. `GET /key/back|keyboard|menu|home` or `/key/f1..f4`.
-- `GET /hint` returns `full` or `partial`: the app sets `<html data-eink-refresh="full">` for frames that
-  need a flashing full e-ink refresh (tab change, modal open/close, screensaver picture). The Kindle client
+- `GET /hint` returns `full` or `partial`: frames that
+  need a flashing full e-ink refresh: the app counts such events in `<html data-eink-full>` (tab, screen, list page or music tab change, modal open/close, song / station / cover change, screensaver picture) and `/hint` answers `full` once per new value, `partial` otherwise. Cursor moves and the progress bar never count. The Kindle client
   reads it after each fetched frame.
 
 ## Photo region (screensaver)

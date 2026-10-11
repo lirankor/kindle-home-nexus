@@ -22,7 +22,8 @@ fetch() { # fetch <path> [full] ; draws if we got a non-empty file that differs 
     if [ "$sum" != "$(cat $LAST 2>/dev/null)" ]; then
       n=$(( $(cat $COUNT 2>/dev/null || echo 0) + 1 ))
       hint=$(wget -q -O - "$BRIDGE_URL/$BRIDGE_TOKEN/hint" 2>/dev/null)
-      if [ "$2" = "full" ] || [ "$hint" = "full" ] || [ $n -ge ${FULL_REFRESH_EVERY:-10} ]; then flag="-f"; n=0; else flag=""; fi
+      every=${FULL_REFRESH_EVERY:-0}
+      if [ "$2" = "full" ] || [ "$hint" = "full" ] || { [ "$every" -gt 0 ] && [ $n -ge "$every" ]; }; then flag="-f"; n=0; else flag=""; fi
       echo $n > $COUNT
       mv $SHOT.tmp $SHOT && eips $flag -g $SHOT && echo "$sum" > $LAST
     fi

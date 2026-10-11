@@ -150,7 +150,7 @@ describe("Radio screen", () => {
     expect(status?.nextElementSibling?.tagName).toBe("FOOTER");
     // Footer: band picker (named after the current band), favourite toggle, source list, station list.
     expect(footerLabels()).toEqual(["דיסלדורף", "מועדפים", "מקור", "רשימת תחנות"]);
-    expect(document.documentElement.getAttribute("data-eink-refresh")).toBe("full");
+    expect(Number(document.documentElement.getAttribute("data-eink-full"))).toBeGreaterThan(0);
   });
 
   it("tunes the neighbour on left / right with wrap-around and moves the needle optimistically", async () => {

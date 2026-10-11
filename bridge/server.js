@@ -34,7 +34,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let browser = null;
 let page = null;
-let latest = null; // { buf, etag }
+let latest = null; // { buf, etag, fullGen }
+let servedFullGen = -1; // the app's data-eink-full value the Kindle last drew with a full refresh
 let lastShotAt = null;
 let lastAlive = { value: 0, seenAt: 0 };
 let starting = null;
@@ -138,14 +139,15 @@ async function injectBattery(p) {
 async function shoot() {
   const p = await ensurePage();
   const png = await p.screenshot({ type: "png" });
-  // The app may request a full e-ink refresh via <html data-eink-refresh="full">, and mark a photo
-  // region via data-eink-photo="x,y,w,h" that gets e-ink specific processing (levels, sharpen, dither).
-  let hint = "partial";
+  // The app counts full-refresh events in <html data-eink-full> (tab / screen / page / song change…);
+  // /hint answers "full" once per new value. It may mark a photo region via data-eink-photo="x,y,w,h"
+  // that gets e-ink specific processing (levels, sharpen, dither).
+  let fullGen = 0;
   let photo = null;
   let alive = 0;
   try {
-    const ds = await p.evaluate(() => ({ r: document.documentElement.dataset.einkRefresh || "", p: document.documentElement.dataset.einkPhoto || "", a: window.__alive || 0 }));
-    hint = ds.r === "full" ? "full" : "partial";
+    const ds = await p.evaluate(() => ({ f: document.documentElement.dataset.einkFull || "0", p: document.documentElement.dataset.einkPhoto || "", a: window.__alive || 0 }));
+    fullGen = Number(ds.f) || 0;
     const m = /^(\d+),(\d+),(\d+),(\d+)$/.exec(ds.p || "");
     if (m) photo = { x: +m[1], y: +m[2], w: +m[3], h: +m[4] };
     alive = ds.a;
@@ -181,7 +183,7 @@ async function shoot() {
   }
   const etag = crypto.createHash("sha1").update(buf).digest("hex");
   const changed = !latest || latest.etag !== etag;
-  latest = { buf, etag, hint };
+  latest = { buf, etag, fullGen };
   lastShotAt = new Date().toISOString();
   if (changed) frames.emit("frame", latest);
   return latest;
@@ -264,7 +266,7 @@ const server = http.createServer(async (req, res) => {
     if (path === "/healthz") {
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
       return res.end(JSON.stringify({
-        ok: !!latest, etag: latest?.etag ?? null, hint: latest?.hint ?? null, battery, lastShotAt, appUrl: APP_URL,
+        ok: !!latest, etag: latest?.etag ?? null, fullGen: latest?.fullGen ?? null, servedFullGen, battery, lastShotAt, appUrl: APP_URL,
       }));
     }
     if (path === "/battery") {
@@ -290,9 +292,13 @@ const server = http.createServer(async (req, res) => {
       return res.end(seconds + "\n");
     }
     if (path === "/hint") {
-      // "full" or "partial": how the Kindle should draw the current frame.
+      // "full" or "partial": how the Kindle should draw the frame it just fetched. Full exactly once
+      // per new app event counter; the periodic / poll screenshots in between do not consume it.
+      const gen = latest?.fullGen ?? 0;
+      const hint = gen !== servedFullGen ? "full" : "partial";
+      servedFullGen = gen;
       res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store", ETag: latest?.etag ?? "" });
-      return res.end((latest?.hint ?? "partial") + "\n");
+      return res.end(hint + "\n");
     }
     if (path === "/screen.png") {
       const since = url.searchParams.get("since");

@@ -84,6 +84,8 @@ const press = (key: string) =>
     document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
   });
 
+const fullGen = () => Number(document.documentElement.getAttribute("data-eink-full") ?? 0);
+
 describe("Media tab and amp view", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -133,10 +135,13 @@ describe("Media tab and amp view", () => {
   it("opens the active source's screen from the amp card: the radio for NET RADIO, the amp view for the turntable", async () => {
     renderPanel();
     await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
+    const fullBefore = fullGen();
     act(() => screen.getByTitle("פתח את המגבר").click());
     // NET RADIO plays: straight to the radio screen, no generic now-playing screen in between.
     expect(screen.getByRole("dialog", { name: "רדיו" })).toBeVisible();
-    expect(document.documentElement.getAttribute("data-eink-refresh")).toBe("full");
+    // A screen change is a full-refresh event for the e-ink (the counter may step more than once
+    // when several keys change in the same render; the bridge flashes once per new value).
+    expect(fullGen()).toBeGreaterThan(fullBefore);
     // The radio has no back key: a tab key closes it (the shell then switches the tab).
     press("PageDown");
     expect(screen.queryByRole("dialog")).toBeNull();

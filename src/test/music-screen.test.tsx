@@ -677,6 +677,23 @@ describe("Music screen", () => {
     );
   });
 
+  it("e-ink full refresh follows events, not cursor moves: a tab or page change bumps the counter, up/down does not", async () => {
+    mocks.getMediaSnapshot.mockResolvedValue(liveResult());
+    renderPanel();
+    await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
+    act(() => screen.getByTestId("open-music").click());
+    const dialog = await screen.findByRole("dialog", { name: "מוזיקה" });
+    await waitFor(() => expect(dialog.querySelectorAll(".music-row").length).toBeGreaterThan(1));
+    const gen = () => Number(document.documentElement.getAttribute("data-eink-full") ?? 0);
+    const start = gen();
+    press("ArrowDown");
+    press("ArrowDown");
+    press("ArrowUp");
+    expect(gen()).toBe(start);
+    press("ArrowLeft"); // Hebrew: the next music tab is to the left
+    await waitFor(() => expect(gen()).toBeGreaterThan(start));
+  });
+
   it("Enter on the Artists tab opens the artist's albums instead of playing", async () => {
     await openMusic();
     press("ArrowLeft");

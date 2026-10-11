@@ -422,6 +422,7 @@ export function useMediaPanel({
   /** Cancel in the source list: back to the screen it was opened from. */
   const closeSourceList = () => open(sourceOpener.current);
   useFullRefresh(`${screen ?? ""}/${screen === "radio" ? radioView : ""}`);
+  // Events that leave ghosting behind on e-ink: see fullRefreshKey below the list state.
   useEffect(() => {
     if (screen) {
       document.querySelector<HTMLElement>(".full-modal")?.focus();
@@ -864,6 +865,26 @@ export function useMediaPanel({
   const queueCursor = Math.min(cursor, Math.max(0, queueTracks.length - 1));
   const queuePages = Math.max(1, Math.ceil(queueTracks.length / QUEUE_PAGE_SIZE));
   const queuePage = Math.floor(queueCursor / QUEUE_PAGE_SIZE);
+  // Full e-ink refresh on: a list page or music tab change, another artist, the power-on block
+  // appearing or going, the amp going on or off, and a song, station or cover change while a
+  // now-playing view (amp view, radio, or the Media cards) is showing. Cursor moves are not events.
+  const nowPlayingVisible = screen === null || screen === "now" || screen === "radio";
+  const nowKey = nowPlayingVisible
+    ? `${data?.nowPlaying.title ?? ""}|${data?.nowPlaying.station ?? ""}|${data?.nowPlaying.artItemId ?? ""}`
+    : "";
+  useFullRefresh(
+    [
+      musicTab,
+      musicPage,
+      stationPage,
+      artistPage,
+      artist?.item.id ?? "",
+      queuePage,
+      showPowerOn ? 1 : 0,
+      data?.amp.on ? 1 : 0,
+      nowKey,
+    ].join("/"),
+  );
   const pageQueue = (delta: 1 | -1) => {
     const page = queuePage + delta;
     if (page < 0 || page >= queuePages) return;
