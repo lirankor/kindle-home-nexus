@@ -35,7 +35,8 @@ const liveResult = (): MediaSnapshotResult => ({
 });
 /** The amp playing the second demo track from a four-track queue, 30 s in. */
 const musicQueue = (): QueueProgress => {
-  const track = demoTracks()[1]!;
+  const tracks = demoTracks();
+  const track = tracks[1]!;
   return {
     title: track.album ?? "",
     index: 1,
@@ -44,6 +45,8 @@ const musicQueue = (): QueueProgress => {
     positionMs: 30000,
     durationMs: track.durationMs,
     status: "playing",
+    prevTrack: tracks[0]!,
+    nextTracks: tracks.slice(2, 4),
   };
 };
 const musicResult = (): MediaSnapshotResult => {
@@ -429,12 +432,24 @@ describe("Music screen", () => {
     expect(dialog.querySelector(".amp-time-pos")?.textContent).toBe("0:32");
     expect(parseFloat(width())).toBeGreaterThan((30000 / 365000) * 100);
     press("ArrowRight");
+    // Drawn before the server answers: the next track's titles, 3 of 4, from 0:00.
+    const third = demoTracks()[2]!;
+    expect(dialog.querySelector(".amp-title")?.textContent).toBe(third.title);
+    expect(dialog.querySelector(".amp-sub")?.textContent).toBe(third.artist);
+    expect(dialog.querySelector(".amp-queue-pos")?.textContent).toBe("3 מתוך 4");
+    expect(dialog.querySelector(".amp-time-pos")?.textContent).toBe("0:00");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
         data: { type: "queue", op: "next" },
       }),
     );
+    // The mock answers without a snapshot: back to the polled one (New Born, 30 s in), so prev
+    // restarts the same track rather than going back.
+    await waitFor(() => expect(dialog.querySelector(".amp-title")?.textContent).toBe("New Born"));
     press("ArrowLeft");
+    expect(dialog.querySelector(".amp-title")?.textContent).toBe("New Born");
+    expect(dialog.querySelector(".amp-queue-pos")?.textContent).toBe("2 מתוך 4");
+    expect(dialog.querySelector(".amp-time-pos")?.textContent).toBe("0:00");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
         data: { type: "queue", op: "prev" },

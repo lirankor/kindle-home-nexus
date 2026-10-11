@@ -1651,7 +1651,10 @@ async function ensureServerSource() {
 /** SetAVTransportURI (retrying while the amp still answers 501 during the input switch) → Play → SetNext. */
 async function pushTrack(t: QueueTrack, next: QueueTrack | undefined, seekMs = 0) {
   if (!ampConfigured()) return;
-  void warmArt([t.artItemId, next?.artItemId], 160).catch(() => undefined);
+  // Both sizes the panel asks for: 240 for the amp view (drawn at once on a skip), 160 for lists.
+  void warmArt([t.artItemId, next?.artItemId], 240)
+    .then(() => warmArt([t.artItemId, next?.artItemId], 160))
+    .catch(() => undefined);
   await ensureServerSource();
   const didl = didlFor(t);
   for (let attempt = 0; ; attempt++) {

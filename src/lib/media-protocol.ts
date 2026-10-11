@@ -343,6 +343,8 @@ export function queueProgress(q: QueueState | null, now: number): QueueProgress 
     positionMs,
     durationMs,
     status: q.status,
+    prevTrack: q.index > 0 ? stripStream(q.tracks[q.index - 1]!) : null,
+    nextTracks: q.tracks.slice(q.index + 1, q.index + 4).map(stripStream),
   };
 }
 export const stripStream = (t: QueueTrack) => {

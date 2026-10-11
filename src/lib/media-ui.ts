@@ -158,6 +158,18 @@ export function applyMediaOptimistic(s: MediaSnapshot, action: MediaAction): Med
         else if (action.op === "toggle")
           next.queue.status = next.queue.status === "playing" ? "paused" : "playing";
         else if (action.op === "stop") next.queue.status = "stopped";
+        else if (action.op === "next" || action.op === "prev") {
+          next.queue = applyQueueSkip(next.queue, action.op);
+          const track = next.queue.track;
+          if (track && next.nowPlaying.kind === "music")
+            next.nowPlaying = {
+              ...next.nowPlaying,
+              title: track.title,
+              artist: track.artist,
+              album: track.album,
+              artItemId: track.artItemId,
+            };
+        }
       }
       break;
     case "queue.jump":
@@ -171,6 +183,39 @@ export function applyMediaOptimistic(s: MediaSnapshot, action: MediaAction): Med
       break;
   }
   return next;
+}
+
+/** The queue after next / prev, mirroring the server: prev restarts the track after 5 s, next past
+ *  the last track ends the queue. The neighbour lists shift along; a neighbour we do not know yet
+ *  leaves `track` null, which keeps the old titles on screen until the server answers. */
+export function applyQueueSkip(q: QueueProgress, op: "next" | "prev"): QueueProgress {
+  const prevTrack = q.prevTrack ?? null;
+  const nextTracks = q.nextTracks ?? [];
+  if (op === "next") {
+    if (q.index + 1 >= q.count) return { ...q, status: "ended", positionMs: 0 };
+    const track = nextTracks[0] ?? null;
+    return {
+      ...q,
+      index: q.index + 1,
+      track,
+      positionMs: 0,
+      durationMs: track?.durationMs ?? 0,
+      status: "playing",
+      prevTrack: q.track,
+      nextTracks: nextTracks.slice(1),
+    };
+  }
+  if (q.positionMs > 5000 || q.index === 0) return { ...q, positionMs: 0, status: "playing" };
+  return {
+    ...q,
+    index: q.index - 1,
+    track: prevTrack,
+    positionMs: 0,
+    durationMs: prevTrack?.durationMs ?? 0,
+    status: "playing",
+    prevTrack: null,
+    nextTracks: q.track ? [q.track, ...nextTracks].slice(0, 3) : nextTracks,
+  };
 }
 
 /** What the snapshot will say once the amp has tuned `station` (radio screen left/right, list Enter). */

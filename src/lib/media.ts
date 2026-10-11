@@ -266,6 +266,10 @@ export type QueueProgress = {
   positionMs: number;
   durationMs: number;
   status: QueueStatus;
+  /** Neighbours of the current track, so a skip can be drawn before the server answers (the Kindle
+   *  only re-fetches its screen on a key press or every 20 s). Up to 3 upcoming, 1 previous. */
+  prevTrack?: MusicTrack | null;
+  nextTracks?: MusicTrack[];
 };
 
 // ---- Actions ----
@@ -367,6 +371,8 @@ export function demoQueue(title: string): QueueProgress {
     positionMs: 0,
     durationMs: track.durationMs,
     status: "playing",
+    prevTrack: null,
+    nextTracks: tracks.slice(1, 4),
   };
 }
 

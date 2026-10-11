@@ -117,7 +117,9 @@ export const runMediaAction = createServerFn({ method: "POST" })
       return { ok: false, error: mediaErrorMessage(e) };
     }
     if (!haConfigured()) return { ok: true, snapshot: demoMediaSnapshot() };
-    await new Promise((r) => setTimeout(r, 400)); // let HA publish the new state
+    // Let HA publish the new state; queue commands are our own state and need no wait.
+    if (action.type !== "queue" && action.type !== "queue.jump")
+      await new Promise((r) => setTimeout(r, 400));
     let snapshot: MediaSnapshot | null = null;
     try {
       snapshot = await readMediaSnapshot();
