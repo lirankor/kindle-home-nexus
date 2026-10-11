@@ -132,6 +132,7 @@ const Ltr = ({ children }: { children: ReactNode }) => <bdi dir="ltr">{children}
 const fmt = (value: number | null, digits = 1) => (value === null ? "—" : value.toFixed(digits));
 const SAMPLE_REFRESH_MS = 10 * 60 * 1000;
 const MODAL_IDLE_MS = 30 * 1000;
+const SCREENSAVER_IDLE_MS = 5 * 60 * 1000;
 
 function HomeControl() {
   const [tab, setTab] = useState<TabName>("Lights");
@@ -282,11 +283,14 @@ function HomeControl() {
     root.dir = rtl ? "rtl" : "ltr";
   }, [lang, rtl]);
 
+  // No screensaver on the amp view while the amp is on, whatever the source: that screen is the
+  // "now playing" display. The 5 min count starts over once the amp goes off or the view is left.
+  const keepAwake = media.screen === "now" && !!media.data?.amp.on;
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     const reset = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => setScreensaver(true), 5 * 60 * 1000);
+      if (!keepAwake) timer = setTimeout(() => setScreensaver(true), SCREENSAVER_IDLE_MS);
     };
     const wake = (event: Event) => {
       if (screensaver) {
@@ -304,7 +308,7 @@ function HomeControl() {
       document.removeEventListener("keydown", wake, true);
       document.removeEventListener("pointerdown", wake, true);
     };
-  }, [screensaver]);
+  }, [screensaver, keepAwake]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => keyHandler.current(event);

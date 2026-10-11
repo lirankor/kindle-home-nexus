@@ -3,7 +3,7 @@ import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/rea
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { demoMediaSnapshot, demoMusicList, demoRadioLists } from "@/lib/media";
+import { demoMediaSnapshot, demoMusicList, demoQueue, demoRadioLists } from "@/lib/media";
 import type { MusicTab } from "@/lib/media";
 import { routeTree } from "@/routeTree.gen";
 
@@ -103,6 +103,51 @@ describe("Panel idle behaviour and persistence", () => {
       await vi.advanceTimersByTimeAsync(61_000);
     });
     expect(dialog()).toBe("רדיו");
+  });
+
+  it("holds off the screensaver on the amp view while the amp is on, and starts it once the amp is off", async () => {
+    const on = demoMediaSnapshot();
+    on.amp.on = true;
+    on.amp.state = "playing";
+    on.amp.source = "SERVER";
+    on.nowPlaying = { ...on.nowPlaying, kind: "music", title: "New Born", artist: "Muse" };
+    on.queue = demoQueue("Mix");
+    const result = (snapshot: typeof on) => ({
+      configured: true,
+      amp: true,
+      jellyfin: true,
+      snapshot,
+      lang: "he" as const,
+    });
+    mocks.getMediaSnapshot.mockResolvedValue(result(on));
+    await renderApp();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    press("PageUp");
+    expect(activeTab()).toBe("מדיה");
+    await waitFor(() =>
+      expect(screen.getByTitle("פתח את המגבר").textContent).toContain("New Born"),
+    );
+    press("F3"); // SERVER plays → the amp view
+    expect(dialog()).toBe("תצוגת המגבר");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
+    });
+    expect(document.querySelector(".photo-screen")).toBeNull();
+    expect(dialog()).toBe("תצוגת המגבר");
+    // Amp off: the idle count starts, and the screensaver follows 5 min later.
+    const off = structuredClone(on);
+    off.amp.on = false;
+    off.amp.state = "off";
+    off.queue = null;
+    mocks.getMediaSnapshot.mockResolvedValue(result(off));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11_000);
+    });
+    expect(document.querySelector(".photo-screen")).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1000);
+    });
+    expect(document.querySelector(".photo-screen")).not.toBeNull();
   });
 
   it("remembers the tab and the media screen and restores them on mount", async () => {
