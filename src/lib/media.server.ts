@@ -1943,7 +1943,9 @@ async function verifyQueue(
     );
     await setQueue({ ...q, offsetMs: d.relTimeMs, startedAt: now });
   } else if (d.kind === "foreign") {
-    qlog(`amp plays something else (${d.uri}): queue stopped`);
+    // Host and path only: a URI from another controller may carry a token in its query.
+    const shown = d.uri.replace(/\?.*$/, "");
+    qlog(`amp plays something else (${shown}): queue stopped`);
     await setQueue({ ...q, status: "stopped", startedAt: null, offsetMs: 0 });
   }
 }
