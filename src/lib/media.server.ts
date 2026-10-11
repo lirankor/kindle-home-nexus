@@ -58,6 +58,7 @@ import {
   artUrlFor,
   buildDidl,
   decideAdvance,
+  decideVerify,
   fmFrequencyXml,
   formatHms,
   inputSelXml,
@@ -83,7 +84,7 @@ import {
   yamahaRc,
   stripStream,
 } from "@/lib/media-protocol";
-import type { ListInfo, NetRadioPlayInfo, YtunerStation } from "@/lib/media-protocol";
+import type { ListInfo, NetRadioPlayInfo, PositionInfo, YtunerStation } from "@/lib/media-protocol";
 
 // ---- Config ----
 const env = (name: string) => (process.env[name] ?? "").trim().replace(/\/+$/, "");
@@ -134,6 +135,9 @@ type Runtime = {
   saveTimer: ReturnType<typeof setTimeout> | null;
   queueTimer: ReturnType<typeof setInterval> | null;
   queueBusy: boolean;
+  /** Ticks since the last check of the amp against our queue clock, and STOPPED answers in a row. */
+  queueTicks: number;
+  queueStoppedSeen: number;
   powerOn: PowerOnStatus | null;
   ytunerIds: { at: number; byUrl: Map<string, YtunerStation> } | null;
   mixes: { day: string; builtAt: number; items: Map<MixId, MusicTrack[]> } | null;
@@ -151,6 +155,8 @@ const rt: Runtime = (g.__kindleMediaRuntime ??= {
   saveTimer: null,
   queueTimer: null,
   queueBusy: false,
+  queueTicks: 0,
+  queueStoppedSeen: 0,
   powerOn: null,
   ytunerIds: null,
   mixes: null,
@@ -1629,6 +1635,13 @@ async function tracksFor(sel: PlaySelection): Promise<{ title: string; tracks: M
 
 // ---- Queue runtime ----
 const QUEUE_TICK_MS = 2000;
+/** Every 3rd tick (6 s) while playing: ask the amp what it plays and follow it if it moved. */
+const QUEUE_VERIFY_TICKS = 3;
+/** STOPPED answers in a row (at 6 s apart) before we call the queue paused. */
+const QUEUE_STOPPED_CONFIRM = 2;
+const qlog = (msg: string) => console.log(`[queue] ${new Date().toISOString()} ${msg}`);
+const trackName = (q: QueueState, i: number) =>
+  `${i + 1}/${q.tracks.length} ${q.tracks[i]?.title ?? "?"}`;
 const didlFor = (t: QueueTrack) =>
   buildDidl({
     title: t.title,
@@ -1846,7 +1859,11 @@ async function queueTick() {
   const q = rt.persisted?.queue;
   if (!q || q.status !== "playing") return;
   const now = Date.now();
-  if (!queueDue(q, now)) return;
+  const due = queueDue(q, now);
+  rt.queueTicks += 1;
+  const verify = ampConfigured() && rt.queueTicks >= QUEUE_VERIFY_TICKS;
+  if (!due && !verify) return;
+  rt.queueTicks = 0;
   rt.queueBusy = true;
   try {
     const [pos, tr] = ampConfigured()
@@ -1855,8 +1872,13 @@ async function queueTick() {
           avTransport.transportInfo().catch(() => null),
         ])
       : [null, null];
+    if (!due) {
+      await verifyQueue(q, pos, tr?.state ?? null, now);
+      return;
+    }
     const d = decideAdvance(q, pos, tr?.state ?? null);
     if (d.kind === "wait") {
+      qlog(`due but amp at ${Math.round(d.relTimeMs / 1000)} s of ${trackName(q, q.index)}: wait`);
       await setQueue({ ...q, offsetMs: d.relTimeMs, startedAt: now });
     } else if (d.kind === "amp-advanced") {
       const n = { ...queueAdvance(q, now), offsetMs: d.relTimeMs, startedAt: now };
@@ -1864,12 +1886,17 @@ async function queueTick() {
       if (after && ampConfigured())
         await avTransport.setNextUri(after.streamUrl, didlFor(after)).catch(() => undefined);
       await setQueue({ ...n, nextPushed: after !== undefined });
+      qlog(`amp advanced to ${trackName(n, n.index)} at ${Math.round(d.relTimeMs / 1000)} s`);
     } else {
       const n = queueAdvance(q, now);
       if (n.status === "ended") {
         if (ampConfigured()) await avTransport.stop().catch(() => undefined);
         await setQueue(n);
+        qlog("ended after the last track");
       } else {
+        qlog(
+          `pushing ${trackName(n, n.index)} (amp: ${tr?.state ?? "?"}, ${pos?.trackUri ? "uri " + (trackIdFromUri(pos.trackUri) ?? "foreign") : "no uri"})`,
+        );
         await pushTrack(n.tracks[n.index]!, n.tracks[n.index + 1]);
         await setQueue({ ...n, startedAt: Date.now() });
       }
@@ -1878,6 +1905,46 @@ async function queueTick() {
     console.error("queue advance failed:", e);
   } finally {
     rt.queueBusy = false;
+  }
+}
+
+/** Between track ends: follow the amp when it moved on its own, fix clock drift, notice a stop. */
+async function verifyQueue(
+  q: QueueState,
+  pos: PositionInfo | null,
+  state: string | null,
+  now: number,
+) {
+  const d = decideVerify(q, pos, state, now);
+  if (d.kind === "stopped") {
+    rt.queueStoppedSeen += 1;
+    if (rt.queueStoppedSeen < QUEUE_STOPPED_CONFIRM) return;
+    rt.queueStoppedSeen = 0;
+    const ours = queueProgress(q, now)!;
+    qlog(
+      `amp STOPPED at ${Math.round(ours.positionMs / 1000)} s of ${trackName(q, q.index)}: paused`,
+    );
+    await setQueue({ ...q, status: "paused", startedAt: null, offsetMs: ours.positionMs });
+    return;
+  }
+  rt.queueStoppedSeen = 0;
+  if (d.kind === "follow") {
+    const n = { ...queueJump(q, d.index, now), offsetMs: d.relTimeMs, startedAt: now };
+    const after = n.tracks[n.index + 1];
+    if (after) await avTransport.setNextUri(after.streamUrl, didlFor(after)).catch(() => undefined);
+    await setQueue({ ...n, nextPushed: after !== undefined });
+    qlog(
+      `amp moved from ${trackName(q, q.index)} to ${trackName(n, n.index)} at ${Math.round(d.relTimeMs / 1000)} s: following`,
+    );
+  } else if (d.kind === "resync") {
+    const ours = queueProgress(q, now)!;
+    qlog(
+      `clock off on ${trackName(q, q.index)}: ours ${Math.round(ours.positionMs / 1000)} s, amp ${Math.round(d.relTimeMs / 1000)} s: resync`,
+    );
+    await setQueue({ ...q, offsetMs: d.relTimeMs, startedAt: now });
+  } else if (d.kind === "foreign") {
+    qlog(`amp plays something else (${d.uri}): queue stopped`);
+    await setQueue({ ...q, status: "stopped", startedAt: null, offsetMs: 0 });
   }
 }
 

@@ -377,6 +377,44 @@ export type AdvanceDecision =
   | { kind: "push-next" }
   /** Position says the track is not actually over yet (buffering / slow start): resync and wait. */
   | { kind: "wait"; relTimeMs: number };
+/** Between track ends, every few seconds: does the amp still play what we think, where we think?
+ *  The amp can move on its own (a skip on its remote, a stream that drops and falls through to
+ *  the SetNext track) and the panel would otherwise show the wrong song until our clock ran out. */
+export const QUEUE_DRIFT_MS = 3000;
+export type VerifyDecision =
+  /** Our clock matches the amp (or the amp gave nothing usable): leave it. */
+  | { kind: "ok" }
+  /** The amp plays another track of this queue: follow it from its position. */
+  | { kind: "follow"; index: number; relTimeMs: number }
+  /** Same track, clock off by more than QUEUE_DRIFT_MS: adopt the amp's position. */
+  | { kind: "resync"; relTimeMs: number }
+  /** The amp plays something that is not in this queue: the queue is over. */
+  | { kind: "foreign"; uri: string }
+  /** The amp reports STOPPED well before the end of the track (stop on the remote). */
+  | { kind: "stopped" };
+export function decideVerify(
+  q: QueueState,
+  pos: PositionInfo | null,
+  transportState: string | null,
+  now: number,
+): VerifyDecision {
+  if (!pos || !pos.trackUri) return { kind: "ok" };
+  const playingId = trackIdFromUri(pos.trackUri);
+  const idx = playingId ? q.tracks.findIndex((t) => t.id === playingId) : -1;
+  if (idx < 0) return { kind: "foreign", uri: pos.trackUri };
+  const ours = queueProgress(q, now)!;
+  if (transportState === "STOPPED") {
+    // STOPPED at 0:00 near the end of our clock is how the R-N500 ends a pushed track: the due
+    // path handles that. STOPPED with time left is a real stop.
+    const nearEnd = ours.durationMs > 0 && ours.positionMs >= ours.durationMs - 15000;
+    return nearEnd ? { kind: "ok" } : { kind: "stopped" };
+  }
+  if (idx !== q.index) return { kind: "follow", index: idx, relTimeMs: pos.relTimeMs ?? 0 };
+  if (pos.relTimeMs !== null && Math.abs(pos.relTimeMs - ours.positionMs) > QUEUE_DRIFT_MS)
+    return { kind: "resync", relTimeMs: pos.relTimeMs };
+  return { kind: "ok" };
+}
+
 /** Reconcile our timer with GetPositionInfo once the timer says the track is due. */
 export function decideAdvance(
   q: QueueState,

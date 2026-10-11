@@ -412,3 +412,69 @@ describe("image route allowlist", () => {
     expect(imageHostAllowed(new URL("file:///etc/passwd"))).toBe(false);
   });
 });
+
+import { decideVerify } from "./media-protocol";
+
+const vq = (index: number, startedAgoMs: number, now: number): QueueState => ({
+  id: "q",
+  title: "Mix",
+  tracks: ["aaa", "bbb", "ccc"].map((id, i) => ({
+    id,
+    title: `T${i + 1}`,
+    artist: null,
+    album: null,
+    albumId: null,
+    durationMs: 240_000,
+    container: "mp3",
+    artItemId: null,
+    streamUrl: `http://jf/Audio/${id}/stream.mp3?static=true`,
+  })),
+  index,
+  status: "playing",
+  startedAt: now - startedAgoMs,
+  offsetMs: 0,
+  nextPushed: true,
+});
+const posOf = (id: string, relTimeMs: number) => ({
+  track: 1,
+  trackUri: `http://jf/Audio/${id}/stream.mp3?static=true`,
+  durationMs: 240_000,
+  relTimeMs,
+});
+
+describe("decideVerify (the amp checked between track ends)", () => {
+  const now = 1_000_000;
+  it("is quiet while the amp plays our track near our clock", () => {
+    expect(decideVerify(vq(1, 60_000, now), posOf("bbb", 61_000), "PLAYING", now)).toEqual({
+      kind: "ok",
+    });
+    expect(decideVerify(vq(1, 60_000, now), null, "PLAYING", now)).toEqual({ kind: "ok" });
+  });
+  it("follows the amp when it moved to another track of the queue (remote skip, stream fell through)", () => {
+    expect(decideVerify(vq(1, 27_000, now), posOf("ccc", 211_000), "PLAYING", now)).toEqual({
+      kind: "follow",
+      index: 2,
+      relTimeMs: 211_000,
+    });
+  });
+  it("adopts the amp's position when the clock drifted", () => {
+    expect(decideVerify(vq(1, 60_000, now), posOf("bbb", 70_000), "PLAYING", now)).toEqual({
+      kind: "resync",
+      relTimeMs: 70_000,
+    });
+  });
+  it("calls a stop with time left a stop, but not the STOPPED the amp reports at a track end", () => {
+    expect(decideVerify(vq(1, 60_000, now), posOf("bbb", 0), "STOPPED", now)).toEqual({
+      kind: "stopped",
+    });
+    expect(decideVerify(vq(1, 230_000, now), posOf("bbb", 0), "STOPPED", now)).toEqual({
+      kind: "ok",
+    });
+  });
+  it("reports a foreign stream", () => {
+    expect(decideVerify(vq(1, 60_000, now), posOf("zzz", 5_000), "PLAYING", now)).toEqual({
+      kind: "foreign",
+      uri: "http://jf/Audio/zzz/stream.mp3?static=true",
+    });
+  });
+});
