@@ -39,7 +39,8 @@ export const LIGHTS = [
 ] as const;
 export const LIGHT_IDS = LIGHTS.map((l) => l.id) as [string, ...string[]];
 
-export const SHADES = { Warm: 2700, Neutral: 4000, Cool: 6000 } as const;
+// Warm matches the HA "Evening light" automation (2200 K); HA clamps to each lamp's minimum.
+export const SHADES = { Warm: 2200, Neutral: 4000, Cool: 6000 } as const;
 export type Shade = keyof typeof SHADES;
 export const COLORS = [
   "White",
