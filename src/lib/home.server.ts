@@ -207,6 +207,10 @@ export const errorMessage = (e: unknown) => (e instanceof HomeError ? e.message 
 export const immichConfigured = () => env("IMMICH_API_KEY") !== "" && env("IMMICH_URL") !== "";
 
 let previousPhoto: string | null = null;
+// Ids served lately: a mark is only accepted for one of these, so the marks file cannot be grown
+// with arbitrary ids (and a stale F1 after a photo change still lands on a real favourite).
+const servedPhotos: string[] = [];
+const SERVED_PHOTOS_KEPT = 8;
 
 export type FavoritePhoto = { image: string; assetId: string; marked: number };
 
@@ -244,6 +248,8 @@ export async function randomFavorite(): Promise<FavoritePhoto> {
   const asset = pickAsset(items, previousPhoto, Math.random, markedIds(marks));
   if (!asset) throw new Error("No favorites");
   previousPhoto = asset.id;
+  if (!servedPhotos.includes(asset.id)) servedPhotos.push(asset.id);
+  while (servedPhotos.length > SERVED_PHOTOS_KEPT) servedPhotos.shift();
   const img = await fetch(`${base}/api/assets/${asset.id}/thumbnail?size=preview`, {
     headers,
     signal: AbortSignal.timeout(15000),
@@ -263,4 +269,7 @@ export async function randomFavorite(): Promise<FavoritePhoto> {
 }
 
 /** F1 on the screensaver: remember that this favourite looks good on the e-ink. Returns the new total. */
-export const markFavorite = (id: string) => addMark(id);
+export async function markFavorite(id: string): Promise<number> {
+  if (!servedPhotos.includes(id)) throw new Error("Not a photo shown recently");
+  return addMark(id);
+}
