@@ -149,6 +149,8 @@ function HomeControl() {
   // F1 on the screensaver marks the shown Immich photo as "looks good on e-ink". The handler lives in
   // a ref so the wake listener (registered once per screensaver state) always sees the current photo.
   const markPhoto = useRef<() => void>(() => {});
+  // F4 skips to the next photo without judging this one.
+  const skipPhoto = useRef<() => void>(() => {});
   const [marking, setMarking] = useState(false);
   const battery = useKindleBattery();
   // Tell the bridge where the photo is (x,y,w,h in CSS pixels) so it can dither only that region.
@@ -304,6 +306,10 @@ function HomeControl() {
           markPhoto.current();
           return;
         }
+        if (event instanceof KeyboardEvent && event.key === "F4") {
+          skipPhoto.current();
+          return;
+        }
         setScreensaver(false);
       }
       reset();
@@ -415,6 +421,9 @@ function HomeControl() {
         return photoRefetch();
       })
       .finally(() => setMarking(false));
+  };
+  skipPhoto.current = () => {
+    if (!marking && !photo.isFetching) void photoRefetch();
   };
   // While a mark + next photo is in flight the bridge holds its post-key screenshot (data-eink-busy),
   // so the Kindle gets the new photo in the key's own redraw instead of the next poll.
@@ -753,6 +762,7 @@ function HomeControl() {
                   ? [
                       t("photo.immich"),
                       t("photo.markHint"),
+                      t("photo.skipHint"),
                       shot.marked ? t("photo.marked", { n: String(shot.marked) }) : "",
                     ]
                       .filter(Boolean)

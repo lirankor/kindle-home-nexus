@@ -186,6 +186,12 @@ describe("Panel idle behaviour and persistence", () => {
     expect(document.querySelector(".photo-screen")).not.toBeNull();
     expect(document.documentElement.dataset["einkBusy"]).toBeUndefined();
 
+    // F4: next photo, nothing marked, still asleep.
+    press("F4");
+    await waitFor(() => expect(mocks.getScreensaver).toHaveBeenCalledTimes(3));
+    expect(mocks.markScreensaverPhoto).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".photo-screen")).not.toBeNull();
+
     // Any other key still wakes the panel.
     press("Enter");
     expect(document.querySelector(".photo-screen")).toBeNull();
