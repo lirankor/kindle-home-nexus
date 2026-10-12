@@ -77,7 +77,7 @@ import {
   vacuumLabel,
 } from "@/lib/home";
 import type { Action, LightState, Snapshot, SnapshotResult } from "@/lib/home";
-import { getScreensaver, getSnapshot, runAction } from "@/lib/home.functions";
+import { getScreensaver, getSnapshot, markScreensaverPhoto, runAction } from "@/lib/home.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -146,6 +146,10 @@ function HomeControl() {
   const [cursor, setCursor] = useState(0);
   const opener = useRef<HTMLElement | null>(null);
   const photoRef = useRef<HTMLImageElement>(null);
+  // F1 on the screensaver marks the shown Immich photo as "looks good on e-ink". The handler lives in
+  // a ref so the wake listener (registered once per screensaver state) always sees the current photo.
+  const markPhoto = useRef<() => void>(() => {});
+  const [marking, setMarking] = useState(false);
   const battery = useKindleBattery();
   // Tell the bridge where the photo is (x,y,w,h in CSS pixels) so it can dither only that region.
   const publishPhotoRegion = () => {
@@ -296,6 +300,10 @@ function HomeControl() {
       if (screensaver) {
         event.preventDefault();
         event.stopImmediatePropagation();
+        if (event instanceof KeyboardEvent && event.key === "F1") {
+          markPhoto.current();
+          return;
+        }
         setScreensaver(false);
       }
       reset();
@@ -395,6 +403,29 @@ function HomeControl() {
       });
   }, [tab, mediaScreenToSave, radioToSave, musicToSave]);
   const photoSrc = photo.data?.image ?? "";
+  const photoAssetId = photo.data?.assetId ?? null;
+  const photoRefetch = photo.refetch;
+  markPhoto.current = () => {
+    if (!photoAssetId || marking) return;
+    setMarking(true);
+    void markScreensaverPhoto({ data: { id: photoAssetId } })
+      .then((res) => {
+        if (!res.ok) console.error("mark photo failed:", res.error);
+        // Marked photos leave the pool, so the next pick is a different, unjudged favourite.
+        return photoRefetch();
+      })
+      .finally(() => setMarking(false));
+  };
+  // While a mark + next photo is in flight the bridge holds its post-key screenshot (data-eink-busy),
+  // so the Kindle gets the new photo in the key's own redraw instead of the next poll.
+  const photoBusy = screensaver && (marking || photo.isFetching);
+  useEffect(() => {
+    if (photoBusy) document.documentElement.dataset["einkBusy"] = "1";
+    else delete document.documentElement.dataset["einkBusy"];
+    return () => {
+      delete document.documentElement.dataset["einkBusy"];
+    };
+  }, [photoBusy]);
   useEffect(() => {
     if (!screensaver) return;
     publishPhotoRegion();
@@ -719,7 +750,13 @@ function HomeControl() {
               </section>
               <small className="photo-demo">
                 {shot?.image
-                  ? t("photo.immich")
+                  ? [
+                      t("photo.immich"),
+                      t("photo.markHint"),
+                      shot.marked ? t("photo.marked", { n: String(shot.marked) }) : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
                   : !configured
                     ? t("photo.demo", { note: sampleNote })
                     : sampleNote}

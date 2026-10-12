@@ -13,7 +13,7 @@ import {
   nearestColor,
   nearestShade,
 } from "@/lib/home";
-import { cropToScreen, pickAsset } from "@/lib/photo.server";
+import { addMark, cropToScreen, loadMarks, markedIds, pickAsset } from "@/lib/photo.server";
 import type { PhotoAsset } from "@/lib/photo.server";
 import type { Action, LightState, Shade, Snapshot } from "@/lib/home";
 
@@ -208,20 +208,40 @@ export const immichConfigured = () => env("IMMICH_API_KEY") !== "" && env("IMMIC
 
 let previousPhoto: string | null = null;
 
-export async function randomFavorite(): Promise<string> {
+export type FavoritePhoto = { image: string; assetId: string; marked: number };
+
+/** All favourite images (Immich pages 250 at a time; capped so a huge library cannot stall the saver). */
+async function favoriteAssets(
+  base: string,
+  headers: Record<string, string>,
+): Promise<PhotoAsset[]> {
+  const items: PhotoAsset[] = [];
+  for (let page = 1; page <= 8; page++) {
+    const search = await fetch(`${base}/api/search/metadata`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ isFavorite: true, type: "IMAGE", size: 250, page, withExif: true }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!search.ok) throw new Error(`Immich search ${search.status}`);
+    const assets = (
+      (await search.json()) as {
+        assets?: { items?: PhotoAsset[]; nextPage?: string | number | null };
+      }
+    ).assets;
+    items.push(...(assets?.items ?? []));
+    if (!assets?.nextPage) break;
+  }
+  return items;
+}
+
+/** A random favourite that has not been marked yet, cropped to the screen. */
+export async function randomFavorite(): Promise<FavoritePhoto> {
   const base = env("IMMICH_URL");
   const headers = { "x-api-key": env("IMMICH_API_KEY") };
-  const search = await fetch(`${base}/api/search/metadata`, {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ isFavorite: true, type: "IMAGE", size: 250, page: 1, withExif: true }),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!search.ok) throw new Error(`Immich search ${search.status}`);
-  const items =
-    ((await search.json()) as { assets?: { items?: PhotoAsset[] } }).assets?.items ?? [];
+  const [items, marks] = await Promise.all([favoriteAssets(base, headers), loadMarks()]);
   if (!items.length) throw new Error("No favorites");
-  const asset = pickAsset(items, previousPhoto);
+  const asset = pickAsset(items, previousPhoto, Math.random, markedIds(marks));
   if (!asset) throw new Error("No favorites");
   previousPhoto = asset.id;
   const img = await fetch(`${base}/api/assets/${asset.id}/thumbnail?size=preview`, {
@@ -230,12 +250,17 @@ export async function randomFavorite(): Promise<string> {
   });
   if (!img.ok) throw new Error(`Immich thumbnail ${img.status}`);
   const raw = Buffer.from(await img.arrayBuffer());
+  const marked = marks.marked.length;
   try {
     // Exactly the screen size, so the page never letterboxes or re-crops it.
-    return `data:image/jpeg;base64,${(await cropToScreen(raw)).toString("base64")}`;
+    const image = `data:image/jpeg;base64,${(await cropToScreen(raw)).toString("base64")}`;
+    return { image, assetId: asset.id, marked };
   } catch (e) {
     console.error("Screensaver crop failed, sending the uncropped preview:", e);
     const type = img.headers.get("content-type")?.split(";")[0] || "image/jpeg";
-    return `data:${type};base64,${raw.toString("base64")}`;
+    return { image: `data:${type};base64,${raw.toString("base64")}`, assetId: asset.id, marked };
   }
 }
+
+/** F1 on the screensaver: remember that this favourite looks good on the e-ink. Returns the new total. */
+export const markFavorite = (id: string) => addMark(id);

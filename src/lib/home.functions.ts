@@ -7,6 +7,7 @@ import {
   errorMessage,
   haConfigured,
   immichConfigured,
+  markFavorite,
   performAction,
   randomFavorite,
   readSnapshot,
@@ -75,6 +76,10 @@ export const runAction = createServerFn({ method: "POST" })
 
 export type ScreensaverResult = {
   image: string | null;
+  /** Immich asset behind `image`; F1 marks it as a good e-ink photo. */
+  assetId?: string | null;
+  /** How many favourites have been marked so far. */
+  marked?: number;
   sample: boolean;
   note?: string;
   result: SnapshotResult;
@@ -85,11 +90,28 @@ export const getScreensaver = createServerFn({ method: "GET" }).handler(
     const readings = snapshotResult();
     if (!immichConfigured()) return { image: null, sample: true, result: await readings };
     try {
-      const [image, result] = await Promise.all([randomFavorite(), readings]);
-      return { image, sample: false, result };
+      const [photo, result] = await Promise.all([randomFavorite(), readings]);
+      return {
+        image: photo.image,
+        assetId: photo.assetId,
+        marked: photo.marked,
+        sample: false,
+        result,
+      };
     } catch (e) {
       console.error("Immich screensaver failed:", e);
       return { image: null, sample: true, note: "Immich unreachable", result: await readings };
     }
   },
 );
+
+/** F1 on the screensaver: mark the shown favourite as good on e-ink. It is never shown again. */
+export const markScreensaverPhoto = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().regex(/^[A-Za-z0-9-]{1,64}$/) }))
+  .handler(async ({ data }): Promise<{ ok: boolean; marked: number; error?: string }> => {
+    try {
+      return { ok: true, marked: await markFavorite(data.id) };
+    } catch (e) {
+      return { ok: false, marked: 0, error: errorMessage(e) };
+    }
+  });

@@ -11,6 +11,9 @@ const WIDTH = Number(env("WIDTH", 600));
 const HEIGHT = Number(env("HEIGHT", 800));
 const REFRESH_MS = Number(env("REFRESH_MS", 30000));
 const KEY_SETTLE_MS = Number(env("KEY_SETTLE_MS", 200));
+// After a key, keep waiting while the page flags <html data-eink-busy> (e.g. the screensaver loading
+// the next photo after F1), so the key's own screenshot already shows the result.
+const BUSY_WAIT_MS = Number(env("BUSY_WAIT_MS", 6000));
 const PAGE_RELOAD_MS = Number(env("PAGE_RELOAD_MS", 0));
 // Any single CDP call (screenshot, evaluate, reload) that takes longer than this means the renderer hung:
 // fail fast and relaunch instead of puppeteer's 180 s default.
@@ -197,11 +200,21 @@ const safeShoot = () =>
     return exclusive(shoot);
   });
 
+async function settleBusy(p) {
+  const until = Date.now() + BUSY_WAIT_MS;
+  while (Date.now() < until) {
+    const busy = await p.evaluate(() => !!document.documentElement.dataset.einkBusy);
+    if (!busy) return;
+    await sleep(150);
+  }
+}
+
 async function pressKey(code) {
   return exclusive(async () => {
     const p = await ensurePage();
     await p.keyboard.press(code);
     await sleep(KEY_SETTLE_MS);
+    await settleBusy(p);
     return shoot();
   }).catch(async (e) => {
     log("key failed, relaunching:", e.message);

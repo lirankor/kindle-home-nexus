@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getSnapshot: vi.fn(),
   runAction: vi.fn(),
   getScreensaver: vi.fn(),
+  markScreensaverPhoto: vi.fn(),
   getMediaSnapshot: vi.fn(),
   runMediaAction: vi.fn(),
   startAmpPowerOn: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock("@/lib/home.functions", () => ({
   getSnapshot: mocks.getSnapshot,
   runAction: mocks.runAction,
   getScreensaver: mocks.getScreensaver,
+  markScreensaverPhoto: mocks.markScreensaverPhoto,
 }));
 vi.mock("@/lib/media.functions", () => ({
   getMediaSnapshot: mocks.getMediaSnapshot,
@@ -148,6 +150,45 @@ describe("Panel idle behaviour and persistence", () => {
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1000);
     });
     expect(document.querySelector(".photo-screen")).not.toBeNull();
+  });
+
+  it("F1 on the screensaver marks the photo, loads the next one and does not wake the panel", async () => {
+    const shot = (assetId: string, marked: number) => ({
+      image: "data:image/jpeg;base64,/9j/4AAQ",
+      assetId,
+      marked,
+      sample: false,
+      result: { configured: false, snapshot: null, lang: "he" as const },
+    });
+    mocks.getScreensaver
+      .mockResolvedValueOnce(shot("photo-1", 2))
+      .mockResolvedValue(shot("photo-2", 3));
+    mocks.markScreensaverPhoto.mockResolvedValue({ ok: true, marked: 3 });
+    await renderApp();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    press("ArrowDown"); // re-arms the 5 min idle timer on the fake clock
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1000);
+    });
+    await waitFor(() =>
+      expect(document.querySelector(".photo-demo")?.textContent).toContain("2 סומנו"),
+    );
+    expect(document.querySelector(".photo-demo")?.textContent).toContain("F1");
+
+    press("F1");
+    await waitFor(() =>
+      expect(mocks.markScreensaverPhoto).toHaveBeenCalledWith({ data: { id: "photo-1" } }),
+    );
+    await waitFor(() =>
+      expect(document.querySelector(".photo-demo")?.textContent).toContain("3 סומנו"),
+    );
+    expect(mocks.getScreensaver).toHaveBeenCalledTimes(2);
+    expect(document.querySelector(".photo-screen")).not.toBeNull();
+    expect(document.documentElement.dataset["einkBusy"]).toBeUndefined();
+
+    // Any other key still wakes the panel.
+    press("Enter");
+    expect(document.querySelector(".photo-screen")).toBeNull();
   });
 
   it("remembers the tab and the media screen and restores them on mount", async () => {

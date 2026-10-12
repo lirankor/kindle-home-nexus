@@ -12,6 +12,7 @@ and serves 8-bit grayscale PNG screenshots (WIDTH x HEIGHT) for a Kindle to draw
 | `WIDTH` / `HEIGHT` | `600` / `800` | Viewport and PNG size |
 | `REFRESH_MS` | `30000` | Periodic re-screenshot interval |
 | `KEY_SETTLE_MS` | `200` | Wait after a key press before the screenshot |
+| `BUSY_WAIT_MS` | `6000` | After that, keep waiting (up to this long) while the page sets `<html data-eink-busy>`, e.g. the screensaver fetching the next photo after F1 |
 | `PAGE_RELOAD_MS` | `0` | Reload the page every N ms (0 = never) |
 | `PUPPETEER_EXECUTABLE_PATH` | unset | Use a system Chrome instead of the bundled one |
 

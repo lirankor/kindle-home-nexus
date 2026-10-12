@@ -38,3 +38,26 @@ describe("screensaver photo", () => {
     expect([meta.width, meta.height]).toEqual([600, 800]);
   });
 });
+
+describe("e-ink photo marks", () => {
+  it("stores marks once, and marked photos leave the random pool until it would be empty", async () => {
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { addMark, loadMarks, markedIds } = await import("./photo.server");
+    const file = join(await mkdtemp(join(tmpdir(), "marks-")), "marks.json");
+    expect((await loadMarks(file)).marked).toEqual([]);
+    expect(await addMark("a", file, new Date("2026-10-12T10:00:00Z"))).toBe(1);
+    expect(await addMark("a", file)).toBe(1);
+    expect(await addMark("b", file)).toBe(2);
+    const marks = await loadMarks(file);
+    expect(marks.marked[0]).toEqual({ id: "a", at: "2026-10-12T10:00:00.000Z" });
+
+    const items = [asset("a", 3, 4), asset("b", 3, 4), asset("c", 4, 3)];
+    for (let i = 0; i < 20; i++)
+      expect(pickAsset(items, null, () => i / 20, markedIds(marks))?.id).toBe("c");
+    // Everything marked: keep showing photos rather than nothing.
+    const all = new Set(["a", "b", "c"]);
+    expect(pickAsset(items, "c", () => 0, all)?.id).toBe("a");
+  });
+});
