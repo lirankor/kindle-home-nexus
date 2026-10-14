@@ -111,7 +111,7 @@
           "playUrl": "http://streams.bigfm.de/bigfm-deutschland-128-mp3",
           "relay": false,
           "codec": "AAC",
-          "bitrate": 64,
+          "bitrate": 128,
           "fm": 105.7,
           "logo": "http://cdn.bigfm.de/sites/all/themes/bigfm/favicon.ico"
         },
@@ -278,13 +278,13 @@
         {
           "id": "kol-hashfela",
           "name": "Kol Hashfela",
-          "url": "http://1036kh.cdnwz.net/1036kh",
-          "playUrl": "http://1036kh.cdnwz.net/1036kh",
-          "relay": false,
+          "url": "https://radio.streamgates.net/stream/1036kh",
+          "playUrl": "http://192.168.1.15:8792/s/kol-hashfela",
+          "relay": true,
           "codec": "AAC",
           "bitrate": 64,
           "fm": 103.6,
-          "logo": "https://static.wixstatic.com/media/cbf57a_82d58bf0f55940b8b288c481497d43c7~mv2.png/v1/crop/x_54,y_238,w_1861,h_624/fill/w_376,h_124,al_c,q_85,usm_0.66_1.00_0.01/kol.webp"
+          "logo": null
         },
         {
           "id": "kan-tarbut",
@@ -304,7 +304,7 @@
           "playUrl": "http://192.168.1.15:8792/s/radio-haifa",
           "relay": true,
           "codec": "AAC",
-          "bitrate": 64,
+          "bitrate": null,
           "fm": 107.5,
           "logo": null
         },
@@ -340,39 +340,6 @@
           "bitrate": 128,
           "fm": null,
           "logo": "https://www.kzradio.net/wp-content/uploads/2018/11/kzlogo.jpg"
-        },
-        {
-          "id": "100fm-oldies",
-          "name": "100FM Oldies",
-          "url": "http://gb25.streamgates.net/radios-audio/100Oldies/icecast.audio",
-          "playUrl": "http://gb25.streamgates.net/radios-audio/100Oldies/icecast.audio",
-          "relay": false,
-          "codec": "AAC",
-          "bitrate": 128,
-          "fm": null,
-          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-oldies.png"
-        },
-        {
-          "id": "100fm-80s",
-          "name": "100FM 80s",
-          "url": "http://gb25.streamgates.net/radios-audio/10080s/icecast.audio",
-          "playUrl": "http://gb25.streamgates.net/radios-audio/10080s/icecast.audio",
-          "relay": false,
-          "codec": "AAC",
-          "bitrate": 128,
-          "fm": null,
-          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-80s.png"
-        },
-        {
-          "id": "100fm-movies",
-          "name": "100FM Movies",
-          "url": "http://gb25.streamgates.net/radios-audio/100Movies/icecast.audio",
-          "playUrl": "http://gb25.streamgates.net/radios-audio/100Movies/icecast.audio",
-          "relay": false,
-          "codec": "AAC",
-          "bitrate": 128,
-          "fm": null,
-          "logo": null
         }
       ]
     },
@@ -540,6 +507,237 @@
       "id": "music",
       "ytunerCategory": "Musik",
       "stations": [
+        {
+          "id": "100fm-hits",
+          "name": "100FM Hits",
+          "url": "http://gb25.streamgates.net/radios-audio/100Hits/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Hits/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-hits.png"
+        },
+        {
+          "id": "100fm-70s",
+          "name": "100FM 70s",
+          "url": "http://gb25.streamgates.net/radios-audio/10070s/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/10070s/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-70s.png"
+        },
+        {
+          "id": "100fm-80s",
+          "name": "100FM 80s",
+          "url": "http://gb25.streamgates.net/radios-audio/10080s/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/10080s/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-80s.png"
+        },
+        {
+          "id": "100fm-90s",
+          "name": "100FM 90s",
+          "url": "http://gb25.streamgates.net/radios-audio/10090s/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/10090s/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-90s.png"
+        },
+        {
+          "id": "100fm-2000s",
+          "name": "100FM 2000s",
+          "url": "http://gb25.streamgates.net/radios-audio/1002000s/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/1002000s/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-2000s.png"
+        },
+        {
+          "id": "100fm-oldies",
+          "name": "100FM Oldies",
+          "url": "http://gb25.streamgates.net/radios-audio/100Oldies/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Oldies/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-oldies.png"
+        },
+        {
+          "id": "100fm-nostalgia",
+          "name": "100FM Nostalgia",
+          "url": "http://gb25.streamgates.net/radios-audio/100Nostalgia/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Nostalgia/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-nostalgia.png"
+        },
+        {
+          "id": "100fm-israeli",
+          "name": "100FM Israeli",
+          "url": "http://gb25.streamgates.net/radios-audio/100Israeli/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Israeli/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-israeli.png"
+        },
+        {
+          "id": "100fm-mizrahit",
+          "name": "100FM Mizrahit",
+          "url": "http://gb25.streamgates.net/radios-audio/100Mizrachit/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Mizrachit/icecast.audio",
+          "relay": false,
+          "codec": "MP3",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-mizrachit.png"
+        },
+        {
+          "id": "100fm-rock",
+          "name": "100FM Rock",
+          "url": "http://gb25.streamgates.net/radios-audio/100Rock/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Rock/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-rock.png"
+        },
+        {
+          "id": "100fm-classic-rock",
+          "name": "100FM Classic Rock",
+          "url": "http://gb25.streamgates.net/radios-audio/100ClassicRock/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100ClassicRock/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-classicrock.png"
+        },
+        {
+          "id": "100fm-dance",
+          "name": "100FM Dance",
+          "url": "http://gb25.streamgates.net/radios-audio/100Dance/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Dance/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-dance.png"
+        },
+        {
+          "id": "100fm-jazz",
+          "name": "100FM Jazz",
+          "url": "http://gb25.streamgates.net/radios-audio/100Jazz/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Jazz/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-jazz.png"
+        },
+        {
+          "id": "100fm-blues",
+          "name": "100FM Blues",
+          "url": "http://gb25.streamgates.net/radios-audio/100Blues/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Blues/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-blues.png"
+        },
+        {
+          "id": "100fm-classic",
+          "name": "100FM Classic",
+          "url": "http://gb25.streamgates.net/radios-audio/100Classic/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Classic/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-classic.png"
+        },
+        {
+          "id": "100fm-chillout",
+          "name": "100FM Chillout",
+          "url": "http://gb25.streamgates.net/radios-audio/100Chillout/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Chillout/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-chillout.png"
+        },
+        {
+          "id": "100fm-cafe",
+          "name": "100FM Cafe",
+          "url": "http://gb25.streamgates.net/radios-audio/100Cafe/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Cafe/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-cafe.png"
+        },
+        {
+          "id": "100fm-love",
+          "name": "100FM Love",
+          "url": "http://gb25.streamgates.net/radios-audio/100Love/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Love/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-love.png"
+        },
+        {
+          "id": "100fm-movies",
+          "name": "100FM Movies",
+          "url": "http://gb25.streamgates.net/radios-audio/100Movies/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Movies/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-movies.png"
+        },
+        {
+          "id": "100fm-kids",
+          "name": "100FM Kids",
+          "url": "http://gb25.streamgates.net/radios-audio/100Kids/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Kids/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-kids.png"
+        },
+        {
+          "id": "100fm-disney",
+          "name": "100FM Disney",
+          "url": "http://gb25.streamgates.net/radios-audio/100Disney/icecast.audio",
+          "playUrl": "http://gb25.streamgates.net/radios-audio/100Disney/icecast.audio",
+          "relay": false,
+          "codec": "AAC",
+          "bitrate": 128,
+          "fm": null,
+          "logo": "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-disney.png"
+        },
         {
           "id": "klassik-radio-pure-mozart",
           "name": "Klassik Radio Pure Mozart",

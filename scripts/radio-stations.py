@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the radio station catalog.
 
-Input:  the LISTS below (name -> plain http stream URL, verified by hand / this script).
+Input:  the LISTS below ((name, plain http stream URL, FM MHz or None[, logo URL]), verified by hand / this script).
 Output: src/data/radio-stations.json   (used by the app: lists, names, bitrate, codec, logo, FM freq)
         ytuner/config/stations.yaml     (served to the amp's NET RADIO by YTuner; NO comment lines!)
 
@@ -46,15 +46,12 @@ LISTS = [
     ("Radio Tel Aviv 102", "http://102.livecdn.biz/102fm_aac", 102.0),
     ("Galey Yisrael", "https://cdn.cybercdn.live/Galei_Israel/Live/icecast.audio", 102.5),
     ("103FM", "https://cdn.cybercdn.live/103FM/Live/icecast.audio", 103.0),
-    ("Kol Hashfela", "http://1036kh.cdnwz.net/1036kh", 103.6),
+    ("Kol Hashfela", "https://radio.streamgates.net/stream/1036kh", 103.6),  # moved off cdnwz 2026-10 (404)
     ("Kan Tarbut", "https://playerservices.streamtheworld.com/api/livestream-redirect/KAN_TARBUT.mp3", 106.5),
     ("Radio Haifa", "https://1075.livecdn.biz/radiohaifa", 107.5),
     ("Kan Kol HaMusica", "https://playerservices.streamtheworld.com/api/livestream-redirect/KAN_KOL_HAMUSICA.mp3", None),
     ("Radio Lev Hamedina", "http://cdn.cybercdn.live/Lev_Hamedina/Audio/icecast.audio", None),
     ("Hakatze", "http://kzradio.mediacast.co.il/kzradio_live/kzradio/icecast.audio", None),
-    ("100FM Oldies", "http://gb25.streamgates.net/radios-audio/100Oldies/icecast.audio", None),
-    ("100FM 80s", "http://gb25.streamgates.net/radios-audio/10080s/icecast.audio", None),
-    ("100FM Movies", "http://gb25.streamgates.net/radios-audio/100Movies/icecast.audio", None),
   ]},
   {"id": "english", "ytuner": "English", "stations": [
     ("BBC World Service", "http://stream.live.vc.bbcmedia.co.uk/bbc_world_service", None),
@@ -72,7 +69,30 @@ LISTS = [
     ("Ambient Sleeping Pill", "http://radio.stereoscenic.com/asp-h", None),
     ("181.FM Old School", "http://listen.181fm.com/181-oldschool_128k.mp3", None),
   ]},
+  # Music band: Radios 100FM's ad-free digital channels (digital.100fm.co.il, verified 2026-10-14; the 4th tuple
+  # item is the channel's own cover art), then the German music stations. The FM live station stays in "israel".
   {"id": "music", "ytuner": "Musik", "stations": [
+    ("100FM Hits", "http://gb25.streamgates.net/radios-audio/100Hits/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-hits.png"),
+    ("100FM 70s", "http://gb25.streamgates.net/radios-audio/10070s/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-70s.png"),
+    ("100FM 80s", "http://gb25.streamgates.net/radios-audio/10080s/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-80s.png"),
+    ("100FM 90s", "http://gb25.streamgates.net/radios-audio/10090s/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-90s.png"),
+    ("100FM 2000s", "http://gb25.streamgates.net/radios-audio/1002000s/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-2000s.png"),
+    ("100FM Oldies", "http://gb25.streamgates.net/radios-audio/100Oldies/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-oldies.png"),
+    ("100FM Nostalgia", "http://gb25.streamgates.net/radios-audio/100Nostalgia/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-nostalgia.png"),
+    ("100FM Israeli", "http://gb25.streamgates.net/radios-audio/100Israeli/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-israeli.png"),
+    ("100FM Mizrahit", "http://gb25.streamgates.net/radios-audio/100Mizrachit/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-mizrachit.png"),
+    ("100FM Rock", "http://gb25.streamgates.net/radios-audio/100Rock/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-rock.png"),
+    ("100FM Classic Rock", "http://gb25.streamgates.net/radios-audio/100ClassicRock/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-classicrock.png"),
+    ("100FM Dance", "http://gb25.streamgates.net/radios-audio/100Dance/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-dance.png"),
+    ("100FM Jazz", "http://gb25.streamgates.net/radios-audio/100Jazz/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-jazz.png"),
+    ("100FM Blues", "http://gb25.streamgates.net/radios-audio/100Blues/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-blues.png"),
+    ("100FM Classic", "http://gb25.streamgates.net/radios-audio/100Classic/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-classic.png"),
+    ("100FM Chillout", "http://gb25.streamgates.net/radios-audio/100Chillout/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-chillout.png"),
+    ("100FM Cafe", "http://gb25.streamgates.net/radios-audio/100Cafe/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-cafe.png"),
+    ("100FM Love", "http://gb25.streamgates.net/radios-audio/100Love/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-love.png"),
+    ("100FM Movies", "http://gb25.streamgates.net/radios-audio/100Movies/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-movies.png"),
+    ("100FM Kids", "http://gb25.streamgates.net/radios-audio/100Kids/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-kids.png"),
+    ("100FM Disney", "http://gb25.streamgates.net/radios-audio/100Disney/icecast.audio", None, "https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-disney.png"),
     ("Klassik Radio Pure Mozart", "http://stream.klassikradio.de/mozart/mp3-128/vtuner/", None),
     ("Klassik Radio Lounge", "http://stream.klassikradio.de/lounge/mp3-128/www.klassikradio.de/", None),
     ("Klassik Radio Opera", "http://stream.klassikradio.de/opera/mp3-128/www.klassikradio.de/", None),
@@ -127,7 +147,8 @@ bad = []
 for lst in LISTS:
     entry = {"id": lst["id"], "ytunerCategory": lst["ytuner"], "stations": []}
     yaml_lines.append(f"{lst['ytuner']}:")
-    for name, url, fm in lst["stations"]:
+    for name, url, fm, *extra in lst["stations"]:
+        logo_override = extra[0] if extra else None
         ok, ct, icy_br, fin, audio = check(url)
         relay = (not ok) and audio
         if not ok and not relay:
@@ -137,7 +158,7 @@ for lst in LISTS:
         bitrate = meta.get("bitrate") or (int(icy_br) if icy_br and icy_br.isdigit() else None)
         sid = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
         play_url = RELAY_BASE + sid if relay else url
-        st = {"id": sid, "name": name, "url": url, "playUrl": play_url, "relay": relay, "codec": codec, "bitrate": bitrate, "fm": fm, "logo": meta.get("logo")}
+        st = {"id": sid, "name": name, "url": url, "playUrl": play_url, "relay": relay, "codec": codec, "bitrate": bitrate, "fm": fm, "logo": logo_override or meta.get("logo")}
         entry["stations"].append(st)
         print(f"  {'relay' if relay else 'ok   '} {lst['id']:8} {name:28} {codec:4} {str(bitrate):>4}k logo={'yes' if st['logo'] else 'no '}")
         yaml_lines.append(f"  {name}: {play_url}" + (f"|{st['logo']}" if st["logo"] else ""))

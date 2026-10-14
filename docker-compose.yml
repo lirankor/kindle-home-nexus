@@ -49,6 +49,11 @@ services:
     volumes:
       - ytuner-cache:/app/cache
       - ytuner-db:/app/db
+      # YTuner keeps the amp's bookmarks ("Favourites") in config/bookmark.xml next to the station list: a volume so a
+      # rebuild keeps them, with the versioned files bind-mounted read-only on top (edit + `docker compose restart ytuner`).
+      - ytuner-config:/app/config
+      - ./ytuner/config/stations.yaml:/app/config/stations.yaml:ro
+      - ./ytuner/config/avr.ini:/app/config/avr.ini:ro
 
   # https -> http stream relay for the amp's NET RADIO (see relay/README.md).
   relay:
@@ -63,6 +68,7 @@ volumes:
   app-data:
   ytuner-cache:
   ytuner-db:
+  ytuner-config:
 
 networks:
   default:

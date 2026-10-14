@@ -37,6 +37,10 @@ describe("radio dial helpers", () => {
     expect(stationLabel(first, "local")).toBe("88.8");
     expect(stationLabel({ name: "Deutschlandfunk Nova", fm: null }, "local")).toBe("Deutschlan…");
     expect(stationLabel(first, "english")).toBe("WDR 5");
+    // The 100FM channels drop the brand prefix on the dial.
+    expect(stationLabel({ name: "100FM Oldies", fm: null }, "music")).toBe("Oldies");
+    expect(stationLabel({ name: "100FM Classic Rock", fm: null }, "music")).toBe("Classic");
+    expect(stationLabel({ name: "Radios 100FM", fm: 100 }, "israel")).toBe("Radios");
     expect(stationDetail({ bitrate: 128, codec: "MP3" })).toBe("128k · MP3");
     expect(stationDetail({ bitrate: 0, codec: "" })).toBe("");
     expect(stationDetail({ bitrate: 56, codec: "" })).toBe("56k");
@@ -71,7 +75,7 @@ describe("radio dial helpers", () => {
     expect(dialPosition({ list: "israel", indexByList: { israel: 99 } }, lists, s).index).toBe(
       israelLast,
     );
-    expect(dialPosition({ list: "music", indexByList: {} }, lists, s)).toEqual({
+    expect(dialPosition({ list: "nope", indexByList: {} }, lists, s)).toEqual({
       list: "local",
       index: 0,
     });
@@ -79,8 +83,13 @@ describe("radio dial helpers", () => {
     s.nowPlaying.stationId = null;
     s.radio = { list: "english", index: 2 };
     expect(playingPosition(lists, s, null)).toEqual({ list: "english", index: 2 });
-    s.radio = { list: "music", index: 0 };
+    s.radio = { list: "nope", index: 0 };
     expect(playingPosition(lists, s, null)).toBeNull();
+    // The music list is a band too: the remembered position there is kept.
+    expect(dialPosition({ list: "music", indexByList: { music: 2 } }, lists, s)).toEqual({
+      list: "music",
+      index: 2,
+    });
   });
 
   it("always labels the current station and never overlaps labels on one side", () => {

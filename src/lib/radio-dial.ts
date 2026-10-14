@@ -1,4 +1,4 @@
-// Pure helpers for the radio screen: the four bands, where the needle is, the dial bar geometry and
+// Pure helpers for the radio screen: the five bands, where the needle is, the dial bar geometry and
 // which station labels fit above / below the bar. No React, no network, so it is unit-testable.
 import { FAVOURITES_LIST_ID } from "./media";
 import type {
@@ -11,8 +11,8 @@ import type {
 import type { Key } from "./i18n";
 import type { RadioPanelState } from "./panel-state";
 
-/** Band switch order; the catalog's "music" list is not a band on the dial. */
-export const RADIO_BANDS = [FAVOURITES_LIST_ID, "local", "israel", "english"] as const;
+/** Band switch order: favourites (YTuner bookmarks), then the catalog lists. */
+export const RADIO_BANDS = [FAVOURITES_LIST_ID, "local", "israel", "english", "music"] as const;
 export type RadioBand = (typeof RADIO_BANDS)[number];
 export const isRadioBand = (id: string): id is RadioBand =>
   (RADIO_BANDS as readonly string[]).includes(id);
@@ -132,9 +132,12 @@ export function toggleFavouriteInLists(
 export const stationDetail = (s: Pick<RadioStationView, "bitrate" | "codec">, sep = " · ") =>
   [s.bitrate > 0 ? `${s.bitrate}k` : "", s.codec].filter(Boolean).join(sep);
 
+/** Brand prefix the dial drops so "100FM Oldies" reads "Oldies" (the station list keeps the full name). */
+const DIAL_PREFIX = /^100FM /;
+
 /** Dial label: FM MHz for stations that have one on the local band, else a short name. */
 export const stationLabel = (s: Pick<RadioStationView, "name" | "fm">, list: string): string =>
-  list === "local" && s.fm !== null ? s.fm.toFixed(1) : shortName(s.name);
+  list === "local" && s.fm !== null ? s.fm.toFixed(1) : shortName(s.name.replace(DIAL_PREFIX, ""));
 
 /** About ten characters: cut at a word boundary when that keeps enough, else hard-cut with an ellipsis. */
 export function shortName(name: string, max = 10): string {

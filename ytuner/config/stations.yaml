@@ -25,15 +25,12 @@ Israel:
   Radio Tel Aviv 102: http://192.168.1.15:8792/s/radio-tel-aviv-102|http://102fm.co.il/favicon.ico
   Galey Yisrael: http://192.168.1.15:8792/s/galey-yisrael|https://www.gly.co.il/Upload/Media/RadioStationLogo/radioStation_2_Logo_26042021170757.svg
   103FM: http://192.168.1.15:8792/s/103fm|http://cdn-profiles.tunein.com/s14201/images/logog.png
-  Kol Hashfela: http://1036kh.cdnwz.net/1036kh|https://static.wixstatic.com/media/cbf57a_82d58bf0f55940b8b288c481497d43c7~mv2.png/v1/crop/x_54,y_238,w_1861,h_624/fill/w_376,h_124,al_c,q_85,usm_0.66_1.00_0.01/kol.webp
+  Kol Hashfela: http://192.168.1.15:8792/s/kol-hashfela
   Kan Tarbut: http://192.168.1.15:8792/s/kan-tarbut
   Radio Haifa: http://192.168.1.15:8792/s/radio-haifa
   Kan Kol HaMusica: http://192.168.1.15:8792/s/kan-kol-hamusica
   Radio Lev Hamedina: http://cdn.cybercdn.live/Lev_Hamedina/Audio/icecast.audio|https://www.xoox.co.il/service/radio/img/radio_m14.jpg
   Hakatze: http://kzradio.mediacast.co.il/kzradio_live/kzradio/icecast.audio|https://www.kzradio.net/wp-content/uploads/2018/11/kzlogo.jpg
-  100FM Oldies: http://gb25.streamgates.net/radios-audio/100Oldies/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-oldies.png
-  100FM 80s: http://gb25.streamgates.net/radios-audio/10080s/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-80s.png
-  100FM Movies: http://gb25.streamgates.net/radios-audio/100Movies/icecast.audio
 
 English:
   BBC World Service: http://stream.live.vc.bbcmedia.co.uk/bbc_world_service|null
@@ -52,6 +49,27 @@ English:
   181.FM Old School: http://listen.181fm.com/181-oldschool_128k.mp3|http://www.181.fm/favicon.ico
 
 Musik:
+  100FM Hits: http://gb25.streamgates.net/radios-audio/100Hits/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-hits.png
+  100FM 70s: http://gb25.streamgates.net/radios-audio/10070s/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-70s.png
+  100FM 80s: http://gb25.streamgates.net/radios-audio/10080s/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-80s.png
+  100FM 90s: http://gb25.streamgates.net/radios-audio/10090s/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-90s.png
+  100FM 2000s: http://gb25.streamgates.net/radios-audio/1002000s/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-2000s.png
+  100FM Oldies: http://gb25.streamgates.net/radios-audio/100Oldies/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-oldies.png
+  100FM Nostalgia: http://gb25.streamgates.net/radios-audio/100Nostalgia/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-nostalgia.png
+  100FM Israeli: http://gb25.streamgates.net/radios-audio/100Israeli/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-israeli.png
+  100FM Mizrahit: http://gb25.streamgates.net/radios-audio/100Mizrachit/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-mizrachit.png
+  100FM Rock: http://gb25.streamgates.net/radios-audio/100Rock/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-rock.png
+  100FM Classic Rock: http://gb25.streamgates.net/radios-audio/100ClassicRock/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-classicrock.png
+  100FM Dance: http://gb25.streamgates.net/radios-audio/100Dance/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-dance.png
+  100FM Jazz: http://gb25.streamgates.net/radios-audio/100Jazz/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-jazz.png
+  100FM Blues: http://gb25.streamgates.net/radios-audio/100Blues/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-blues.png
+  100FM Classic: http://gb25.streamgates.net/radios-audio/100Classic/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-classic.png
+  100FM Chillout: http://gb25.streamgates.net/radios-audio/100Chillout/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-chillout.png
+  100FM Cafe: http://gb25.streamgates.net/radios-audio/100Cafe/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-cafe.png
+  100FM Love: http://gb25.streamgates.net/radios-audio/100Love/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-love.png
+  100FM Movies: http://gb25.streamgates.net/radios-audio/100Movies/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-movies.png
+  100FM Kids: http://gb25.streamgates.net/radios-audio/100Kids/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-kids.png
+  100FM Disney: http://gb25.streamgates.net/radios-audio/100Disney/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-disney.png
   Klassik Radio Pure Mozart: http://stream.klassikradio.de/mozart/mp3-128/vtuner/|http://www.klassikradio.de/img/ms-mediumtile.png
   Klassik Radio Lounge: http://stream.klassikradio.de/lounge/mp3-128/www.klassikradio.de/|http://cdn-radiotime-logos.tunein.com/s25028q.png
   Klassik Radio Opera: http://stream.klassikradio.de/opera/mp3-128/www.klassikradio.de/|http://cdn-radiotime-logos.tunein.com/s25028q.png

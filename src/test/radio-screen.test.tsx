@@ -301,8 +301,8 @@ describe("Radio screen", () => {
   it("F1 opens the band picker; choosing a band shows it on the dial without tuning; the first right then tunes there", async () => {
     await openRadio();
     const options = () => Array.from(document.querySelectorAll('[role="option"]'));
-    press("F1"); // picker: favourites, Düsseldorf (current), Israel, English
-    expect(options()).toHaveLength(4);
+    press("F1"); // picker: favourites, Düsseldorf (current), Israel, English, Music
+    expect(options()).toHaveLength(5);
     expect(options()[1]?.getAttribute("aria-selected")).toBe("true");
     expect(options()[1]?.getAttribute("data-current")).toBe("true");
     expect(options().map((o) => o.querySelector("strong")?.textContent)).toEqual([
@@ -310,6 +310,7 @@ describe("Radio screen", () => {
       "דיסלדורף",
       "ישראל",
       "אנגלית",
+      "מוזיקה",
     ]);
     press("ArrowDown"); // Israel
     press("Enter");

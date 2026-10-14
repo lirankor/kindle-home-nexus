@@ -32,8 +32,12 @@ Category name:
 
 No comment lines: YTuner's YAML reader is minimal and a `#` line makes it drop the whole file
 ("No station(s) found"). Streams must be plain `http://` MP3 or AAC (no HTTPS, HLS, OGG, Opus); the
-R-N500 cannot follow https redirects. URLs were verified 2026-10-08. Edit, commit, redeploy
-(`docker compose up -d --build ytuner`); the log should say `Successfully loaded N my stations`.
+R-N500 cannot follow https redirects. URLs were verified 2026-10-14 (`scripts/radio-stations.py` writes this file).
+The file is bind-mounted read-only into the container: edit, commit, `docker compose restart ytuner`; the log should say
+`Successfully loaded N my stations`.
+
+Bookmarks (the amp's / Kindle's "Favourites") are written by YTuner to `config/bookmark.xml`, which lives in the
+`ytuner-config` volume so rebuilds keep them (before 2026-10-14 it was container-local and a rebuild emptied the list).
 
 ## Checks
 
