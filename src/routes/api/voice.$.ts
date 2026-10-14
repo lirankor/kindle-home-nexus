@@ -3,6 +3,7 @@
 // same media.server functions the Kindle screens use (queue, power-on job, radio tuning), answer compact JSON.
 //   GET  /api/voice/state                       now playing, amp, queue summary (polled by HA every 20 s)
 //   GET  /api/voice/search?q=&kind=&limit=      artists (+ their albums), albums, tracks, playlists
+//   GET  /api/voice/list?kind=artist|album|radio&sort=name|random&limit=&offset=[&artist=<id>]   plain lists for pickers
 //   POST /api/voice/play   {query|id, kind?, shuffle?, wait?}   power the amp on if needed, then play
 //   POST /api/voice/action {op}                 pause|resume|next|previous|stop|volume_up|volume_down|mute|unmute|amp_off|amp_on
 //   POST /api/voice/radio  {station, wait?}     fuzzy-match a catalog station and tune NET RADIO
@@ -36,6 +37,7 @@ import {
   playSelection,
   powerOnStatus,
   readMediaSnapshot,
+  readRadioLists,
   startPowerOn,
   startQueue,
   tuneRadio,
@@ -210,6 +212,60 @@ async function search(params: URLSearchParams) {
       .slice(0, limit)
       .map((p) => ({ id: p.id, title: p.title })),
   });
+}
+
+// ---- List (the HA Music dashboard's dropdown pickers need plain lists, not a search) ----
+const listSchema = () =>
+  z.object({
+    kind: z.enum(["artist", "album", "radio"]),
+    sort: z.enum(["name", "random"]).default("name"),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+    /** kind=album only: the discography of this album artist (Jellyfin id) instead of the whole library. */
+    artist: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,64}$/)
+      .optional(),
+  });
+async function list(params: URLSearchParams) {
+  const parsed = listSchema().safeParse(Object.fromEntries(params));
+  if (!parsed.success) return fail("bad query: kind=artist|album|radio, sort?, limit?, offset?, artist?");
+  const { kind, sort, limit, offset, artist } = parsed.data;
+  if (kind === "radio") {
+    // The Kindle's bands in its order: favourites (YTuner bookmarks, runtime) then the catalog lists.
+    const r = await readRadioLists();
+    return json({
+      ok: true,
+      kind,
+      ...(r.error === undefined ? {} : { error: r.error }),
+      lists: r.lists.map((l) => ({
+        id: l.id,
+        stations: l.stations.map((s) => ({ id: s.id, name: s.name, favourite: s.favourite })),
+      })),
+    });
+  }
+  if (!jellyfinConfigured()) return fail("Jellyfin not configured", 503);
+  if (kind === "album" && artist) {
+    const albums = await jellyfin.artistAlbums(artist); // oldest first, with year + track count
+    return json({
+      ok: true,
+      kind,
+      artist,
+      total: albums.length,
+      offset: 0,
+      items: albums.map((a) => ({
+        id: a.id,
+        title: a.title,
+        year: a.year ?? null,
+        tracks: a.trackCount ?? null,
+      })),
+    });
+  }
+  const page =
+    kind === "artist"
+      ? await jellyfin.listAlbumArtists(limit, offset, sort === "random")
+      : await jellyfin.listAlbums(limit, offset, sort === "random");
+  return json({ ok: true, kind, sort, offset, total: page.total, items: page.items });
 }
 
 // ---- Amp power (idempotent: an amp that is on is never plug-cycled; a running job is joined) ----
@@ -490,6 +546,8 @@ export const Route = createFileRoute("/api/voice/$")({
             return json(await currentState());
           case "search":
             return search(new URL(request.url).searchParams);
+          case "list":
+            return list(new URL(request.url).searchParams);
           default:
             return fail("not found", 404);
         }

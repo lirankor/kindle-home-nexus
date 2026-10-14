@@ -443,8 +443,14 @@ export const toTrack = (i: JfItem): MusicTrack => ({
   albumId: i.AlbumId ?? null,
   durationMs: Math.round((i.RunTimeTicks ?? 0) / 10_000),
   container: i.Container ?? null,
+  // Album cover, else the track's own image, else the album artist's picture (as albumArtOf does for the lists):
+  // 941 of 2337 albums here have no cover, 573 of 881 album artists have a picture (2026-10-14).
   artItemId:
-    i.AlbumId && i.AlbumPrimaryImageTag ? i.AlbumId : i.ImageTags?.["Primary"] ? i.Id : null,
+    i.AlbumId && i.AlbumPrimaryImageTag
+      ? i.AlbumId
+      : i.ImageTags?.["Primary"]
+        ? i.Id
+        : (i.AlbumArtists?.[0]?.Id ?? null),
 });
 const artOf = (i: JfItem) => (i.ImageTags?.["Primary"] ? i.Id : null);
 /** Albums without their own cover (about 40 % here) fall back to the album artist's picture. */
@@ -610,6 +616,39 @@ export const jellyfin = {
         .Items ?? []
     ).map((i) => ({ id: i.Id, name: i.Name })),
   // ---- Voice bridge (src/routes/api/voice.$.ts) — additive, unused by the Kindle screens ----
+  /** One page of album artists for the HA dashboard's dropdown picker: alphabetical, or a random handful
+   *  (the Kindle's Artists band); `total` = Jellyfin's TotalRecordCount. */
+  listAlbumArtists: async (limit: number, offset: number, random: boolean) => {
+    const r = await jf<JfList>("/Artists/AlbumArtists", {
+      userId: env("JELLYFIN_USER_ID"),
+      sortBy: random ? "Random" : "SortName",
+      limit,
+      startIndex: offset,
+    });
+    return {
+      total: r.TotalRecordCount ?? 0,
+      items: (r.Items ?? []).map((i) => ({ id: i.Id, name: i.Name })),
+    };
+  },
+  /** Same for albums (title, album artist, year). */
+  listAlbums: async (limit: number, offset: number, random: boolean) => {
+    const r = await jf<JfList>(`/Users/${env("JELLYFIN_USER_ID")}/Items`, {
+      IncludeItemTypes: "MusicAlbum",
+      Recursive: true,
+      SortBy: random ? "Random" : "SortName",
+      Limit: limit,
+      StartIndex: offset,
+    });
+    return {
+      total: r.TotalRecordCount ?? 0,
+      items: (r.Items ?? []).map((i) => ({
+        id: i.Id,
+        title: i.Name,
+        artist: i.AlbumArtist ?? null,
+        year: i.ProductionYear ?? null,
+      })),
+    };
+  },
   /** Songs whose title starts with a word of the term. */
   searchTracks: async (term: string, limit: number) =>
     (
