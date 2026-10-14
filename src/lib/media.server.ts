@@ -702,12 +702,25 @@ export function imageHostAllowed(url: URL): boolean {
   return allowed.has(host);
 }
 /** Fetch (YTuner-hosted URLs go via our base with the vTuner Host header), flatten, square-fit, grayscale PNG. */
-export async function grayscalePng(src: string, width: number): Promise<Buffer | null> {
+export const grayscalePng = (src: string, width: number) => logoPng(src, width, "grayscale");
+/** The same fetch + cache, but a colour PNG on white (Home Assistant's hero, see /api/voice/art). */
+export const colourPng = (src: string, width: number) => logoPng(src, width, "colour");
+/** A catalog station's logo as colour PNG (null when it has none or the fetch fails). */
+export const stationArtPng = (stationId: string, width: number) => {
+  const logo = findStation(stationId)?.logo;
+  return logo ? colourPng(logo, width) : Promise.resolve(null);
+};
+
+async function logoPng(
+  src: string,
+  width: number,
+  mode: "grayscale" | "colour",
+): Promise<Buffer | null> {
   const url = new URL(src);
   if (!imageHostAllowed(url)) return null;
   const file = path.join(
     cacheDir(),
-    `${createHash("sha1").update(`${src}|${width}`).digest("hex")}.png`,
+    `${createHash("sha1").update(`${src}|${width}|${mode}`).digest("hex")}.png`,
   );
   try {
     return await readFile(file);
@@ -745,15 +758,22 @@ export async function grayscalePng(src: string, width: number): Promise<Buffer |
   let png: Buffer;
   try {
     const { default: sharp } = await import("sharp");
-    png = await sharp(raw)
-      // Mid-grey tile + contrast stretch: white or very light logos (Smooth Radio, WDR 5, bigFM) otherwise
-      // vanish on the 16-grey e-ink panel.
-      .flatten({ background: "#bdbdbd" })
-      .resize(width, width, { fit: "contain", background: "#bdbdbd" })
-      .grayscale()
-      .normalise()
-      .png({ compressionLevel: 9 })
-      .toBuffer();
+    png =
+      mode === "colour"
+        ? await sharp(raw)
+            .flatten({ background: "#ffffff" })
+            .resize(width, width, { fit: "contain", background: "#ffffff" })
+            .png({ compressionLevel: 9 })
+            .toBuffer()
+        : await sharp(raw)
+            // Mid-grey tile + contrast stretch: white or very light logos (Smooth Radio, WDR 5, bigFM) otherwise
+            // vanish on the 16-grey e-ink panel.
+            .flatten({ background: "#bdbdbd" })
+            .resize(width, width, { fit: "contain", background: "#bdbdbd" })
+            .grayscale()
+            .normalise()
+            .png({ compressionLevel: 9 })
+            .toBuffer();
   } catch {
     return null; // e.g. .ico files sharp cannot decode: the UI shows a placeholder
   }

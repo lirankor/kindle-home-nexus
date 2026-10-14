@@ -7,10 +7,12 @@ import {
   norm,
   pickBest,
   queueSummary,
+  stationIdAt,
+  stationName,
   stripFiller,
 } from "./voice-match";
 import type { Candidate } from "./voice-match";
-import { demoQueue } from "./media";
+import { demoQueue, RADIO_LISTS } from "./media";
 
 describe("voice bridge matching", () => {
   it("normalises articles, case and punctuation", () => {
@@ -64,6 +66,15 @@ describe("voice bridge matching", () => {
     expect(matchStation("כאן ב")).toMatchObject({ name: "Kan Bet" });
     expect(matchStation("xyzzy")).toBeNull();
   });
+  it("names the catalog station at a dial position, never a favourite", () => {
+    const first = RADIO_LISTS.find((l) => l.id === "music")!.stations[0]!;
+    expect(stationIdAt({ list: "music", index: 0 })).toBe(first.id);
+    expect(stationName({ list: "music", index: 0 })).toBe(first.name);
+    expect(stationIdAt({ list: "favourites", index: 0 })).toBeNull();
+    expect(stationIdAt({ list: "music", index: 999 })).toBeNull();
+    expect(stationIdAt(null)).toBeNull();
+  });
+
   it("summarises a queue with at most three upcoming tracks", () => {
     const s = queueSummary(demoQueue("Demo"));
     expect(s?.title).toBe("Demo");

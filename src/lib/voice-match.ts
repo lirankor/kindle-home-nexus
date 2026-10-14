@@ -212,7 +212,11 @@ export const queueSummary = (q: QueueProgress | null | undefined) =>
         next: (q.nextTracks ?? []).slice(0, 3).map(trackView),
       }
     : null;
-export const stationName = (p: { list: string; index: number } | null) =>
+const stationAt = (p: { list: string; index: number } | null) =>
   p && p.list !== FAVOURITES_LIST_ID
-    ? (RADIO_LISTS.find((l) => l.id === p.list)?.stations[p.index]?.name ?? null)
-    : null;
+    ? RADIO_LISTS.find((l) => l.id === p.list)?.stations[p.index]
+    : undefined;
+export const stationName = (p: { list: string; index: number } | null) =>
+  stationAt(p)?.name ?? null;
+/** Catalog id at a dial position (favourites are YTuner bookmarks: no catalog id here). */
+export const stationIdAt = (p: { list: string; index: number } | null) => stationAt(p)?.id ?? null;

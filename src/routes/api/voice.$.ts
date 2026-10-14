@@ -7,11 +7,13 @@
 //   POST /api/voice/play   {query|id, kind?, shuffle?, wait?}   power the amp on if needed, then play
 //   POST /api/voice/action {op}                 pause|resume|next|previous|stop|volume_up|volume_down|mute|unmute|amp_off|amp_on
 //   POST /api/voice/radio  {station, wait?}     fuzzy-match a catalog station and tune NET RADIO
+//   GET  /api/voice/art?station=<id>[&width=]  the station's logo as a colour PNG (no token: catalog ids only, the
+//                                              port is loopback-bound; HA's image entity fetches it server-side)
 import { createFileRoute } from "@tanstack/react-router";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { haConfigured, service } from "@/lib/home.server";
-import { AMP, MIX_IDS, RADIO_LISTS } from "@/lib/media";
+import { AMP, MIX_IDS, RADIO_LISTS, findStation } from "@/lib/media";
 import type { AmpSource, MediaAction, MediaSnapshot, QueueProgress } from "@/lib/media";
 import {
   matchScore,
@@ -20,6 +22,7 @@ import {
   norm,
   pickBest,
   queueSummary,
+  stationIdAt,
   stationName,
   stripFiller,
 } from "@/lib/voice-match";
@@ -39,6 +42,7 @@ import {
   readMediaSnapshot,
   readRadioLists,
   startPowerOn,
+  stationArtPng,
   startQueue,
   tuneRadio,
 } from "@/lib/media.server";
@@ -56,6 +60,17 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** The UI polls the power-on job every 2 s; the job itself gives up after POWER_ON_TIMEOUT_MS. */
 const POWER_POLL_MS = 2000;
 const vlog = (msg: string) => console.log(`[voice] ${new Date().toISOString()} ${msg}`);
+/** Where HA reaches this app (the compose line publishes :3000 as 127.0.0.1:8791). */
+const artBase = () => env("VOICE_ART_BASE").replace(/\/+$/, "") || "http://127.0.0.1:8791";
+/** A catalog station's art for HA: the public logo URL (browser) and our colour PNG proxy (HA image entity). */
+function stationArt(stationId: string | null | undefined) {
+  const st = stationId ? findStation(stationId) : undefined;
+  return {
+    stationId: st?.id ?? null,
+    logo: st?.logo ?? null,
+    artUrl: st?.logo ? `${artBase()}/api/voice/art?station=${encodeURIComponent(st.id)}` : null,
+  };
+}
 
 function authorized(request: Request): boolean {
   const token = env("VOICE_TOKEN");
@@ -99,10 +114,13 @@ function stateView(s: MediaSnapshot | null, queue: QueueProgress | null, error?:
           artist: s.nowPlaying.artist,
           album: s.nowPlaying.album,
           station: s.nowPlaying.station,
+          ...stationArt(s.nowPlaying.stationId),
         }
       : null,
     queue: queueSummary(queue),
-    radio: s?.radio ? { ...s.radio, station: stationName(s.radio) } : null,
+    radio: s?.radio
+      ? { ...s.radio, station: stationName(s.radio), ...stationArt(stationIdAt(s.radio)) }
+      : null,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -229,7 +247,8 @@ const listSchema = () =>
   });
 async function list(params: URLSearchParams) {
   const parsed = listSchema().safeParse(Object.fromEntries(params));
-  if (!parsed.success) return fail("bad query: kind=artist|album|radio, sort?, limit?, offset?, artist?");
+  if (!parsed.success)
+    return fail("bad query: kind=artist|album|radio, sort?, limit?, offset?, artist?");
   const { kind, sort, limit, offset, artist } = parsed.data;
   if (kind === "radio") {
     // The Kindle's bands in its order: favourites (YTuner bookmarks, runtime) then the catalog lists.
@@ -504,7 +523,12 @@ async function radio(body: unknown) {
     return fail(`no station like "${parsed.data.station}"`, 404, {
       stations: RADIO_LISTS.map((l) => ({ list: l.id, names: l.stations.map((s) => s.name) })),
     });
-  const station = { list: hit.list, index: hit.index, name: hit.name };
+  const station = {
+    list: hit.list,
+    index: hit.index,
+    name: hit.name,
+    ...stationArt(stationIdAt(hit)),
+  };
   const power = await ensureAmpOn("NET RADIO", parsed.data.wait);
   vlog(`radio "${hit.name}" (${hit.list}#${hit.index}, score ${hit.score}) amp=${power}`);
   if (power === "failed")
@@ -524,6 +548,18 @@ async function radio(body: unknown) {
   }
 }
 
+// ---- Station art (colour PNG for Home Assistant; the Kindle keeps its grayscale /media/img) ----
+async function art(params: URLSearchParams) {
+  const station = params.get("station") ?? "";
+  if (!findStation(station)) return fail("unknown station", 404);
+  const width = Math.max(64, Math.min(800, Number(params.get("width")) || 512));
+  const png = await stationArtPng(station, width).catch(() => null);
+  if (!png) return fail("no art for this station", 404);
+  return new Response(new Uint8Array(png), {
+    headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" },
+  });
+}
+
 // ---- Route ----
 const readBody = async (request: Request): Promise<unknown> => {
   try {
@@ -539,6 +575,9 @@ export const Route = createFileRoute("/api/voice/$")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        // Art is token-less on purpose: HA's template image entity cannot send headers, the port is loopback-only and
+        // the route only ever serves a catalog station's own logo.
+        if (sub(request) === "art") return art(new URL(request.url).searchParams);
         if (!env("VOICE_TOKEN")) return fail("voice API disabled (VOICE_TOKEN unset)", 503);
         if (!authorized(request)) return fail("unauthorized", 401);
         switch (sub(request)) {
