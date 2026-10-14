@@ -69,4 +69,13 @@ describe("voice bridge matching", () => {
     expect(s?.title).toBe("Demo");
     expect(s?.next.length).toBeLessThanOrEqual(3);
   });
+  it("carries the album / art item ids on the current and next tracks", () => {
+    const s = queueSummary(demoQueue("Demo"));
+    expect(s?.track).toMatchObject({
+      albumId: expect.stringMatching(/^demo-album-/),
+      artItemId: null,
+    });
+    for (const t of s?.next ?? [])
+      expect(t).toMatchObject({ albumId: expect.stringMatching(/^demo-album-/) });
+  });
 });

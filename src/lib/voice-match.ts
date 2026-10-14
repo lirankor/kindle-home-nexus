@@ -156,7 +156,16 @@ export function matchStation(query: string, min = 50): StationHit | null {
 // ---- Shapes ----
 export const trackView = (t: MusicTrack | null | undefined) =>
   t
-    ? { id: t.id, title: t.title, artist: t.artist, album: t.album, durationMs: t.durationMs }
+    ? {
+        id: t.id,
+        title: t.title,
+        artist: t.artist,
+        album: t.album,
+        durationMs: t.durationMs,
+        // Jellyfin ids for colour art (HA's Music dashboard: /Items/<albumId ?? artItemId>/Images/Primary)
+        albumId: t.albumId ?? null,
+        artItemId: t.artItemId ?? null,
+      }
     : null;
 export const queueSummary = (q: QueueProgress | null | undefined) =>
   q
