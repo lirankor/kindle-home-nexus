@@ -464,7 +464,7 @@ function TvModal({ panel, status }: { panel: MediaPanel; status: string }) {
 
 // ---- Radio screen ----
 
-/** Station logo from the image route (grayscale PNG); a glyph when the station has none (404). */
+/** Station art from the image route (grayscale PNG: the logo, else a generated cover); a glyph when there is none (404). */
 function StationLogo({
   station,
   size,
@@ -476,7 +476,7 @@ function StationLogo({
 }) {
   const [failed, setFailed] = useState<string | null>(null);
   const id = station?.id ?? null;
-  const show = !!id && !!station?.logo && !id.startsWith("yt:") && failed !== id;
+  const show = !!id && !id.startsWith("yt:") && failed !== id;
   return (
     <span className="radio-logo" style={{ width: size, height: size }} aria-hidden={!show}>
       {show ? (

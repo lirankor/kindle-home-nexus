@@ -32,6 +32,10 @@ bun run lint && bunx tsc --noEmit && bun run test
 Without `HA_TOKEN` the UI runs in demo mode ("Demo · HA not configured"); without `IMMICH_API_KEY` the screensaver uses
 the bundled sample photo; without the media variables the media screens show demo data. For local dev omit
 `MEDIA_STATE_DIR` / `MEDIA_CACHE_DIR` (temp dirs are used). All variables are documented in `.env.example`.
+Station art: the catalogue logo when it is a real image, else a placeholder cover rendered by
+[cover-forge](https://github.com/lirankor/cover-forge) (`COVER_FORGE_URL` / `COVER_FORGE_TOKEN`; the compose file joins
+its docker network), served grayscale to the Kindle (`/media/img?station=`) and in colour to Home Assistant
+(`/api/voice/art?station=`).
 
 Keeping the checkout clean when testing inside Docker instead of a local toolchain:
 

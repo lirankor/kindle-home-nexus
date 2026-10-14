@@ -6,47 +6,47 @@ Duesseldorf FM:
   WDR 2: http://wdr-wdr2-rheinruhr.icecast.wdr.de/wdr/wdr2/rheinruhr/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.139.1/img/favicon/apple-touch-icon.png
   WDR 4: http://wdr-wdr4-live.icecast.wdr.de/wdr/wdr4/live/mp3/128/stream.mp3|https://www1.wdr.de/resources-v5.132.3/img/favicon/apple-touch-icon.png
   Deutschlandfunk: http://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3|https://www.deutschlandfunk.de/static/img/deutschlandfunk/icons/apple-touch-icon-128x128.png
-  COSMO: http://wdr-cosmo-live.icecast.wdr.de/wdr/cosmo/live/mp3/128/stream.mp3
-  Antenne Duesseldorf: http://stream.antenneduesseldorf.de/444z5kv|https://www.antenneduesseldorf.de/assets/images/favicons/antenneduesseldorf/favicon_x96.png
-  bigFM: http://streams.bigfm.de/bigfm-deutschland-128-mp3|http://cdn.bigfm.de/sites/all/themes/bigfm/favicon.ico
+  COSMO: http://wdr-cosmo-live.icecast.wdr.de/wdr/cosmo/live/mp3/128/stream.mp3|https://www1.wdr.de/radio/cosmo/resources-v5.181.2/img/favicon/apple-touch-icon.png
+  Antenne Duesseldorf: http://stream.antenneduesseldorf.de/444z5kv|https://logos-der-nrwlokalradios.s3.eu-central-1.amazonaws.com/0153-37-45.png
+  bigFM: http://streams.bigfm.de/bigfm-deutschland-128-mp3|https://file.atsw.de/production/static/1791270044062/icons/icon_512.cWprpqopSeo.png
   1LIVE: http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3|https://www1.wdr.de/radio/1live/resources/img/favicon/apple-touch-icon.png
   Deutschlandfunk Nova: http://st03.sslstream.dlf.de/dlf/03/128/mp3/stream.mp3|https://www.deutschlandfunknova.de/apple-touch-icon.png
 
 Israel:
-  Galgalatz: http://glzwizzlv.bynetcdn.com/glglz_mp3|https://static-media.streema.com/media/cache/34/ee/34ee4ed52c07ad09122cbe047a7c0bfd.jpg
-  Kol Barama: http://kb.cdnwz.net/kol_barama|https://kol-barama.co.il/wp-content/themes/qs-starter/images/favicon/apple-touch-icon-120x120.png
-  Kol Chai: http://192.168.1.15:8792/s/kol-chai
-  Kan Bet: http://192.168.1.15:8792/s/kan-bet|https://www.kan.org.il/media/wgtfcyp2/%D7%91-%D7%9C%D7%95%D7%92%D7%95-%D7%9C%D7%91%D7%9F-2.svg
-  Galei Zahal: http://glzwizzlv.bynetcdn.com/glz_mp3
+  Galgalatz: http://glzwizzlv.bynetcdn.com/glglz_mp3|https://upload.wikimedia.org/wikipedia/commons/e/e2/GLGLZ.svg
+  Kol Barama: http://kb.cdnwz.net/kol_barama|https://kol-barama.co.il/wp-content/themes/qs-starter/images/favicon/apple-touch-icon-180x180.png
+  Kol Chai: http://192.168.1.15:8792/s/kol-chai|https://upload.wikimedia.org/wikipedia/he/b/b3/Radiokolhi.jpeg
+  Kan Bet: http://192.168.1.15:8792/s/kan-bet|https://upload.wikimedia.org/wikipedia/commons/5/50/KanBet.svg
+  Galei Zahal: http://glzwizzlv.bynetcdn.com/glz_mp3|https://glz.co.il/favicons/glz/favicon-192x192.png
   Radio Darom: http://192.168.1.15:8792/s/radio-darom|https://odsv.org/wp-content/uploads/2020/03/%D7%A8%D7%93%D7%99%D7%95-%D7%93%D7%A8%D7%95%D7%9D-1.png
-  Kan Gimel: http://192.168.1.15:8792/s/kan-gimel
-  Eco 99: http://192.168.1.15:8792/s/eco-99|https://eco99fm.maariv.co.il/
+  Kan Gimel: http://192.168.1.15:8792/s/kan-gimel|https://upload.wikimedia.org/wikipedia/commons/3/39/KanGimel.svg
+  Eco 99: http://192.168.1.15:8792/s/eco-99|https://eco99fm.maariv.co.il/assets/images/eco99seo.jpeg
   Radios 100FM: http://192.168.1.15:8792/s/radios-100fm|https://d20x387xvo6jlt.cloudfront.net/wp-content/uploads/2020/12/SmallLogo.png
-  Radio Tel Aviv 102: http://192.168.1.15:8792/s/radio-tel-aviv-102|http://102fm.co.il/favicon.ico
-  Galey Yisrael: http://192.168.1.15:8792/s/galey-yisrael|https://www.gly.co.il/Upload/Media/RadioStationLogo/radioStation_2_Logo_26042021170757.svg
+  Radio Tel Aviv 102: http://192.168.1.15:8792/s/radio-tel-aviv-102|https://www.102fm.co.il/seo_image.jpg
+  Galey Yisrael: http://192.168.1.15:8792/s/galey-yisrael|https://www.gly.co.il/static/images/webclip.png
   103FM: http://192.168.1.15:8792/s/103fm|http://cdn-profiles.tunein.com/s14201/images/logog.png
-  Kol Hashfela: http://192.168.1.15:8792/s/kol-hashfela
-  Kan Tarbut: http://192.168.1.15:8792/s/kan-tarbut
-  Radio Haifa: http://192.168.1.15:8792/s/radio-haifa
-  Kan Kol HaMusica: http://192.168.1.15:8792/s/kan-kol-hamusica
-  Radio Lev Hamedina: http://cdn.cybercdn.live/Lev_Hamedina/Audio/icecast.audio|https://www.xoox.co.il/service/radio/img/radio_m14.jpg
+  Kol Hashfela: http://192.168.1.15:8792/s/kol-hashfela|https://static.wixstatic.com/media/cbf57a_58fc13152b9548a882cc9f731c4c1e35.jpg/v1/fill/w_512,h_512,lg_1,usm_0.66_1.00_0.01/cbf57a_58fc13152b9548a882cc9f731c4c1e35.jpg
+  Kan Tarbut: http://192.168.1.15:8792/s/kan-tarbut|https://upload.wikimedia.org/wikipedia/commons/e/ed/KanTarbutNewLogo.svg
+  Radio Haifa: http://192.168.1.15:8792/s/radio-haifa|https://upload.wikimedia.org/wikipedia/he/3/3f/1075fm.png
+  Kan Kol HaMusica: http://192.168.1.15:8792/s/kan-kol-hamusica|https://upload.wikimedia.org/wikipedia/he/c/cf/KolHamusica.jpg
+  Radio Lev Hamedina: http://cdn.cybercdn.live/Lev_Hamedina/Audio/icecast.audio|https://upload.wikimedia.org/wikipedia/commons/0/04/%D7%A1%D7%9E%D7%9C_%D7%A8%D7%93%D7%99%D7%95_%D7%9C%D7%91_%D7%94%D7%9E%D7%93%D7%99%D7%A0%D7%94.png
   Hakatze: http://kzradio.mediacast.co.il/kzradio_live/kzradio/icecast.audio|https://www.kzradio.net/wp-content/uploads/2018/11/kzlogo.jpg
 
 English:
-  BBC World Service: http://stream.live.vc.bbcmedia.co.uk/bbc_world_service|null
-  Classic FM: http://ice-the.musicradio.com/ClassicFMMP3
-  LBC: http://media-sov.musicradio.com/LBC973MP3Low|http://www.lbc.co.uk/assets_v4r/lbc/img/favicon-196x196.png
-  Capital FM London: http://media-ice.musicradio.com/CapitalMP3|http://assets6.capitalfm.com/2016/11/capital-3d-network-logo-large-canvas-1458228638-herowidev4-0.jpg
-  Heart London: http://ice-sov.musicradio.com/HeartLondonMP3
-  Smooth Radio: http://media-the.musicradio.com/SmoothEastMids|https://firebasestorage.googleapis.com/v0/b/radiogalaxy-580f4.appspot.com/o/images%2FIMG_20240128_220647011.jpg?alt=media&token=1e224c71-df0a-40ea-9d54-0a76e133bd47
+  BBC World Service: http://stream.live.vc.bbcmedia.co.uk/bbc_world_service|https://sounds.files.bbci.co.uk/3.12.0/networks/bbc_world_service/blocks-colour_600x600.png
+  Classic FM: http://ice-the.musicradio.com/ClassicFMMP3|https://www.classicfm.com/assets_v4r/classic/img/favicon-196x196.png
+  LBC: http://media-sov.musicradio.com/LBC973MP3Low|https://www.lbc.co.uk/apple-touch-icon.png
+  Capital FM London: http://media-ice.musicradio.com/CapitalMP3|https://www.capitalfm.com/assets_v4r/capital/img/favicon-196x196.png
+  Heart London: http://ice-sov.musicradio.com/HeartLondonMP3|https://www.heart.co.uk/assets_v4r/heart/img/favicon-196x196.png
+  Smooth Radio: http://media-the.musicradio.com/SmoothEastMids|https://www.smoothradio.com/assets_v4r/smooth/img/favicon-196x196.png
   Radio X: http://icecast.thisisdax.com/RadioXUKMP3|https://i.imgur.com/fbhlSLX.jpg
-  Radio Caroline: http://78.129.202.200:8040/;|http://www.radiocaroline.co.uk/favicon.ico
+  Radio Caroline: http://78.129.202.200:8040/;|https://www.radiocaroline.co.uk/images/logo_for_fb.jpg
   Radio Paradise: http://stream-uk1.radioparadise.com/aac-320|https://radioparadise.com/apple-touch-icon.png
-  NPR: http://npr-ice.streamguys1.com/live.mp3|https://static-assets.npr.org/static/images/favicon/favicon-96x96.png
+  NPR: http://npr-ice.streamguys1.com/live.mp3|https://media.npr.org/templates/favicon/favicon-180x180.png
   101 Smooth Jazz: http://jking.cdnstream1.com/b22139_128mp3|http://101smoothjazz.com/favicon.ico
   Your Classical Relax: http://relax.stream.publicradio.org/relax.mp3|http://www.yourclassical.org/apple-touch-icon.png
-  Ambient Sleeping Pill: http://radio.stereoscenic.com/asp-h
-  181.FM Old School: http://listen.181fm.com/181-oldschool_128k.mp3|http://www.181.fm/favicon.ico
+  Ambient Sleeping Pill: http://radio.stereoscenic.com/asp-h|https://ambientsleepingpill.com/logo.png
+  181.FM Old School: http://listen.181fm.com/181-oldschool_128k.mp3|https://www.181.fm/images/og181fmlogo.jpg
 
 Musik:
   100FM Hits: http://gb25.streamgates.net/radios-audio/100Hits/icecast.audio|https://d203uamca1bsc4.cloudfront.net/app/thumbnails/t-hits.png
@@ -73,6 +73,6 @@ Musik:
   Klassik Radio Pure Mozart: http://stream.klassikradio.de/mozart/mp3-128/vtuner/|http://www.klassikradio.de/img/ms-mediumtile.png
   Klassik Radio Lounge: http://stream.klassikradio.de/lounge/mp3-128/www.klassikradio.de/|http://cdn-radiotime-logos.tunein.com/s25028q.png
   Klassik Radio Opera: http://stream.klassikradio.de/opera/mp3-128/www.klassikradio.de/|http://cdn-radiotime-logos.tunein.com/s25028q.png
-  Radio BOB: http://streams.radiobob.de/bob-national/mp3-192/mediaplayer
-  Radio BOB Classic Rock: http://streams.radiobob.de/bob-classicrock/mp3-192/streams.radiobob.de/
-  bigFM Sunset Lounge: http://streams.bigfm.de/bigfm-sunsetlounge-128-mp3|https://cdn.bigfm.de/sites/all/themes/bigfm/favicon.ico
+  Radio BOB: http://streams.radiobob.de/bob-national/mp3-192/mediaplayer|https://upload.radiobob.de/production/static/1791270449174/icons/icon_512.8WpccMNcjjc.png
+  Radio BOB Classic Rock: http://streams.radiobob.de/bob-classicrock/mp3-192/streams.radiobob.de/|https://images.radiobob.de/files/2025-05/classic_rock_stream_schrift.jpg
+  bigFM Sunset Lounge: http://streams.bigfm.de/bigfm-sunsetlounge-128-mp3|https://image.atsw.de/atsw/production/2024-07/bigfm-sl-web-clean-1600x1600.jpg

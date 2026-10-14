@@ -12,6 +12,8 @@ import { createConnection } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { HomeError, fetchStates, ha, haConfigured, service } from "@/lib/home.server";
+import { resolveStationArt } from "@/lib/station-art";
+import type { CoverParams, StationArtResult, StationArtSource } from "@/lib/station-art";
 import type { HaState } from "@/lib/home.server";
 import {
   AMP,
@@ -145,6 +147,11 @@ type Runtime = {
   mixTimer: ReturnType<typeof setInterval> | null;
   lists: Map<string, { at: number; items: MusicListItem[] }>;
   imgNegative: Map<string, number>;
+  /** Station art resolution memo (source null = nothing found, retried after ART_RETRY_MS). */
+  stationArt?: Map<
+    string,
+    { at: number; source: StationArtSource | null; standIn?: StationArtResult }
+  >;
 };
 const g = globalThis as unknown as {
   __kindleMediaRuntime?: Runtime;
@@ -164,6 +171,7 @@ const rt: Runtime = (g.__kindleMediaRuntime ??= {
   mixTimer: null,
   lists: new Map(),
   imgNegative: new Map(),
+  stationArt: new Map(),
 });
 
 // ---- Persistence (MEDIA_STATE_DIR, default os.tmpdir()) ----
@@ -685,8 +693,9 @@ export const jellyfin = {
   toQueueTrack: (t: MusicTrack): QueueTrack => ({ ...t, streamUrl: jellyfin.streamUrl(t) }),
 };
 
-// ---- Images: remote logo / art -> square grayscale PNG, cached on disk ----
+// ---- Images: remote logo / art -> square PNG (grayscale for the e-ink panel, colour for HA), cached on disk ----
 const cacheDir = () => env("MEDIA_CACHE_DIR") || path.join(os.tmpdir(), "kindle-media-cache");
+const FETCH_UA = "kindle-home-nexus/1.0 (home server radio panel)";
 export function imageHostAllowed(url: URL): boolean {
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
   const host = url.hostname.toLowerCase();
@@ -701,86 +710,212 @@ export function imageHostAllowed(url: URL): boolean {
   }
   return allowed.has(host);
 }
-/** Fetch (YTuner-hosted URLs go via our base with the vTuner Host header), flatten, square-fit, grayscale PNG. */
-export const grayscalePng = (src: string, width: number) => logoPng(src, width, "grayscale");
-/** The same fetch + cache, but a colour PNG on white (Home Assistant's hero, see /api/voice/art). */
-export const colourPng = (src: string, width: number) => logoPng(src, width, "colour");
-/** A catalog station's logo as colour PNG (null when it has none or the fetch fails). */
-export const stationArtPng = (stationId: string, width: number) => {
-  const logo = findStation(stationId)?.logo;
-  return logo ? colourPng(logo, width) : Promise.resolve(null);
-};
-
-async function logoPng(
-  src: string,
-  width: number,
-  mode: "grayscale" | "colour",
-): Promise<Buffer | null> {
-  const url = new URL(src);
-  if (!imageHostAllowed(url)) return null;
-  const file = path.join(
-    cacheDir(),
-    `${createHash("sha1").update(`${src}|${width}|${mode}`).digest("hex")}.png`,
-  );
+/** A fetch that did not yield an image: transient (rate limit, 5xx, timeout: worth retrying) or final (not an image). */
+type ImageMiss = { transient: boolean };
+/** Raw bytes of an allow-listed image URL (YTuner-hosted ones via our base with the vTuner Host header). */
+async function fetchImageEx(src: string): Promise<{ bytes: Buffer } | ImageMiss> {
+  let url: URL;
+  try {
+    url = new URL(src);
+  } catch {
+    return { transient: false };
+  }
+  if (!imageHostAllowed(url)) return { transient: false };
+  try {
+    if (url.hostname.toLowerCase() === YTUNER_HOST) {
+      const r = await httpGet(rewriteToBase(src, ytunerBase()), { Host: YTUNER_HOST }, 10000);
+      return r.status === 200
+        ? { bytes: r.body }
+        : { transient: r.status === 429 || r.status >= 500 };
+    }
+    // Follow redirects by hand so every hop is re-checked against the allowlist (no SSRF via a redirect).
+    let current = url;
+    let res: Response | null = null;
+    for (let hop = 0; hop < 4; hop++) {
+      const r = await fetch(current, {
+        redirect: "manual",
+        headers: { "User-Agent": FETCH_UA, Accept: "image/*,*/*;q=0.5" },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (r.status >= 300 && r.status < 400) {
+        const loc = r.headers.get("location");
+        if (!loc) return { transient: false };
+        current = new URL(loc, current);
+        if (!imageHostAllowed(current)) return { transient: false };
+        continue;
+      }
+      res = r;
+      break;
+    }
+    if (!res) return { transient: false };
+    if (!res.ok) return { transient: res.status === 429 || res.status >= 500 };
+    return { bytes: Buffer.from(await res.arrayBuffer()) };
+  } catch {
+    return { transient: true }; // network error / timeout
+  }
+}
+async function fetchImage(src: string): Promise<Buffer | null> {
+  const r = await fetchImageEx(src);
+  return "bytes" in r ? r.bytes : null;
+}
+type PngMode = "grayscale" | "colour";
+/** Decode (which also validates: an HTML page or a broken file throws), flatten, square-fit. */
+async function toSquarePng(raw: Buffer, width: number, mode: PngMode): Promise<Buffer | null> {
+  try {
+    const { default: sharp } = await import("sharp");
+    return mode === "colour"
+      ? await sharp(raw)
+          .flatten({ background: "#ffffff" })
+          .resize(width, width, { fit: "contain", background: "#ffffff" })
+          .png({ compressionLevel: 9 })
+          .toBuffer()
+      : await sharp(raw)
+          // Mid-grey tile + contrast stretch: white or very light logos (Smooth Radio, WDR 5, bigFM) otherwise
+          // vanish on the 16-grey e-ink panel.
+          .flatten({ background: "#bdbdbd" })
+          .resize(width, width, { fit: "contain", background: "#bdbdbd" })
+          .grayscale()
+          .normalise()
+          .png({ compressionLevel: 9 })
+          .toBuffer();
+  } catch {
+    return null; // e.g. .ico files sharp cannot decode: the UI shows a placeholder
+  }
+}
+const cacheKey = (parts: string[]) => createHash("sha1").update(parts.join("|")).digest("hex");
+async function cachedPng(key: string, make: () => Promise<Buffer | null>): Promise<Buffer | null> {
+  const file = path.join(cacheDir(), `${key}.png`);
   try {
     return await readFile(file);
   } catch {
     /* miss */
   }
-  let raw: Buffer;
+  const png = await make();
+  if (png)
+    await mkdir(cacheDir(), { recursive: true })
+      .then(() => writeFile(file, png))
+      .catch(() => undefined);
+  return png;
+}
+/** Remote image URL -> square PNG (Jellyfin art). */
+const urlPng = (src: string, width: number, mode: PngMode) =>
+  cachedPng(cacheKey([src, String(width), mode]), async () => {
+    const raw = await fetchImage(src);
+    return raw ? toSquarePng(raw, width, mode) : null;
+  });
+/** Grayscale for the e-ink panel. */
+export const grayscalePng = (src: string, width: number) => urlPng(src, width, "grayscale");
+/** Colour on white (Home Assistant). */
+export const colourPng = (src: string, width: number) => urlPng(src, width, "colour");
+
+// ---- Station art: the catalogue logo when it is a real image, else a cover-forge placeholder, else nothing ----
+// (chain in src/lib/station-art.ts; this is the wiring: allow-listed fetch, validation by decoding, disk cache)
+const coverForgeUrl = () => env("COVER_FORGE_URL").replace(/\/+$/, "");
+export const coverForgeConfigured = () => coverForgeUrl() !== "";
+/** cover-forge render — colour PNG, deterministic per station (no seed); null when off, down or not an image. */
+async function fetchCover(p: CoverParams): Promise<Buffer | null> {
+  if (!coverForgeConfigured()) return null;
+  const qs = new URLSearchParams({ artist: p.artist, title: p.title, label: p.label, size: "512" });
+  if (p.cat) qs.set("cat", p.cat);
   try {
-    if (url.hostname.toLowerCase() === YTUNER_HOST) {
-      const r = await httpGet(rewriteToBase(src, ytunerBase()), { Host: YTUNER_HOST }, 10000);
-      if (r.status !== 200) return null;
-      raw = r.body;
-    } else {
-      // Follow redirects by hand so every hop is re-checked against the allowlist (no SSRF via a redirect).
-      let current = url;
-      let res: Response | null = null;
-      for (let hop = 0; hop < 4; hop++) {
-        const r = await fetch(current, { redirect: "manual", signal: AbortSignal.timeout(10000) });
-        if (r.status >= 300 && r.status < 400) {
-          const loc = r.headers.get("location");
-          if (!loc) return null;
-          current = new URL(loc, current);
-          if (!imageHostAllowed(current)) return null;
-          continue;
-        }
-        res = r;
-        break;
-      }
-      if (!res || !res.ok) return null;
-      raw = Buffer.from(await res.arrayBuffer());
-    }
+    const token = env("COVER_FORGE_TOKEN");
+    const r = await fetch(`${coverForgeUrl()}/cover.png?${qs}`, {
+      headers: { "User-Agent": FETCH_UA, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok || !(r.headers.get("content-type") ?? "").startsWith("image/")) return null;
+    return Buffer.from(await r.arrayBuffer());
   } catch {
     return null;
   }
-  let png: Buffer;
+}
+/** The logo bytes, only when sharp can decode them (a web page or a dead link is not a logo). Throws on a
+ *  transient miss (Wikimedia's 429, a timeout) so the chain knows the cover is only a stand-in. */
+async function fetchLogoValidated(url: string): Promise<Buffer | null> {
+  const r = await fetchImageEx(url);
+  if (!("bytes" in r)) {
+    if (r.transient) throw new Error("transient");
+    return null;
+  }
   try {
     const { default: sharp } = await import("sharp");
-    png =
-      mode === "colour"
-        ? await sharp(raw)
-            .flatten({ background: "#ffffff" })
-            .resize(width, width, { fit: "contain", background: "#ffffff" })
-            .png({ compressionLevel: 9 })
-            .toBuffer()
-        : await sharp(raw)
-            // Mid-grey tile + contrast stretch: white or very light logos (Smooth Radio, WDR 5, bigFM) otherwise
-            // vanish on the 16-grey e-ink panel.
-            .flatten({ background: "#bdbdbd" })
-            .resize(width, width, { fit: "contain", background: "#bdbdbd" })
-            .grayscale()
-            .normalise()
-            .png({ compressionLevel: 9 })
-            .toBuffer();
+    const m = await sharp(r.bytes).metadata();
+    return m.width && m.height ? r.bytes : null;
   } catch {
-    return null; // e.g. .ico files sharp cannot decode: the UI shows a placeholder
+    return null;
   }
-  await mkdir(cacheDir(), { recursive: true })
-    .then(() => writeFile(file, png))
-    .catch(() => undefined);
-  return png;
+}
+/** The band's English display name is the cover's "artist" line. */
+const bandLabelOf = (stationId: string): string => {
+  const list = RADIO_LISTS.find((l) => l.stations.some((s) => s.id === stationId));
+  return list ? makeT("en")(`radio.band.${list.id}` as Key) : "Radio";
+};
+const ART_RETRY_MS = 60 * 60_000;
+/** A stand-in cover (logo fetch failed transiently) is served from memory for this long, then the logo is retried. */
+const ART_STANDIN_MS = 10 * 60_000;
+/** Resolved art for a station (raw logo / cover bytes), kept on disk; a miss is retried after an hour, a stand-in
+ *  cover after ten minutes (it is never written to disk, so a rate-limited logo cannot freeze into a cover). */
+async function stationArtRaw(stationId: string): Promise<StationArtResult | null> {
+  const station = findStation(stationId);
+  if (!station) return null;
+  const memo = (rt.stationArt ??= new Map());
+  const seen = memo.get(stationId);
+  if (seen && seen.source === null && Date.now() - seen.at < ART_RETRY_MS) return null;
+  if (seen?.standIn && Date.now() - seen.at < ART_STANDIN_MS) return seen.standIn;
+  const key = cacheKey(["station-art", stationId, station.logo ?? "", coverForgeUrl()]);
+  const dir = path.join(cacheDir(), "station-art");
+  for (const source of ["logo", "cover"] as const) {
+    try {
+      const bytes = await readFile(path.join(dir, `${key}.${source}`));
+      memo.set(stationId, { at: Date.now(), source });
+      return { bytes, source };
+    } catch {
+      /* miss */
+    }
+  }
+  const r = await resolveStationArt(station, bandLabelOf(stationId), {
+    fetchLogo: fetchLogoValidated,
+    fetchCover,
+  });
+  memo.set(stationId, {
+    at: Date.now(),
+    source: r?.source ?? null,
+    ...(r?.logoTransient ? { standIn: r } : {}),
+  });
+  if (r && !r.logoTransient)
+    await mkdir(dir, { recursive: true })
+      .then(() => writeFile(path.join(dir, `${key}.${r.source}`), r.bytes))
+      .catch(() => undefined);
+  return r;
+}
+/** What the voice API tells HA: which art a station has (null = none, HA shows its placeholder). */
+export async function stationArtSource(stationId: string): Promise<StationArtSource | null> {
+  return (await stationArtRaw(stationId))?.source ?? null;
+}
+/** A station's art as a square PNG: grayscale for the Kindle (/media/img), colour for HA (/api/voice/art). */
+export function stationArtPng(
+  stationId: string,
+  width: number,
+  mode: PngMode = "colour",
+): Promise<Buffer | null> {
+  const station = findStation(stationId);
+  if (!station) return Promise.resolve(null);
+  return stationArtRaw(stationId).then((r) => {
+    if (!r) return null;
+    if (r.logoTransient) return toSquarePng(r.bytes, width, mode); // stand-in: never cached
+    return cachedPng(
+      cacheKey([
+        "station-art",
+        stationId,
+        station.logo ?? "",
+        coverForgeUrl(),
+        r.source,
+        String(width),
+        mode,
+      ]),
+      () => toSquarePng(r.bytes, width, mode),
+    );
+  });
 }
 /** Resolves what the /media/img route accepts: a catalog station id or a Jellyfin item id (no free-form URLs). */
 export async function imageFor(q: {
@@ -789,10 +924,7 @@ export async function imageFor(q: {
   width: number;
 }): Promise<Buffer | null> {
   const width = Math.max(16, Math.min(400, Math.round(q.width)));
-  if (q.station) {
-    const logo = findStation(q.station)?.logo;
-    return logo ? grayscalePng(logo, width) : null;
-  }
+  if (q.station) return stationArtPng(q.station, width, "grayscale");
   if (q.item) {
     if (!/^[0-9a-fA-F-]{8,40}$/.test(q.item) || !jellyfinConfigured()) return null;
     const key = `${q.item}@${width}`;

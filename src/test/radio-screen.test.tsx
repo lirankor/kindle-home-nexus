@@ -166,9 +166,12 @@ describe("Radio screen", () => {
     // Optimistic: needle and name move before the server answers.
     expect(needleX()).toBe(stationX(1, 12));
     expect(document.querySelector(".radio-now-name")?.textContent).toBe("NRW1");
-    // NRW1 has no logo in the catalog: the placeholder glyph, no <img>.
-    expect(document.querySelector(".radio-cover img")).toBeNull();
-    expect(document.querySelector(".radio-cover .radio-logo svg")).not.toBeNull();
+    // Every catalog station asks the image route for its art (NRW1 has no logo: the server answers a generated
+    // cover, or 404 → the glyph via onError).
+    expect(document.querySelector(".radio-cover img")?.getAttribute("src")).toContain(
+      "station=nrw1",
+    );
+    expect(document.querySelector(".radio-cover .radio-logo svg")).toBeNull();
     await act(async () => settle({ ok: true }));
     // Wrap at the start: left from index 1 → 0 → 11.
     press("ArrowLeft");

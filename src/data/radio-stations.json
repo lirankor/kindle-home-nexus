@@ -91,7 +91,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": 103.3,
-          "logo": null
+          "logo": "https://www1.wdr.de/radio/cosmo/resources-v5.181.2/img/favicon/apple-touch-icon.png"
         },
         {
           "id": "antenne-duesseldorf",
@@ -102,7 +102,7 @@
           "codec": "MP3",
           "bitrate": 192,
           "fm": 104.2,
-          "logo": "https://www.antenneduesseldorf.de/assets/images/favicons/antenneduesseldorf/favicon_x96.png"
+          "logo": "https://logos-der-nrwlokalradios.s3.eu-central-1.amazonaws.com/0153-37-45.png"
         },
         {
           "id": "bigfm",
@@ -113,7 +113,7 @@
           "codec": "AAC",
           "bitrate": 128,
           "fm": 105.7,
-          "logo": "http://cdn.bigfm.de/sites/all/themes/bigfm/favicon.ico"
+          "logo": "https://file.atsw.de/production/static/1791270044062/icons/icon_512.cWprpqopSeo.png"
         },
         {
           "id": "1live",
@@ -152,7 +152,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": 91.8,
-          "logo": "https://static-media.streema.com/media/cache/34/ee/34ee4ed52c07ad09122cbe047a7c0bfd.jpg"
+          "logo": "https://upload.wikimedia.org/wikipedia/commons/e/e2/GLGLZ.svg"
         },
         {
           "id": "kol-barama",
@@ -163,7 +163,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": 92.1,
-          "logo": "https://kol-barama.co.il/wp-content/themes/qs-starter/images/favicon/apple-touch-icon-120x120.png"
+          "logo": "https://kol-barama.co.il/wp-content/themes/qs-starter/images/favicon/apple-touch-icon-180x180.png"
         },
         {
           "id": "kol-chai",
@@ -174,7 +174,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": 93.0,
-          "logo": null
+          "logo": "https://upload.wikimedia.org/wikipedia/he/b/b3/Radiokolhi.jpeg"
         },
         {
           "id": "kan-bet",
@@ -185,7 +185,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": 95.5,
-          "logo": "https://www.kan.org.il/media/wgtfcyp2/%D7%91-%D7%9C%D7%95%D7%92%D7%95-%D7%9C%D7%91%D7%9F-2.svg"
+          "logo": "https://upload.wikimedia.org/wikipedia/commons/5/50/KanBet.svg"
         },
         {
           "id": "galei-zahal",
@@ -196,7 +196,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": 96.6,
-          "logo": null
+          "logo": "https://glz.co.il/favicons/glz/favicon-192x192.png"
         },
         {
           "id": "radio-darom",
@@ -218,7 +218,7 @@
           "codec": "MP3",
           "bitrate": 192,
           "fm": 97.8,
-          "logo": null
+          "logo": "https://upload.wikimedia.org/wikipedia/commons/3/39/KanGimel.svg"
         },
         {
           "id": "eco-99",
@@ -229,7 +229,7 @@
           "codec": "AAC",
           "bitrate": 64,
           "fm": 99.0,
-          "logo": "https://eco99fm.maariv.co.il/"
+          "logo": "https://eco99fm.maariv.co.il/assets/images/eco99seo.jpeg"
         },
         {
           "id": "radios-100fm",
@@ -251,7 +251,7 @@
           "codec": "AAC",
           "bitrate": 64,
           "fm": 102.0,
-          "logo": "http://102fm.co.il/favicon.ico"
+          "logo": "https://www.102fm.co.il/seo_image.jpg"
         },
         {
           "id": "galey-yisrael",
@@ -262,7 +262,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": 102.5,
-          "logo": "https://www.gly.co.il/Upload/Media/RadioStationLogo/radioStation_2_Logo_26042021170757.svg"
+          "logo": "https://www.gly.co.il/static/images/webclip.png"
         },
         {
           "id": "103fm",
@@ -284,7 +284,7 @@
           "codec": "AAC",
           "bitrate": 64,
           "fm": 103.6,
-          "logo": null
+          "logo": "https://static.wixstatic.com/media/cbf57a_58fc13152b9548a882cc9f731c4c1e35.jpg/v1/fill/w_512,h_512,lg_1,usm_0.66_1.00_0.01/cbf57a_58fc13152b9548a882cc9f731c4c1e35.jpg"
         },
         {
           "id": "kan-tarbut",
@@ -295,7 +295,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": 106.5,
-          "logo": null
+          "logo": "https://upload.wikimedia.org/wikipedia/commons/e/ed/KanTarbutNewLogo.svg"
         },
         {
           "id": "radio-haifa",
@@ -306,7 +306,7 @@
           "codec": "AAC",
           "bitrate": null,
           "fm": 107.5,
-          "logo": null
+          "logo": "https://upload.wikimedia.org/wikipedia/he/3/3f/1075fm.png"
         },
         {
           "id": "kan-kol-hamusica",
@@ -317,7 +317,7 @@
           "codec": "MP3",
           "bitrate": 192,
           "fm": null,
-          "logo": null
+          "logo": "https://upload.wikimedia.org/wikipedia/he/c/cf/KolHamusica.jpg"
         },
         {
           "id": "radio-lev-hamedina",
@@ -328,7 +328,7 @@
           "codec": "MP3",
           "bitrate": null,
           "fm": null,
-          "logo": "https://www.xoox.co.il/service/radio/img/radio_m14.jpg"
+          "logo": "https://upload.wikimedia.org/wikipedia/commons/0/04/%D7%A1%D7%9E%D7%9C_%D7%A8%D7%93%D7%99%D7%95_%D7%9C%D7%91_%D7%94%D7%9E%D7%93%D7%99%D7%A0%D7%94.png"
         },
         {
           "id": "hakatze",
@@ -356,7 +356,7 @@
           "codec": "MP3",
           "bitrate": 56,
           "fm": null,
-          "logo": "null"
+          "logo": "https://sounds.files.bbci.co.uk/3.12.0/networks/bbc_world_service/blocks-colour_600x600.png"
         },
         {
           "id": "classic-fm",
@@ -367,7 +367,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": null,
-          "logo": null
+          "logo": "https://www.classicfm.com/assets_v4r/classic/img/favicon-196x196.png"
         },
         {
           "id": "lbc",
@@ -378,7 +378,7 @@
           "codec": "MP3",
           "bitrate": 48,
           "fm": null,
-          "logo": "http://www.lbc.co.uk/assets_v4r/lbc/img/favicon-196x196.png"
+          "logo": "https://www.lbc.co.uk/apple-touch-icon.png"
         },
         {
           "id": "capital-fm-london",
@@ -389,7 +389,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": null,
-          "logo": "http://assets6.capitalfm.com/2016/11/capital-3d-network-logo-large-canvas-1458228638-herowidev4-0.jpg"
+          "logo": "https://www.capitalfm.com/assets_v4r/capital/img/favicon-196x196.png"
         },
         {
           "id": "heart-london",
@@ -400,7 +400,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": null,
-          "logo": null
+          "logo": "https://www.heart.co.uk/assets_v4r/heart/img/favicon-196x196.png"
         },
         {
           "id": "smooth-radio",
@@ -411,7 +411,7 @@
           "codec": "AAC",
           "bitrate": 48,
           "fm": null,
-          "logo": "https://firebasestorage.googleapis.com/v0/b/radiogalaxy-580f4.appspot.com/o/images%2FIMG_20240128_220647011.jpg?alt=media&token=1e224c71-df0a-40ea-9d54-0a76e133bd47"
+          "logo": "https://www.smoothradio.com/assets_v4r/smooth/img/favicon-196x196.png"
         },
         {
           "id": "radio-x",
@@ -433,7 +433,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": null,
-          "logo": "http://www.radiocaroline.co.uk/favicon.ico"
+          "logo": "https://www.radiocaroline.co.uk/images/logo_for_fb.jpg"
         },
         {
           "id": "radio-paradise",
@@ -455,7 +455,7 @@
           "codec": "MP3",
           "bitrate": 96,
           "fm": null,
-          "logo": "https://static-assets.npr.org/static/images/favicon/favicon-96x96.png"
+          "logo": "https://media.npr.org/templates/favicon/favicon-180x180.png"
         },
         {
           "id": "101-smooth-jazz",
@@ -488,7 +488,7 @@
           "codec": "MP3",
           "bitrate": 256,
           "fm": null,
-          "logo": null
+          "logo": "https://ambientsleepingpill.com/logo.png"
         },
         {
           "id": "181-fm-old-school",
@@ -499,7 +499,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": null,
-          "logo": "http://www.181.fm/favicon.ico"
+          "logo": "https://www.181.fm/images/og181fmlogo.jpg"
         }
       ]
     },
@@ -780,7 +780,7 @@
           "codec": "MP3",
           "bitrate": 192,
           "fm": null,
-          "logo": null
+          "logo": "https://upload.radiobob.de/production/static/1791270449174/icons/icon_512.8WpccMNcjjc.png"
         },
         {
           "id": "radio-bob-classic-rock",
@@ -791,7 +791,7 @@
           "codec": "MP3",
           "bitrate": 192,
           "fm": null,
-          "logo": null
+          "logo": "https://images.radiobob.de/files/2025-05/classic_rock_stream_schrift.jpg"
         },
         {
           "id": "bigfm-sunset-lounge",
@@ -802,7 +802,7 @@
           "codec": "MP3",
           "bitrate": 128,
           "fm": null,
-          "logo": "https://cdn.bigfm.de/sites/all/themes/bigfm/favicon.ico"
+          "logo": "https://image.atsw.de/atsw/production/2024-07/bigfm-sl-web-clean-1600x1600.jpg"
         }
       ]
     }

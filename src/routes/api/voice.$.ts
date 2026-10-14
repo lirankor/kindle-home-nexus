@@ -7,8 +7,9 @@
 //   POST /api/voice/play   {query|id, kind?, shuffle?, wait?}   power the amp on if needed, then play
 //   POST /api/voice/action {op}                 pause|resume|next|previous|stop|volume_up|volume_down|mute|unmute|amp_off|amp_on
 //   POST /api/voice/radio  {station, wait?}     fuzzy-match a catalog station and tune NET RADIO
-//   GET  /api/voice/art?station=<id>[&width=]  the station's logo as a colour PNG (no token: catalog ids only, the
-//                                              port is loopback-bound; HA's image entity fetches it server-side)
+//   GET  /api/voice/art?station=<id>[&width=]  the station's art as a colour PNG: its logo when that is a real image,
+//                                              else a cover-forge placeholder (no token: catalog ids only, the port is
+//                                              loopback-bound; HA's image entity fetches it server-side)
 import { createFileRoute } from "@tanstack/react-router";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
@@ -43,6 +44,7 @@ import {
   readRadioLists,
   startPowerOn,
   stationArtPng,
+  stationArtSource,
   startQueue,
   tuneRadio,
 } from "@/lib/media.server";
@@ -62,13 +64,18 @@ const POWER_POLL_MS = 2000;
 const vlog = (msg: string) => console.log(`[voice] ${new Date().toISOString()} ${msg}`);
 /** Where HA reaches this app (the compose line publishes :3000 as 127.0.0.1:8791). */
 const artBase = () => env("VOICE_ART_BASE").replace(/\/+$/, "") || "http://127.0.0.1:8791";
-/** A catalog station's art for HA: the public logo URL (browser) and our colour PNG proxy (HA image entity). */
-function stationArt(stationId: string | null | undefined) {
+/** A catalog station's art for HA: the catalogue logo URL and our colour PNG proxy (HA's image entity). artUrl
+ *  is only set once the art route has actually resolved a picture (a real logo, else a cover-forge cover), so HA
+ *  never gets a URL that 404s; artSource says which it is. */
+async function stationArt(stationId: string | null | undefined) {
   const st = stationId ? findStation(stationId) : undefined;
+  const artSource = st ? await stationArtSource(st.id).catch(() => null) : null;
   return {
     stationId: st?.id ?? null,
     logo: st?.logo ?? null,
-    artUrl: st?.logo ? `${artBase()}/api/voice/art?station=${encodeURIComponent(st.id)}` : null,
+    artSource,
+    artUrl:
+      st && artSource ? `${artBase()}/api/voice/art?station=${encodeURIComponent(st.id)}` : null,
   };
 }
 
@@ -84,7 +91,9 @@ function authorized(request: Request): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function stateView(s: MediaSnapshot | null, queue: QueueProgress | null, error?: string) {
+async function stateView(s: MediaSnapshot | null, queue: QueueProgress | null, error?: string) {
+  const nowArt = s ? await stationArt(s.nowPlaying.stationId) : null;
+  const radioArt = s?.radio ? await stationArt(stationIdAt(s.radio)) : null;
   return {
     ok: !error,
     ...(error === undefined ? {} : { error }),
@@ -114,13 +123,11 @@ function stateView(s: MediaSnapshot | null, queue: QueueProgress | null, error?:
           artist: s.nowPlaying.artist,
           album: s.nowPlaying.album,
           station: s.nowPlaying.station,
-          ...stationArt(s.nowPlaying.stationId),
+          ...nowArt,
         }
       : null,
     queue: queueSummary(queue),
-    radio: s?.radio
-      ? { ...s.radio, station: stationName(s.radio), ...stationArt(stationIdAt(s.radio)) }
-      : null,
+    radio: s?.radio ? { ...s.radio, station: stationName(s.radio), ...radioArt } : null,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -527,7 +534,7 @@ async function radio(body: unknown) {
     list: hit.list,
     index: hit.index,
     name: hit.name,
-    ...stationArt(stationIdAt(hit)),
+    ...(await stationArt(stationIdAt(hit))),
   };
   const power = await ensureAmpOn("NET RADIO", parsed.data.wait);
   vlog(`radio "${hit.name}" (${hit.list}#${hit.index}, score ${hit.score}) amp=${power}`);
@@ -548,7 +555,7 @@ async function radio(body: unknown) {
   }
 }
 
-// ---- Station art (colour PNG for Home Assistant; the Kindle keeps its grayscale /media/img) ----
+// ---- Station art (colour PNG for Home Assistant; the Kindle gets the same picture in grayscale via /media/img) ----
 async function art(params: URLSearchParams) {
   const station = params.get("station") ?? "";
   if (!findStation(station)) return fail("unknown station", 404);

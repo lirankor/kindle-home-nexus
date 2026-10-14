@@ -11,6 +11,14 @@ services:
     # Media state (Jellyfin queue, radio position) and resized-image cache survive rebuilds.
     volumes:
       - app-data:/data
+    # Also on cover-forge's network (a separate compose project on this box) for generated station covers;
+    # the bridge shares this namespace and so reaches it too. That network must exist (`docker compose up` in
+    # /home/openclaw/cover-forge) or drop the line + COVER_FORGE_URL.
+    networks:
+      # Keep the default route (and so the source address HA's ufw rule sees, 10.90.90.0/24) on our own network.
+      default:
+        gw_priority: 1
+      cover-forge: {}
     # The bridge shares this network namespace, so its port is published here.
     ports:
       - "192.168.1.15:8790:8790"
@@ -71,6 +79,9 @@ volumes:
   ytuner-config:
 
 networks:
+  cover-forge:
+    external: true
+    name: cover-forge_default
   default:
     # Fixed subnet so a host firewall rule can allow this stack to reach Home Assistant:
     #   sudo ufw allow from 10.90.90.0/24 to any port 8123 proto tcp
