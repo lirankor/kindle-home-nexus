@@ -15,6 +15,9 @@ services:
     ports:
       - "192.168.1.15:8790:8790"
       - "127.0.0.1:8790:8790"
+      # The app itself (TanStack server, :3000) for Home Assistant's voice bridge calls (/api/voice/*, bearer
+      # VOICE_TOKEN). Loopback only: HA runs on the host network. The Kindle keeps using the bridge on :8790.
+      - "127.0.0.1:8791:3000"
 
   bridge:
     build: ./bridge

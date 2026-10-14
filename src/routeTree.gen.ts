@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MediaImgRouteImport } from './routes/media/img'
+import { Route as ApiVoiceSplatRouteImport } from './routes/api/voice.$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +23,40 @@ const MediaImgRoute = MediaImgRouteImport.update({
   path: '/media/img',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiVoiceSplatRoute = ApiVoiceSplatRouteImport.update({
+  id: '/api/voice/$',
+  path: '/api/voice/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/media/img': typeof MediaImgRoute
+  '/api/voice/$': typeof ApiVoiceSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/media/img': typeof MediaImgRoute
+  '/api/voice/$': typeof ApiVoiceSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/media/img': typeof MediaImgRoute
+  '/api/voice/$': typeof ApiVoiceSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/media/img'
+  fullPaths: '/' | '/media/img' | '/api/voice/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/media/img'
-  id: '__root__' | '/' | '/media/img'
+  to: '/' | '/media/img' | '/api/voice/$'
+  id: '__root__' | '/' | '/media/img' | '/api/voice/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   MediaImgRoute: typeof MediaImgRoute
+  ApiVoiceSplatRoute: typeof ApiVoiceSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MediaImgRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/voice/$': {
+      id: '/api/voice/$'
+      path: '/api/voice/$'
+      fullPath: '/api/voice/$'
+      preLoaderRoute: typeof ApiVoiceSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   MediaImgRoute: MediaImgRoute,
+  ApiVoiceSplatRoute: ApiVoiceSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

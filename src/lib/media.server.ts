@@ -609,6 +609,36 @@ export const jellyfin = {
       (await jf<JfList>("/Genres", { userId: env("JELLYFIN_USER_ID"), IncludeItemTypes: "Audio" }))
         .Items ?? []
     ).map((i) => ({ id: i.Id, name: i.Name })),
+  // ---- Voice bridge (src/routes/api/voice.$.ts) — additive, unused by the Kindle screens ----
+  /** Songs whose title starts with a word of the term. */
+  searchTracks: async (term: string, limit: number) =>
+    (
+      await userItems({
+        IncludeItemTypes: "Audio",
+        Recursive: true,
+        searchTerm: term,
+        SortBy: "SortName",
+        Limit: limit,
+      })
+    ).map(toTrack),
+  searchPlaylists: async (term: string, limit: number): Promise<{ id: string; title: string }[]> =>
+    (
+      await userItems({
+        IncludeItemTypes: "Playlist",
+        Recursive: true,
+        searchTerm: term,
+        SortBy: "SortName",
+        Limit: limit,
+      })
+    ).map((i) => ({ id: i.Id, title: i.Name })),
+  playlistTracks: async (playlistId: string) =>
+    (
+      (
+        await jf<JfList>(`/Playlists/${encodeURIComponent(playlistId)}/Items`, {
+          userId: env("JELLYFIN_USER_ID"),
+        })
+      ).Items ?? []
+    ).map(toTrack),
   streamUrl: (t: MusicTrack) =>
     pickStreamUrl(env("JELLYFIN_URL"), env("JELLYFIN_API_KEY"), t.id, t.container),
   /** Primary image, no auth needed (the amp and the image route fetch it directly). */
