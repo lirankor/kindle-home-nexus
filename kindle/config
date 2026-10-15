@@ -5,3 +5,5 @@ STOP_FRAMEWORK=1                           # 1 = stop the Kindle reader UI while
 BRIDGE_TOKEN=""                           # must match BRIDGE_TOKEN in the server .env
 FULL_REFRESH_EVERY=0                      # 0 = full (flashing) refresh only when the app asks (screen/page/song change) or on tab keys; N>0 adds one every N drawn frames
 FLIP_SIDE_BUTTONS=1                       # 1 = upper side buttons go to the next tab (RTL layout), 0 = previous
+FETCH_TIMEOUT=15                          # hard timeout (s) for every bridge call; the stock wget has no -T
+FAIL_HINT_AFTER=3                         # draw the "bridge unreachable" footer after N consecutive failed fetches

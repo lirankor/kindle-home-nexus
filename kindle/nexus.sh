@@ -1,6 +1,6 @@
 #!/bin/sh
 # Kindle Home Nexus client: buttons -> bridge /key/<name>, PNG -> eips.
-# Runs on the Kindle 4's own busybox 1.7.2 /bin/sh (no read -t, no od; hexdump -e only from files).
+# Runs on the Kindle 4's own busybox 1.7.2 /bin/sh (no read -t, no od, no wget -T, wget -O refuses existing files; hexdump -e only from files).
 # Usage: nexus.sh start|stop|restart|status|run
 export PATH=/usr/sbin:/sbin:/usr/bin:/bin
 DIR=/mnt/us/nexus
@@ -11,17 +11,30 @@ KIDS=$DIR/children.pid
 FIFO=/tmp/nexus.keys
 SHOT=/tmp/nexus.png
 LAST=/tmp/nexus.last.md5
+STAMP=/tmp/nexus.last_ok   # epoch of the last successful fetch; cron.sh restarts us when it goes stale
+URL="$BRIDGE_URL/$BRIDGE_TOKEN"
+T=${FETCH_TIMEOUT:-15}
 log() { echo "$(date '+%H:%M:%S') $*" >> $LOG; }
+get() { # get <outfile|-> <path> : wget with a hard timeout. busybox 1.7.2 wget has no -T, and a bridge that
+  # vanishes mid-request (container recreate) leaves a half-open socket that would otherwise block forever.
+  ( timeout -t $T wget -q -O "$1" "$URL$2"; r=$?; exit $r ) 2>/dev/null   # r=$? keeps ash from exec-ing wget (else "Terminated" leaks to the log)
+}
+ok() { date +%s > $STAMP; }
+nexus_pids() { # every shell running "nexus.sh run": main loop, its reader/poller subshells AND their while-loop grandchildren
+  for p in /proc/[0-9]*; do case "$( { tr '\0' ' ' < $p/cmdline; } 2>/dev/null )" in *"nexus.sh run ") echo ${p#/proc/};; esac; done   # anchored: never match some other shell quoting it
+}
 
 COUNT=/tmp/nexus.count
+FAILS=0
 fetch() { # fetch <path> [full] ; draws if we got a non-empty file that differs from the last frame
   rm -f $SHOT.tmp
-  wget -q -O $SHOT.tmp "$BRIDGE_URL/$BRIDGE_TOKEN$1" 2>/dev/null
-  if [ -s $SHOT.tmp ]; then
+  if get $SHOT.tmp "$1" && [ -s $SHOT.tmp ]; then
+    ok
+    [ $FAILS -gt 0 ] && { FAILS=0; rm -f $LAST; }   # recovered: force a redraw to wipe the "bridge unreachable" line
     sum=$(md5sum $SHOT.tmp | cut -c1-32)
     if [ "$sum" != "$(cat $LAST 2>/dev/null)" ]; then
       n=$(( $(cat $COUNT 2>/dev/null || echo 0) + 1 ))
-      hint=$(wget -q -O - "$BRIDGE_URL/$BRIDGE_TOKEN/hint" 2>/dev/null)
+      hint=$(get - /hint)
       every=${FULL_REFRESH_EVERY:-0}
       if [ "$2" = "full" ] || [ "$hint" = "full" ] || { [ "$every" -gt 0 ] && [ $n -ge "$every" ]; }; then flag="-f"; n=0; else flag=""; fi
       echo $n > $COUNT
@@ -29,8 +42,10 @@ fetch() { # fetch <path> [full] ; draws if we got a non-empty file that differs 
     fi
     return 0
   fi
-  log "fetch failed: $1"
-  eips 0 39 "bridge unreachable $(date +%H:%M)" 2>/dev/null
+  rm -f $SHOT.tmp
+  FAILS=$(( FAILS + 1 ))
+  log "fetch failed ($FAILS): $1"
+  [ $FAILS -ge ${FAIL_HINT_AFTER:-3} ] && eips 0 39 "bridge unreachable $(date +%H:%M)" 2>/dev/null
   return 1
 }
 
@@ -46,13 +61,13 @@ reader() { # reader <device> <n> : one line "sec usec type code value" per input
 report_battery() { # tell the bridge our battery level and charging state (shown by the app)
   lvl=$(cat /sys/devices/system/yoshi_battery/yoshi_battery0/battery_capacity 2>/dev/null | tr -dc 0-9)
   chg=$(lipc-get-prop com.lab126.powerd isCharging 2>/dev/null | tr -dc 0-9)
-  [ -n "$lvl" ] && wget -q -O /dev/null "$BRIDGE_URL/$BRIDGE_TOKEN/battery?level=$lvl&charging=${chg:-0}" 2>/dev/null
+  [ -n "$lvl" ] && get - "/battery?level=$lvl&charging=${chg:-0}" >/dev/null   # never -O /dev/null: this wget refuses existing files
 }
 
 poller() { # sleep what the bridge says (5 s while music plays on the Media tab), else POLL_SECONDS
   while :; do
     report_battery >/dev/null 2>&1
-    s=$(wget -q -O - "$BRIDGE_URL/$BRIDGE_TOKEN/poll?default=$POLL_SECONDS" 2>/dev/null | tr -dc 0-9)
+    s=$(get - "/poll?default=$POLL_SECONDS" | tr -dc 0-9)
     [ -n "$s" ] && [ "$s" -ge 1 ] && [ "$s" -le 600 ] || s=$POLL_SECONDS
     sleep $s; echo "0 0 poll 0 0"
   done
@@ -76,6 +91,7 @@ run() {
   lipc-set-prop com.lab126.powerd preventScreenSaver 1 2>/dev/null
   eips -c
   rm -f $FIFO $LAST; mkfifo $FIFO
+  ok   # the watchdog's stale clock starts now, not at an unknown time in the past
   reader /dev/input/event0 0 > $FIFO &
   R0=$!
   reader /dev/input/event1 1 > $FIFO &
@@ -103,13 +119,21 @@ case "$1" in
     ( /bin/sh $0 run >> $LOG 2>&1 < /dev/null & echo $! > $PID )
     sleep 1; echo "started pid $(cat $PID)";;
   stop)
-    [ -f $PID ] && kill $(cat $PID) 2>/dev/null
-    [ -f $KIDS ] && kill $(cat $KIDS) 2>/dev/null
-    killall dd 2>/dev/null; rm -f $PID $KIDS
+    pids=$(nexus_pids)   # killing only pid+children leaked the two reader loops (grandchildren) on every restart
+    [ -n "$pids" ] && kill $pids 2>/dev/null
+    killall dd 2>/dev/null
+    # the main loop only handles TERM once a fetch in flight returns (<= FETCH_TIMEOUT); wait, then force
+    i=0; while [ -n "$(nexus_pids)" ] && [ $i -lt 20 ]; do sleep 1; i=$(( i + 1 )); done
+    pids=$(nexus_pids); [ -n "$pids" ] && kill -9 $pids 2>/dev/null
+    killall dd 2>/dev/null
+    rm -f $PID $KIDS $STAMP
     lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
     [ "$STOP_FRAMEWORK" = "1" ] && /etc/init.d/framework start >/dev/null 2>&1
     echo stopped;;
   restart) /bin/sh $0 stop; sleep 2; /bin/sh $0 start;;
-  status) if [ -f $PID ] && kill -0 $(cat $PID) 2>/dev/null; then echo "running pid $(cat $PID)"; else echo "not running"; fi; tail -5 $LOG 2>/dev/null;;
+  status)
+    if [ -f $PID ] && kill -0 $(cat $PID) 2>/dev/null; then echo "running pid $(cat $PID)"; else echo "not running"; fi
+    [ -f $STAMP ] && echo "last successful fetch $(( $(date +%s) - $(cat $STAMP) ))s ago"
+    tail -5 $LOG 2>/dev/null;;
   *) echo "usage: $0 start|stop|restart|status"; exit 1;;
 esac
