@@ -18,3 +18,4 @@ WAKE_HOLD=300                             # after an early resume (power slider)
 WIFI_WAIT=20                              # max s to wait for wifid CONNECTED after a resume (~5 s measured)
 SLEEP_FALLBACK=600                        # bridge unreachable right after a wake: sleep this long and try again
 SLEEP_OVERRIDE=                           # rollout test only: a fixed sleep length in s (e.g. 120) instead of the bridge schedule; empty = schedule
+SLEEP_OVERRIDE_CYCLES=3                   # ... for this many cycles after a start, then the schedule applies

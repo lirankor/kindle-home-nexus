@@ -101,6 +101,7 @@ poller() { # one "poll" line per cadence the bridge asks for (/schedule: 5 s whi
 # (bounded), ask /schedule again, draw, suspend again — about 10 s awake per cycle. Anything unexpected (a key, an early
 # resume = power slider, a bridge that cannot be reached right after a wake) is handled without ever busy-looping.
 AWAKE_UNTIL=0   # epoch: after an early resume (slider) or a failed suspend we stay awake until then
+OVERRIDE_LEFT=${SLEEP_OVERRIDE_CYCLES:-3}   # how many SLEEP_OVERRIDE test cycles before the bridge schedule takes over
 WOKE=$(date +%s)
 BLOCKED=
 sleep_blocked() { # prints why we must stay awake, nothing when sleeping is fine
@@ -133,8 +134,9 @@ suspend_for() { # suspend_for <secs> <label> : RTC alarm + suspend; returns 1 wh
   case "$rtcnow" in ''|*[!0-9]*) AWAKE_UNTIL=$(( $(date +%s) + WAKE_HOLD )); log "no rtc clock, staying awake ${WAKE_HOLD}s"; return 1;; esac
   alarm=$(( rtcnow + $1 ))
   echo 0 > $RTC/wakealarm 2>/dev/null   # must be cleared before a new value is accepted
-  echo $alarm > $RTC/wakealarm 2>/dev/null
-  [ "$(cat $RTC/wakealarm 2>/dev/null)" = "$alarm" ] || { AWAKE_UNTIL=$(( $(date +%s) + WAKE_HOLD )); log "wakealarm not set ($alarm), staying awake ${WAKE_HOLD}s"; return 1; }
+  # pmic_rtc's wakealarm is write-only (reads back empty, even a past value is taken with rc 0 — verified 2026-10-15), so the
+  # only guards are our own arithmetic (secs validated by the caller, alarm = the RTC's own clock + secs) and the write's rc.
+  echo $alarm > $RTC/wakealarm 2>/dev/null || { AWAKE_UNTIL=$(( $(date +%s) + WAKE_HOLD )); log "wakealarm write failed ($alarm), staying awake ${WAKE_HOLD}s"; return 1; }
   t0=$(date +%s)
   echo $(( t0 + $1 )) > $SLEEPING; ok
   log "sleeping ${1}s until $2 (awake $(( t0 - WOKE ))s)"
@@ -177,7 +179,9 @@ maybe_sleep() { # called from the main loop after a poll the bridge flagged "sle
       return
     fi
     secs=$4; wake=$3; label=$6
-    [ -n "$SLEEP_OVERRIDE" ] && { secs=$SLEEP_OVERRIDE; wake=$(( $(date +%s) + secs )); label="test+${secs}s"; }   # rollout test: short cycles without touching the bridge
+    if [ -n "$SLEEP_OVERRIDE" ] && [ $OVERRIDE_LEFT -gt 0 ]; then   # rollout test: a few short cycles, then the real schedule (no ssh needed to switch)
+      OVERRIDE_LEFT=$(( OVERRIDE_LEFT - 1 )); secs=$SLEEP_OVERRIDE; wake=$(( $(date +%s) + secs )); label="test+${secs}s ($OVERRIDE_LEFT left)"
+    fi
     case "$secs" in ''|*[!0-9]*) log "bad schedule: $sched"; return;; esac
     [ "$secs" -ge $MIN_SLEEP ] && [ "$secs" -le $MAX_SLEEP ] || { log "schedule out of range: $sched"; return; }
     report_battery

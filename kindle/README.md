@@ -47,7 +47,8 @@ suspend keep it awake for `WAKE_HOLD` s; a bridge that cannot be reached after a
 **Kill switches:** `SLEEP=0` in `config` (+ restart), `touch /mnt/us/nexus/NOSLEEP` (live, checked before every
 suspend), `DISABLED` (no client at all), or `SLEEP_ENABLED=0` in the server `.env` + bridge recreate. A sleeping
 device is unreachable until it wakes: flick the power slider (it then stays awake 5 min) and `ssh kindle`.
-`SLEEP_OVERRIDE=120` = fixed 2-min cycles for a rollout test. `nexus.sh status` shows the sleep state and governor.
+`SLEEP_OVERRIDE=120` (+ `SLEEP_OVERRIDE_CYCLES=3`) = three fixed 2-min cycles after a start for a rollout test. The pmic_rtc
+`wakealarm` reads back empty always (write-only), so the client cannot verify the alarm beyond the write succeeding. `nexus.sh status` shows the sleep state and governor.
 
 Button map: 5-way = up/down/left/right/select, upper side buttons = prev tab,
 lower side buttons = next tab, Back = escape, Menu = menu, Home = home, keyboard = keyboard.

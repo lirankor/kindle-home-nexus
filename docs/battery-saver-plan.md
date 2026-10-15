@@ -72,7 +72,8 @@ window (`lastPhoto` cache); F1/F4 on the saver pass `force` and still get a new 
 - **Kill switches:** `SLEEP=0` in `/mnt/us/nexus/config` (+ `nexus.sh restart`), or `touch /mnt/us/nexus/NOSLEEP` (checked before every
   suspend, no restart needed), `DISABLED` stops the client entirely, `SLEEP_ENABLED=0` on the server. To reach a sleeping device: flick the
   power slider (it then stays awake 5 min), then `ssh kindle`.
-- `SLEEP_OVERRIDE=120` in the config = fixed 2-min cycles for the rollout test (the bridge schedule is ignored, label `test+120s`).
+- `SLEEP_OVERRIDE=120` + `SLEEP_OVERRIDE_CYCLES=3` in the config = three fixed 2-min cycles after a start, then the bridge schedule
+  (rollout test; label `test+120s (n left)`).
 
 ### Rollout log
 - 18:35–18:41Z bridge/app deployed (bridge Dockerfile now copies `schedule.js`; the first recreate crash-looped without it); panel reset to
@@ -80,4 +81,33 @@ window (`lastPhoto` cache); F1/F4 on the saver pass `force` and still get a new 
 - **Stage 1 (awake tweaks) live 18:41:51Z**, old config kept (new keys appended, `SLEEP=0`): `cpu governor ondemand` logged, bridge sees
   `/schedule?default=20` + `/battery` + `/screen.png?fresh=1&etag=…` per poll, `/hint` only after a drawn frame; curl check of
   `?etag=<current>` → `200`, `Content-Length: 0`, `X-Unchanged: 1`.
-- Stage 2/3: see the end of this section (filled in when the screensaver came).
+- 18:50Z amp off, **saver at 18:53:39Z**; first `/sleep` 18:53:40Z but the device stayed awake: `wakealarm not set` — the pmic_rtc
+  `wakealarm` **reads back empty always** (even a past value is accepted with rc 0; verified by hand 19:02Z), so the read-back guard
+  was a false negative (safe failure: awake, retry after `WAKE_HOLD`). Hand test 19:04:36Z: alarm +45 → `echo mem` returned 19:05:20Z
+  (44 s), Wi-Fi CONNECTED on return. Guard changed to "our arithmetic + the write's rc"; client restarted 19:07:10Z with
+  `SLEEP=1 SLEEP_OVERRIDE=120 SLEEP_OVERRIDE_CYCLES=3`.
+- **Stage 2 (three 120 s cycles)** — device log (UTC, device clock ≈2 s behind the server) / bridge log:
+  `19:12:18 sleeping 120s (awake 308s)` → `19:14:18 resumed after 120s (planned 120)`, `wifi CONNECTED after 0s`, bridge
+  `/schedule` 19:14:22.99Z, `/battery`, `/sleep` 19:14:23.78Z → `19:14:22 sleeping 120s (awake 4s)` → `19:16:23 resumed after 121s`
+  → bridge hits 19:16:28.1–28.9Z → `sleeping (awake 4s)` → `19:18:27 resumed after 120s` → bridge 19:18:32.9–33.6Z. Each wake
+  produced a bridge hit ≤5 s after the resume and a fresh frame (`/sleep` 200, 560–630 ms, new etag each time).
+- **Stage 3 (real schedule)** — the 4th cycle took the grid: `19:18:31 sleeping 88s until 21:20` → `19:20:00 resumed after 89s
+  (planned 88)` → `19:20:04 sleeping 594s until 21:30 (awake 4s)` → `19:29:58 resumed after 594s (planned 594)`; healthz `sleep`
+  = `{label: "21:30", sleepSec: 594, night: false}`. At 19:29:43Z `/schedule?woke=1` was sent from the server to hold it awake
+  for the ssh read-out (log above) — it then polled normally at 60 s and goes back to sleep at the next poll after the hold.
+  Test override lines removed from the device config (SLEEP=1 stays); `cron.sh` never fired during the cycles.
+- **Measured awake time per cycle: 4 s** (resume → next suspend, device log), of which ~1 s is bridge traffic
+  (`/schedule` + `/battery` + `/sleep` ≈ 0.6–0.8 s incl. the re-shot); planned → actual sleep length exact to ±1 s.
+  CPU `time_in_state` after the governor change: 160 MHz accruing (177 s of 160 MHz in the first ~50 min awake vs 0 before).
+  Battery stayed on the charger (96–100 %, `charging=1`) during the whole test, so no drain figure yet — the owner's next unplugged
+  day gives it (healthz `battery` once a minute while awake, once per wake while sleeping).
+
+### Owner's button-wake test (not run — needs a person at the device, ~90 s)
+Question: does a button press wake the Kindle 4 from suspend (the keypad/fiveway expose no wakeup switch, so probably not)?
+1. Agent: wait for the saver + a sleep cycle (healthz `sleep` not null), note `nextWake` (local HH:MM on the badge).
+2. Owner: at least 20 s after the badge appeared, press the 5-way centre once; wait; do not touch the slider.
+3. Agent watches the bridge log for `/schedule`, `/sleep` or `/key/select` arriving **before** `nextWake`; then (after the next
+   wake or a slider flick) reads the device log: `resumed early after Ns (planned M): power slider? staying awake 300s` = the button
+   woke it (the client then holds 5 min and processes the queued key); `resumed after Ms (planned M)` = it did not, and the press
+   was queued in the FIFO and applied at the scheduled wake (the saver wakes to the UI then).
+4. Either way the panel is back within ~5 s of a slider flick (early resume → `/schedule?woke=1`, awake 5 min, badge dropped).
