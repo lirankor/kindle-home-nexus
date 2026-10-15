@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { demoMediaSnapshot, demoMusicList, demoQueue, demoRadioLists } from "@/lib/media";
 import type { MusicTab } from "@/lib/media";
+import { requestFullRefresh } from "@/lib/eink";
 import { routeTree } from "@/routeTree.gen";
 
 // The whole shell, with the server functions mocked: demo home data, a live-looking media snapshot.
@@ -107,10 +108,11 @@ describe("Panel idle behaviour and persistence", () => {
     expect(dialog()).toBe("רדיו");
   });
 
-  it("holds off the screensaver on the amp view while the amp is on, and starts it once the amp is off", async () => {
+  it("holds off the screensaver on the amp view only while the amp really plays: a paused queue lets it start", async () => {
     const on = demoMediaSnapshot();
     on.amp.on = true;
     on.amp.state = "playing";
+    on.amp.playing = true;
     on.amp.source = "SERVER";
     on.nowPlaying = { ...on.nowPlaying, kind: "music", title: "New Born", artist: "Muse" };
     on.queue = demoQueue("Mix");
@@ -136,18 +138,78 @@ describe("Panel idle behaviour and persistence", () => {
     });
     expect(document.querySelector(".photo-screen")).toBeNull();
     expect(dialog()).toBe("תצוגת המגבר");
-    // Amp off: the idle count starts, and the screensaver follows 5 min later.
-    const off = structuredClone(on);
-    off.amp.on = false;
-    off.amp.state = "off";
-    off.queue = null;
-    mocks.getMediaSnapshot.mockResolvedValue(result(off));
+    // Queue paused, amp still on (2026-10-15: this kept the panel awake for 22 min): the idle count
+    // starts, and the screensaver follows 5 min later.
+    const paused = structuredClone(on);
+    paused.amp.state = "idle";
+    paused.amp.playing = false;
+    paused.queue = { ...paused.queue!, status: "paused" };
+    mocks.getMediaSnapshot.mockResolvedValue(result(paused));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(11_000);
     });
     expect(document.querySelector(".photo-screen")).toBeNull();
     await act(async () => {
+      await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
+    });
+    expect(document.querySelector(".photo-screen")).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 1000);
+    });
+    expect(document.querySelector(".photo-screen")).not.toBeNull();
+  });
+
+  it("starts the screensaver on the amp view 5 min after the amp went off", async () => {
+    const off = demoMediaSnapshot();
+    off.amp.on = false;
+    off.amp.state = "off";
+    off.amp.playing = false;
+    off.queue = null;
+    mocks.getMediaSnapshot.mockResolvedValue({
+      configured: true,
+      amp: true,
+      jellyfin: true,
+      snapshot: off,
+      lang: "he" as const,
+    });
+    mocks.startAmpPowerOn.mockResolvedValue({ ok: false, error: "nope" });
+    await renderApp();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    press("PageUp");
+    press("F3"); // amp off: the amp view opens (the power-on call is refused here)
+    expect(dialog()).toBe("תצוגת המגבר");
+    await act(async () => {
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1000);
+    });
+    expect(document.querySelector(".photo-screen")).not.toBeNull();
+  });
+
+  it("snapshot polls and full-refresh hints are not activity: only keys restart the 5 min count", async () => {
+    await renderApp();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    press("PageUp"); // Media tab, nothing plays here (cards only)
+    const pollsBefore = mocks.getMediaSnapshot.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
+    });
+    // The snapshot kept polling (10 s cadence) and the app asked for full refreshes meanwhile.
+    expect(mocks.getMediaSnapshot.mock.calls.length).toBeGreaterThan(pollsBefore + 10);
+    act(() => requestFullRefresh());
+    act(() => requestFullRefresh());
+    expect(document.querySelector(".photo-screen")).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 1000);
+    });
+    expect(document.querySelector(".photo-screen")).not.toBeNull();
+    // A key wakes it and starts a fresh count: 4 min later still awake, 5 min later asleep again.
+    press("ArrowDown");
+    expect(document.querySelector(".photo-screen")).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
+    });
+    expect(document.querySelector(".photo-screen")).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 1000 + 1000);
     });
     expect(document.querySelector(".photo-screen")).not.toBeNull();
   });

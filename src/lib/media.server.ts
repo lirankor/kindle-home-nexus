@@ -1300,6 +1300,8 @@ export function buildMediaSnapshot(
       available,
       on,
       state,
+      // HA's yamaha_ynca player, or the DLNA renderer entity (independent of the ynca link).
+      playing: on && (state === "playing" || states.get(AMP.dlna)?.state === "playing"),
       source,
       volumeDb: stateNum(states.get(AMP.volumeDb)),
       volume: attrNum(a["volume_level"]),

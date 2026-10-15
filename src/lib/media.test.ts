@@ -366,6 +366,7 @@ describe("snapshot from HA states", () => {
       available: true,
       on: true,
       state: "playing",
+      playing: true,
       source: "NET RADIO",
       volumeDb: -44.5,
       volume: 0.37,
@@ -379,6 +380,25 @@ describe("snapshot from HA states", () => {
     });
     expect(snap.plugOn).toBe(true);
     expect(snap.tv.state).toBe("off");
+  });
+  it("playing = HA's player or the DLNA renderer says playing, never merely on", () => {
+    const amp = (player: string, dlna?: string) =>
+      buildMediaSnapshot(
+        new Map([
+          [
+            "media_player.r_n500_main",
+            st("media_player.r_n500_main", player, { source: "SERVER" }),
+          ],
+          ...(dlna
+            ? [["media_player.yamaha_r_n500", st("media_player.yamaha_r_n500", dlna)] as const]
+            : []),
+        ]),
+      ).amp;
+    expect(amp("playing").playing).toBe(true);
+    expect(amp("on", "playing").playing).toBe(true); // ynca synthesised from the XML, DLNA plays
+    expect(amp("idle", "idle").playing).toBe(false);
+    expect(amp("on").playing).toBe(false);
+    expect(amp("off", "playing").playing).toBe(false);
   });
   it("reports an off / unavailable amp without inventing a source", () => {
     const off = buildMediaSnapshot(

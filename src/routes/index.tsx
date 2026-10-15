@@ -289,9 +289,12 @@ function HomeControl() {
     root.dir = rtl ? "rtl" : "ltr";
   }, [lang, rtl]);
 
-  // No screensaver on the amp view while the amp is on, whatever the source: that screen is the
-  // "now playing" display. The 5 min count starts over once the amp goes off or the view is left.
-  const keepAwake = media.screen === "now" && !!media.data?.amp.on;
+  // No screensaver on the amp view while something really plays on the amp (HA / DLNA renderer
+  // `playing`, whatever the source): that screen is the "now playing" display. An amp that is merely
+  // on, or a paused / stopped queue, does not hold it off (2026-10-15: a paused queue kept the panel
+  // awake for 22 min). The 5 min count starts over once playback stops or the view is left. Only key
+  // presses reset the count below — snapshot polls and refresh hints never do.
+  const keepAwake = media.screen === "now" && !!media.data?.amp.playing;
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     const reset = () => {

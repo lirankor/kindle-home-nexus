@@ -100,6 +100,7 @@ export function applyMediaOptimistic(s: MediaSnapshot, action: MediaAction): Med
       next.amp.on = action.on;
       next.amp.state = action.on ? "on" : "off";
       next.amp.available = true;
+      if (!action.on) next.amp.playing = false;
       if (!action.on) next.nowPlaying = { ...EMPTY_PLAY };
       else if (next.amp.source) next.nowPlaying.kind = KIND_BY_SOURCE[next.amp.source];
       break;
@@ -142,6 +143,7 @@ export function applyMediaOptimistic(s: MediaSnapshot, action: MediaAction): Med
       break;
     case "radio.playback":
       next.amp.state = action.op === "play" ? "playing" : "idle";
+      next.amp.playing = action.op === "play";
       break;
     case "all_off":
       next.amp.on = false;

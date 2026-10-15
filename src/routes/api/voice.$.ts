@@ -103,6 +103,7 @@ async function stateView(s: MediaSnapshot | null, queue: QueueProgress | null, e
           available: s.amp.available,
           on: s.amp.on,
           state: s.amp.state,
+          playing: s.amp.playing,
           source: s.amp.source,
           volumeDb: s.amp.volumeDb,
           muted: s.amp.muted,
