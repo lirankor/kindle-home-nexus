@@ -28,6 +28,8 @@ import {
 import type { StallState } from "@/lib/queue-transport";
 import { classifyAmpError, describeProbe, sendWithRetries, waitUntilReady } from "@/lib/power-on";
 import type { AmpProbe } from "@/lib/power-on";
+import { AMP_XML_GRACE_MS, deriveAmpPower, shouldCyclePlug } from "@/lib/amp-state";
+import type { AmpPowerVerdict } from "@/lib/amp-state";
 import type { CoverParams, StationArtResult, StationArtSource } from "@/lib/station-art";
 import type { HaState } from "@/lib/home.server";
 import {
@@ -1066,6 +1068,8 @@ export const haMedia = {
 // ---- Power-on routine (async job; the UI polls powerOnStatus) ----
 export const POWER_ON_POLL_MS = 5000;
 export const POWER_ON_TIMEOUT_MS = 4 * 60_000;
+/** Plug off for this long before on again when the amp's LAN is asleep (see runPowerOn). */
+export const PLUG_CYCLE_OFF_MS = 5000;
 
 /** Resolve true when host:port accepts a TCP connection (one attempt). */
 export const tcpOpen = (host: string, port: number, timeoutMs = 3000) =>
@@ -1151,9 +1155,26 @@ async function runPowerOn(target: AmpSource | null) {
       setPowerStep("done");
       return;
     }
+    const host = env("AMP_HOST");
+    // Plug already on but the amp silent with tcp 80 closed: its LAN is asleep in standby (the R-N500
+    // drops it ~15 min after standby, 2026-10-15) — plug(true) would be a no-op and tcp 80 never opens.
+    // Only a plug cycle wakes it; never while HA still sees the amp on (then the XML API merely stalls).
+    if (host && haConfigured()) {
+      const states = await fetchStates().catch(() => null);
+      const plug = states?.get(AMP.plug)?.state;
+      const cycle = shouldCyclePlug({
+        plugOn: plug === "on" ? true : plug === "off" ? false : null,
+        tcp80Open: await tcpOpen(host, 80),
+        haState: states?.get(AMP.player)?.state ?? null,
+      });
+      if (cycle) {
+        plog("plug on but the amp is silent (tcp 80 closed): cycling the plug");
+        await haMedia.plug(false);
+        await sleep(PLUG_CYCLE_OFF_MS);
+      }
+    }
     await haMedia.plug(true);
     setPowerStep("wait");
-    const host = env("AMP_HOST");
     if (host) {
       const t0 = Date.now();
       if (!(await waitForTcp(host, 80))) throw new MediaError("Amp did not come up");
@@ -1297,61 +1318,96 @@ export function buildMediaSnapshot(
   };
 }
 
+type BasicStatusLike = {
+  power: boolean;
+  input: string | null;
+  volumeDb: number | null;
+  muted: boolean;
+};
+type BasicCache = { at: number; value: BasicStatusLike };
 /**
- * HA's amp entity is unavailable for minutes after every amp power cut (yamaha_ynca backoff). When
- * AMP_HOST is set, Basic_Status from the XML API stands in for it so the panel keeps showing the truth.
+ * Power as the panel shows it (pure rules in amp-state.ts): the XML Basic_Status wins whenever it
+ * answers (it says Standby / On directly; HA's yamaha_ynca drops for minutes after every power cut
+ * and ~15 min into standby when the R-N500 puts its LAN to sleep), its last good answer within a 10 s
+ * grace, then the plug (off = off), then HA; otherwise unknown = off. HA's entity is kept only while
+ * it agrees that the amp is on (it carries titles and the playback state); a stale HA "on" with the
+ * amp in standby or the plug off is replaced. Returns the verdict for logs and tests.
  */
 export function overlayAmpStatus(
   states: Map<string, HaState>,
-  basic: { power: boolean; input: string | null; volumeDb: number | null; muted: boolean } | null,
-): void {
-  if (!basic) return;
+  basic: BasicStatusLike | null,
+  cached: BasicCache | null = null,
+  now = Date.now(),
+): AmpPowerVerdict {
   const player = states.get(AMP.player);
-  if (player && player.state !== "unavailable" && player.state !== "unknown") return;
-  const volumeLevel =
-    basic.volumeDb === null
-      ? null
-      : (basic.volumeDb - AMP.volumeMinDb) / (AMP.volumeMaxDb - AMP.volumeMinDb);
+  const plug = states.get(AMP.plug)?.state;
+  const verdict = deriveAmpPower({
+    xml: basic ? { power: basic.power, input: basic.input } : null,
+    cached: cached ? { at: cached.at, value: cached.value } : null,
+    now,
+    haState: player?.state ?? null,
+    plugOn: plug === "on" ? true : plug === "off" ? false : null,
+    graceMs: AMP_XML_GRACE_MS,
+  });
+  const haOn = !!player && !["unavailable", "unknown", "off", "standby"].includes(player.state);
   const mk = (entity_id: string, state: string, attributes: Record<string, unknown>): HaState =>
     ({ entity_id, state, attributes, last_changed: "", last_updated: "" }) as unknown as HaState;
-  states.set(
-    AMP.player,
-    mk(AMP.player, basic.power ? "on" : "off", {
-      source: basic.input,
-      ...(volumeLevel === null ? {} : { volume_level: Math.max(0, Math.min(1, volumeLevel)) }),
-      is_volume_muted: basic.muted,
-      friendly_name: "R-N500 (xml)",
-    }),
-  );
-  if (basic.volumeDb !== null)
+  const xml = verdict.via === "xml" ? basic : verdict.via === "xml-cached" ? cached?.value : null;
+  if (xml) {
+    if (verdict.on && haOn) return verdict;
+    const volumeLevel =
+      xml.volumeDb === null
+        ? null
+        : (xml.volumeDb - AMP.volumeMinDb) / (AMP.volumeMaxDb - AMP.volumeMinDb);
     states.set(
-      AMP.volumeDb,
-      mk(AMP.volumeDb, String(basic.volumeDb), { unit_of_measurement: "dB" }),
+      AMP.player,
+      mk(AMP.player, xml.power ? "on" : "off", {
+        source: xml.input,
+        ...(volumeLevel === null ? {} : { volume_level: Math.max(0, Math.min(1, volumeLevel)) }),
+        is_volume_muted: xml.muted,
+        friendly_name: "R-N500 (xml)",
+      }),
     );
+    if (xml.volumeDb !== null)
+      states.set(
+        AMP.volumeDb,
+        mk(AMP.volumeDb, String(xml.volumeDb), { unit_of_measurement: "dB" }),
+      );
+  } else if (verdict.via === "plug-off" && haOn)
+    states.set(AMP.player, mk(AMP.player, "off", { friendly_name: "R-N500 (plug off)" }));
+  return verdict;
 }
 
-type BasicCache = { at: number; value: Awaited<ReturnType<typeof amp.basicStatus>> };
-const BASIC_CACHE_MS = 30_000;
 let basicCache: BasicCache | null = null;
-/** Basic_Status with a 30 s last-good fallback: the amp's XML API stalls for a few seconds after menu
- * changes, and one failed read must not make the panel believe the amp is off (seen 2026-10-08). */
-async function basicStatusCached() {
+/** Basic_Status now, plus the last good answer (overlayAmpStatus applies the 10 s grace): the amp's
+ * XML API stalls for a few seconds after menu changes, and one failed read must not flip the panel. */
+async function basicStatusCached(): Promise<{
+  live: BasicStatusLike | null;
+  cached: BasicCache | null;
+}> {
   try {
     const value = await amp.basicStatus();
     basicCache = { at: Date.now(), value };
-    return value;
+    return { live: value, cached: basicCache };
   } catch {
-    return basicCache && Date.now() - basicCache.at < BASIC_CACHE_MS ? basicCache.value : null;
+    return { live: null, cached: basicCache };
   }
 }
 
+let lastVerdictKey = "";
 export async function readMediaSnapshot(): Promise<MediaSnapshot> {
-  const [states, persisted, basic] = await Promise.all([
+  const [states, persisted, xml] = await Promise.all([
     ampConfigured() ? fetchStates().catch(() => new Map<string, HaState>()) : fetchStates(),
     loadState(),
-    ampConfigured() ? basicStatusCached() : Promise.resolve(null),
+    ampConfigured() ? basicStatusCached() : Promise.resolve({ live: null, cached: null }),
   ]);
-  overlayAmpStatus(states, basic);
+  const verdict = overlayAmpStatus(states, xml.live, xml.cached);
+  // One line per change, so a stale "on" can be traced to its source afterwards.
+  const verdictKey = `${verdict.on ? "on" : "off"}/${verdict.available ? "known" : "unknown"}/${verdict.via}`;
+  if (verdictKey !== lastVerdictKey) {
+    lastVerdictKey = verdictKey;
+    console.log(`[amp] ${new Date().toISOString()} power ${verdictKey}`);
+  }
   const player = states.get(AMP.player);
   const source = attrs(player)["source"];
   const on = player !== undefined && !["off", "unavailable", "unknown"].includes(player.state);

@@ -47,8 +47,8 @@ const phonoResult = (): MediaSnapshotResult => {
 };
 
 /** The shell's wiring in miniature: footer from the panel, soft keys first, then the panel's keys. */
-function Harness({ lang }: { lang: "he" | "en" }) {
-  const panel = useMediaPanel({ active: true, lang, notify: () => {} });
+function Harness({ lang, active = true }: { lang: "he" | "en"; active?: boolean }) {
+  const panel = useMediaPanel({ active, lang, notify: () => {} });
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const footer = panel.screen ? panel.modalActions : panel.actions;
@@ -71,14 +71,16 @@ function Harness({ lang }: { lang: "he" | "en" }) {
   );
 }
 
-const renderPanel = (lang: "he" | "en" = "he") =>
-  render(
-    <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-    >
-      <Harness lang={lang} />
-    </QueryClientProvider>,
+const renderPanel = (lang: "he" | "en" = "he", active = true) => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const ui = (a: boolean) => (
+    <QueryClientProvider client={client}>
+      <Harness lang={lang} active={a} />
+    </QueryClientProvider>
   );
+  const r = render(ui(active));
+  return { ...r, setActive: (a: boolean) => r.rerender(ui(a)) };
+};
 const press = (key: string) =>
   act(() => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
@@ -405,5 +407,121 @@ describe("Media tab and amp view", () => {
       ),
     );
     expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
+  });
+
+  it("amp off: F3 reads Power on and starts the routine, the card shows the step, the amp view has Power on in F4", async () => {
+    const off = liveResult();
+    off.snapshot!.amp.on = false;
+    off.snapshot!.amp.state = "off";
+    mocks.getMediaSnapshot.mockResolvedValue(off);
+    const now = Date.now();
+    const waiting = {
+      running: true,
+      step: "wait" as const,
+      startedAt: now,
+      updatedAt: now,
+      elapsedMs: 0,
+      source: "NET RADIO" as const,
+    };
+    mocks.startAmpPowerOn.mockResolvedValue({ ok: true, status: waiting });
+    mocks.getPowerOnStatus.mockResolvedValue({ ...waiting, elapsedMs: 2000 });
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open the amplifier")).toBeVisible());
+    const footer = screen.getByRole("contentinfo");
+    const slots = () =>
+      Array.from(footer.querySelectorAll("[data-soft-key]")).map((b) => b.textContent);
+    await waitFor(() => expect(slots()).toEqual(["Movie mode", "TV power", "Power on", "All off"]));
+    const cards = Array.from(document.querySelectorAll<HTMLElement>(".media-cards button"));
+    expect(cards[1]?.textContent).toContain("Off");
+    press("F3");
+    await waitFor(() => expect(mocks.startAmpPowerOn).toHaveBeenCalledWith({ data: {} }));
+    const dialog = screen.getByRole("dialog", { name: "Amplifier view" });
+    await waitFor(() => expect(dialog.textContent).toContain("Waiting for the amplifier…"));
+    // The card under the view follows the routine: state line = the routine, body = the step.
+    expect(cards[1]?.textContent).toContain("Turning the amplifier on");
+    expect(cards[1]?.textContent).toContain("Waiting for the amplifier…");
+    // Amp view footer: Back, blank, Source, Power on — drawn pressed while the routine runs.
+    const modalSlots = Array.from(dialog.querySelectorAll("[data-soft-key]"));
+    expect(modalSlots.map((b) => b.textContent)).toEqual(["Back", "\u00a0", "Source", "Power on"]);
+    expect(modalSlots[3]?.getAttribute("aria-pressed")).toBe("true");
+    expect(footer.querySelector('[data-soft-key="F3"]')?.getAttribute("aria-pressed")).toBe("true");
+    // The failed routine shows its error on the card.
+    mocks.getPowerOnStatus.mockResolvedValue({
+      ...waiting,
+      running: false,
+      step: "failed",
+      error: "Amp did not come up",
+      updatedAt: Date.now(),
+    });
+    // The status arrives with the routine's 2 s poll.
+    await waitFor(() => expect(cards[1]?.textContent).toContain("Amp did not come up"), {
+      timeout: 4000,
+    });
+    expect(cards[1]?.textContent).toContain("Power-on failed");
+  });
+
+  it("an amp nobody can reach (plug on) reads as off with the reason, and F4 on the amp view powers it on", async () => {
+    const unknown = liveResult();
+    unknown.snapshot!.amp = {
+      ...unknown.snapshot!.amp,
+      on: false,
+      available: false,
+      state: "unavailable",
+      source: null,
+    };
+    mocks.getMediaSnapshot.mockResolvedValue(unknown);
+    mocks.startAmpPowerOn.mockResolvedValue({ ok: false, error: "nope" });
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open the amplifier")).toBeVisible());
+    const cards = Array.from(document.querySelectorAll<HTMLElement>(".media-cards button"));
+    await waitFor(() => expect(cards[1]?.textContent).toContain("Off"));
+    expect(cards[1]?.textContent).not.toContain("Unavailable");
+    press("F3");
+    await waitFor(() => expect(mocks.startAmpPowerOn).toHaveBeenCalledTimes(1));
+    const dialog = screen.getByRole("dialog", { name: "Amplifier view" });
+    expect(dialog.textContent).toContain("The amplifier is off");
+    expect(dialog.textContent).toContain("Power on: the right-hand button");
+    expect(dialog.textContent).toContain("No answer from the amplifier (plug on)");
+    press("F4");
+    await waitFor(() => expect(mocks.startAmpPowerOn).toHaveBeenCalledTimes(2));
+  });
+
+  it("fetches a fresh snapshot the moment the tab becomes active again", async () => {
+    const r = renderPanel("en", false);
+    await waitFor(() => expect(mocks.getMediaSnapshot).toHaveBeenCalledTimes(1));
+    r.setActive(true);
+    await waitFor(() => expect(mocks.getMediaSnapshot).toHaveBeenCalledTimes(2));
+    r.setActive(false);
+    r.setActive(true);
+    await waitFor(() => expect(mocks.getMediaSnapshot).toHaveBeenCalledTimes(3));
+  });
+
+  it("a stale snapshot does not decide where the amp opens: the amp view refetches, then routes", async () => {
+    // Polling died for two idle polls while the amp went to standby; the last snapshot still says
+    // NET RADIO on (2026-10-15: a 30-min-old "on" opened the amp view with no way to power on).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open the amplifier")).toBeVisible());
+    const off = liveResult();
+    off.snapshot!.amp.on = false;
+    off.snapshot!.amp.state = "off";
+    mocks.getMediaSnapshot.mockResolvedValue(off);
+    const later = Date.now() + 121_000;
+    const plug = {
+      running: true,
+      step: "plug" as const,
+      startedAt: later,
+      updatedAt: later,
+      elapsedMs: 0,
+      source: null,
+    };
+    mocks.startAmpPowerOn.mockResolvedValue({ ok: true, status: plug });
+    mocks.getPowerOnStatus.mockResolvedValue(plug);
+    vi.setSystemTime(later);
+    press("F3");
+    // Not the radio screen the stale "NET RADIO on" would have opened: the amp view, which refetches.
+    expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: "Radio" })).toBeNull();
+    await waitFor(() => expect(mocks.startAmpPowerOn).toHaveBeenCalledWith({ data: {} }));
   });
 });

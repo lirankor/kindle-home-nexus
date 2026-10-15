@@ -56,6 +56,7 @@ import {
   SEARCH_KEYS,
   SEARCH_KEY_COLS,
   SOURCE_ROWS,
+  ampPowerSlot,
   appendSearchChar,
   applyMediaOptimistic,
   applyMusicPlay,
@@ -100,6 +101,11 @@ const POLL_MS = 10000;
  *  this often too, so a track change lands within a few seconds instead of its idle 20 s. Radio and
  *  the other tabs keep the slow cadence. */
 export const QUEUE_POLL_MS = 5000;
+/** Snapshot cadence while the Media tab is not showing (another tab, the screensaver). */
+export const IDLE_POLL_MS = 60_000;
+/** A snapshot older than this (two idle polls: polling is dead or the server was away) must not decide
+ *  where the amp card opens (power-on vs. the amp view); the amp view refetches on open and routes then. */
+export const SNAPSHOT_STALE_MS = 2 * IDLE_POLL_MS;
 const POWER_ON_POLL_MS = 2000;
 /** HA publishes the new state a moment after an action: refetch the snapshot this long after it resolved. */
 const AFTER_ACTION_MS = 2000;
@@ -186,15 +192,24 @@ export function useMediaPanel({
   const query = useQuery<MediaSnapshotResult>({
     queryKey: ["media"],
     queryFn: () => getMediaSnapshot(),
+    // Another tab or the screensaver showing: a slow poll instead of none, so the snapshot the cards
+    // come back to is never minutes old (2026-10-15: an amp in standby showed "on" on return).
     refetchInterval: (q) =>
       !(active || screen !== null)
-        ? false
+        ? IDLE_POLL_MS
         : queuePlaying(q.state.data?.snapshot)
           ? QUEUE_POLL_MS
           : POLL_MS,
     refetchIntervalInBackground: true,
   });
   const result = query.data;
+  // Tab shown again: fetch now instead of at the next poll tick (the cards would otherwise show the
+  // last snapshot of the previous visit until then, 10–20 s on the panel).
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (active && !wasActive.current) refetchSnapshot();
+    wasActive.current = active;
+  }, [active, refetchSnapshot]);
   const fastPoll = (active || screen !== null) && queuePlaying(result?.snapshot);
   useEffect(() => {
     const el = document.documentElement;
@@ -380,8 +395,10 @@ export function useMediaPanel({
   const pendingOpenAmp = useRef(false);
   const openAmp = () => {
     const s = latest.current;
-    if (!s) {
-      // No snapshot yet (first seconds after a page load): show the amp view and route when it comes.
+    if (!s || Date.now() - query.dataUpdatedAt > SNAPSHOT_STALE_MS) {
+      // No snapshot yet (first seconds after a page load) or a stale one (the tab was away; 2026-10-15
+      // a 30-min-old "on" opened the amp view of an amp in standby): show the amp view, which refetches
+      // on open, and route when the fresh snapshot comes.
       pendingOpenAmp.current = true;
       open("now");
       return;
@@ -418,7 +435,7 @@ export function useMediaPanel({
     const want = sourceHomeScreen(data.amp.source);
     if (screenRef.current !== null && screenRef.current !== want) open(want);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restoreSource, data === null]);
+  }, [restoreSource, data === null, query.dataUpdatedAt]);
   /** Cancel in the source list: back to the screen it was opened from. */
   const closeSourceList = () => open(sourceOpener.current);
   useFullRefresh(`${screen ?? ""}/${screen === "radio" ? radioView : ""}`);
@@ -882,9 +899,16 @@ export function useMediaPanel({
       queuePage,
       showPowerOn ? 1 : 0,
       data?.amp.on ? 1 : 0,
+      data?.amp.available ? 1 : 0,
       nowKey,
     ].join("/"),
   );
+  const powerSlot = ampPowerSlot(data, !!powerOn?.running);
+  /** F4 on the amp view while the amp is off: the power-on routine (demo mode: the plain action). */
+  const powerOnNow = () => {
+    if (!configuredRef.current) void act({ type: "amp.power", on: true });
+    else if (!powerOn?.running) void startPowerOn();
+  };
   const pageQueue = (delta: 1 | -1) => {
     const page = queuePage + delta;
     if (page < 0 || page >= queuePages) return;
@@ -914,7 +938,16 @@ export function useMediaPanel({
       disabled: tvUnavailable,
       onClick: () => void act({ type: "tv", op: "toggle" }),
     },
-    { label: t("media.amp"), icon: Music2, onClick: openAmp },
+    // Amp off / standby / unknown: the slot says what opening the amp does then (power-on, step block
+    // on the amp view). On: unchanged.
+    powerSlot === "open"
+      ? { label: t("media.amp"), icon: Music2, onClick: openAmp }
+      : {
+          label: t("amp.powerOn"),
+          icon: Power,
+          pressed: powerSlot === "powering",
+          onClick: openAmp,
+        },
     { label: t("power.allOff"), icon: Power, onClick: () => void act({ type: "all_off" }) },
   ];
   const backToNow: DeviceAction = {
@@ -939,7 +972,14 @@ export function useMediaPanel({
           sourceKey,
           serverScreen && data?.queue
             ? { label: t("amp.playlist"), icon: ListOrdered, onClick: () => open("queue") }
-            : null,
+            : powerSlot !== "open"
+              ? {
+                  label: t("amp.powerOn"),
+                  icon: Power,
+                  pressed: powerSlot === "powering",
+                  onClick: powerOnNow,
+                }
+              : null,
         ]
       : screen === "source"
         ? [

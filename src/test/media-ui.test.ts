@@ -16,7 +16,7 @@ describe("albumDateLabel", () => {
 });
 
 import { demoMediaSnapshot, demoTracks } from "@/lib/media";
-import { applyMediaOptimistic, applyQueueSkip } from "@/lib/media-ui";
+import { ampPowerSlot, applyMediaOptimistic, applyQueueSkip } from "@/lib/media-ui";
 import type { QueueProgress } from "@/lib/media";
 
 const queueAt = (index: number, positionMs = 0): QueueProgress => {
@@ -95,5 +95,23 @@ describe("applyMediaOptimistic queue skips", () => {
     );
     expect(blind.nowPlaying.title).toBe("Old");
     expect(blind.queue?.track).toBeNull();
+  });
+});
+
+describe("ampPowerSlot (Media tab F3 / amp view F4)", () => {
+  const snap = (on: boolean, available = true) => {
+    const s = demoMediaSnapshot();
+    s.amp = { ...s.amp, on, available, state: on ? "playing" : available ? "off" : "unavailable" };
+    return s;
+  };
+  it("keeps the usual action while the amp is on or before the first snapshot", () => {
+    expect(ampPowerSlot(snap(true), false)).toBe("open");
+    expect(ampPowerSlot(snap(true), true)).toBe("open");
+    expect(ampPowerSlot(null, false)).toBe("open");
+  });
+  it("offers Power on while the amp is off (plug on + standby) or unknown, pressed while the routine runs", () => {
+    expect(ampPowerSlot(snap(false), false)).toBe("powerOn");
+    expect(ampPowerSlot(snap(false, false), false)).toBe("powerOn");
+    expect(ampPowerSlot(snap(false), true)).toBe("powering");
   });
 });

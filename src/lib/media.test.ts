@@ -21,6 +21,7 @@ import {
   xmlUnescape,
 } from "./media-protocol";
 import {
+  AMP,
   CATALOG_LOGO_HOSTS,
   FAVOURITES_LIST_ID,
   MIX_IDS,
@@ -33,6 +34,7 @@ import {
   berlinDay,
   buildMediaSnapshot,
   dedupeShuffle,
+  overlayAmpStatus,
   imageHostAllowed,
   yearsParam,
 } from "./media.server";
@@ -476,5 +478,67 @@ describe("decideVerify (the amp checked between track ends)", () => {
       kind: "foreign",
       uri: "http://jf/Audio/zzz/stream.mp3?static=true",
     });
+  });
+});
+
+describe("overlayAmpStatus (XML first, then the plug, then HA)", () => {
+  const st = (
+    entity_id: string,
+    state: string,
+    attributes: Record<string, unknown> = {},
+  ): HaState => ({ entity_id, state, attributes }) as HaState;
+  const basic = (power: boolean) => ({ power, input: "SERVER", volumeDb: -40, muted: false });
+  const states = (player: HaState | null, plug: string | null) =>
+    new Map<string, HaState>([
+      ...(player ? [[AMP.player, player] as const] : []),
+      ...(plug ? [[AMP.plug, st(AMP.plug, plug)] as const] : []),
+    ]);
+  it("plug on, XML says Standby: off, over a stale HA playing", () => {
+    const s = states(st(AMP.player, "playing", { source: "SERVER" }), "on");
+    expect(overlayAmpStatus(s, basic(false), null, 1000)).toMatchObject({ on: false, via: "xml" });
+    expect(buildMediaSnapshot(s).amp).toMatchObject({ on: false, available: true, state: "off" });
+  });
+  it("XML On: HA's richer entity stays when it agrees, else an on entity is synthesised", () => {
+    const agree = states(st(AMP.player, "playing", { source: "SERVER", media_title: "x" }), "on");
+    overlayAmpStatus(agree, basic(true), null, 1000);
+    expect(agree.get(AMP.player)?.state).toBe("playing");
+    const dropped = states(st(AMP.player, "unavailable"), "on");
+    expect(overlayAmpStatus(dropped, basic(true), null, 1000)).toMatchObject({
+      on: true,
+      via: "xml",
+    });
+    expect(buildMediaSnapshot(dropped).amp).toMatchObject({
+      on: true,
+      available: true,
+      state: "on",
+      source: "SERVER",
+      volumeDb: -40,
+    });
+  });
+  it("XML silent with HA unavailable and the plug on: the last good answer counts for 10 s, then unknown = off", () => {
+    const cached = { at: 1000, value: basic(true) };
+    const within = states(st(AMP.player, "unavailable"), "on");
+    expect(overlayAmpStatus(within, null, cached, 5000)).toMatchObject({
+      on: true,
+      via: "xml-cached",
+    });
+    expect(buildMediaSnapshot(within).amp.on).toBe(true);
+    const beyond = states(st(AMP.player, "unavailable"), "on");
+    expect(overlayAmpStatus(beyond, null, cached, 11_000)).toMatchObject({
+      on: false,
+      available: false,
+      via: "unknown",
+    });
+    expect(buildMediaSnapshot(beyond).amp).toMatchObject({ on: false, available: false });
+  });
+  it("plug off: off, even while HA still says on", () => {
+    const s = states(st(AMP.player, "on", { source: "CD" }), "off");
+    expect(overlayAmpStatus(s, null, null, 1000)).toMatchObject({ on: false, via: "plug-off" });
+    expect(buildMediaSnapshot(s).amp).toMatchObject({ on: false, available: true, state: "off" });
+  });
+  it("no XML at all (AMP_HOST unset): HA decides as before", () => {
+    const s = states(st(AMP.player, "idle", { source: "SERVER" }), "on");
+    expect(overlayAmpStatus(s, null, null, 1000)).toMatchObject({ on: true, via: "ha" });
+    expect(buildMediaSnapshot(s).amp.state).toBe("idle");
   });
 });

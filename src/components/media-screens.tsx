@@ -79,8 +79,13 @@ const sourceLabel = (t: MediaPanel["t"], source: AmpSource | null) =>
 function nowPlayingLines(panel: MediaPanel, s: MediaSnapshot | null): [string, string, string] {
   const { t } = panel;
   if (!s) return ["—", "", ""];
-  if (!s.amp.available) return [t("amp.unavailable"), "", ""];
-  if (!s.amp.on) return [t("amp.off"), t("amp.offHint"), ""];
+  // Unknown (nothing answers) reads as off too, with the reason on the third line.
+  if (!s.amp.on)
+    return [
+      t("amp.off"),
+      t("amp.offHint"),
+      s.amp.available ? "" : s.plugOn ? t("amp.noAnswer") : t("amp.unavailable"),
+    ];
   const n = s.nowPlaying;
   switch (n.kind) {
     case "radio":
@@ -113,12 +118,23 @@ export function MediaCards({ panel }: { panel: MediaPanel }) {
   const { t, lang, data: s } = panel;
   const tvState = stateLabel(lang, s?.tv.state);
   const tvOn = !!s && !["off", "unavailable", "unknown"].includes(s.tv.state);
-  const ampLine = s
-    ? `${s.amp.available ? (s.amp.on ? t("state.on") : t("state.off")) : t("state.unavailable")}${
-        s.amp.on && s.amp.source ? ` · ${sourceLabel(t, s.amp.source)}` : ""
-      }`
-    : "—";
-  const playing = s ? nowPlayingLine(panel, s) : "";
+  // While the power-on routine runs (or just failed) the card follows it: state line = the routine,
+  // body = the current step or the error. Unknown (nothing answers) reads as off.
+  const routine = panel.showPowerOn ? panel.powerOn : null;
+  const ampLine = routine
+    ? t(routine.step === "failed" ? "poweron.failed" : "poweron.title")
+    : s
+      ? `${s.amp.on ? t("state.on") : t("state.off")}${
+          s.amp.on && s.amp.source ? ` · ${sourceLabel(t, s.amp.source)}` : ""
+        }`
+      : "—";
+  const playing = routine
+    ? routine.step === "failed"
+      ? (routine.error ?? t("poweron.failed"))
+      : t(powerOnStepKey(routine.step))
+    : s
+      ? nowPlayingLine(panel, s)
+      : "";
   return (
     <>
       <div className="section-heading">

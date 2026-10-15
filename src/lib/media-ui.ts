@@ -367,3 +367,15 @@ export function mediaActionLabel(action: MediaAction, lang: Lang, after?: MediaS
 }
 
 export const powerOnStepKey = (step: PowerOnStep): Key => `poweron.${step}` as Key;
+
+/**
+ * The amp's footer slot (Media tab F3, amp view F4): "open" = the amp is on (or no snapshot yet) and
+ * the slot keeps its usual action; "powerOn" while the amp is off, in standby or unknown (shown as
+ * off); "powering" while the power-on routine runs (same action, drawn pressed). Never a standby
+ * action while the amp is on (owner's call, 2026-10-15).
+ */
+export type AmpPowerSlot = "open" | "powerOn" | "powering";
+export function ampPowerSlot(s: MediaSnapshot | null, running: boolean): AmpPowerSlot {
+  if (!s || s.amp.on) return "open";
+  return running ? "powering" : "powerOn";
+}
