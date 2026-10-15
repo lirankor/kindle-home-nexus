@@ -39,6 +39,7 @@ import {
   mediaErrorMessage,
   performMediaAction,
   playSelection,
+  powerOnDone,
   powerOnStatus,
   readMediaSnapshot,
   readRadioLists,
@@ -310,9 +311,16 @@ async function ampIsOn(): Promise<boolean | null> {
   if (snap.amp.available) return snap.amp.on;
   return snap.plugOn ? null : false; // plug off = certainly off; plug on + amp silent = unknown
 }
+/** Wait for the power-on routine's own outcome (its promise; the polling loop is the fallback after a
+ *  restart), bounded by the routine's timeout plus the boot poll and command retries it may add. */
 async function waitPowerOn(): Promise<"on" | "failed"> {
-  const until = Date.now() + POWER_ON_TIMEOUT_MS + 15_000;
-  while (Date.now() < until) {
+  const until = Date.now() + POWER_ON_TIMEOUT_MS + 120_000;
+  const settled = await Promise.race([
+    powerOnDone(),
+    sleep(until - Date.now()).then(() => "timeout" as const),
+  ]);
+  if (settled !== "timeout") return settled?.step === "done" ? "on" : "failed";
+  while (Date.now() < until + 15_000) {
     const s = powerOnStatus();
     if (!s || !s.running) return s?.step === "done" ? "on" : "failed";
     await sleep(POWER_POLL_MS);

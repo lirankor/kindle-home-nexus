@@ -26,6 +26,8 @@ import {
   stallStep,
 } from "@/lib/queue-transport";
 import type { StallState } from "@/lib/queue-transport";
+import { classifyAmpError, describeProbe, sendWithRetries, waitUntilReady } from "@/lib/power-on";
+import type { AmpProbe } from "@/lib/power-on";
 import type { CoverParams, StationArtResult, StationArtSource } from "@/lib/station-art";
 import type { HaState } from "@/lib/home.server";
 import {
@@ -159,6 +161,8 @@ type Runtime = {
   /** Unplayable tracks skipped in a row by the watchdog (reset once something plays). */
   stallSkips: number;
   powerOn: PowerOnStatus | null;
+  /** The running power-on routine (settles when it reaches done / failed); callers can await it. */
+  powerOnJob: Promise<PowerOnStatus | null> | null;
   ytunerIds: { at: number; byUrl: Map<string, YtunerStation> } | null;
   mixes: { day: string; builtAt: number; items: Map<MixId, MusicTrack[]> } | null;
   mixBuilding: Promise<Map<MixId, MusicTrack[]>> | null;
@@ -185,6 +189,7 @@ const rt: Runtime = (g.__kindleMediaRuntime ??= {
   stallReason: null,
   stallSkips: 0,
   powerOn: null,
+  powerOnJob: null,
   ytunerIds: null,
   mixes: null,
   mixBuilding: null,
@@ -1102,7 +1107,8 @@ const setPowerStep = (step: PowerOnStep, error?: string) => {
     ...(error === undefined ? {} : { error }),
   };
 };
-/** plug on → amp answers on tcp 80 (60–90 s) → power on + last source via XML → (background) reconnect yamaha_ynca. Returns at once. */
+/** plug on → amp answers on tcp 80 (60–90 s) → Basic_Status answers cleanly (firmware up) → power on (retried)
+ *  + last source via XML → reconnect yamaha_ynca (every path). Returns at once; `powerOnDone()` awaits the outcome. */
 export async function startPowerOn(source?: AmpSource): Promise<PowerOnStatus> {
   if (rt.powerOn?.running) return powerOnStatus()!;
   const persisted = await loadState();
@@ -1116,14 +1122,28 @@ export async function startPowerOn(source?: AmpSource): Promise<PowerOnStatus> {
     elapsedMs: 0,
     source: target,
   };
-  void runPowerOn(target);
+  rt.powerOnJob = runPowerOn(target).then(() => powerOnStatus());
   return powerOnStatus()!;
 }
+/** Resolves with the routine's final status (done / failed), or the current status when none runs. */
+export function powerOnDone(): Promise<PowerOnStatus | null> {
+  return rt.powerOn?.running && rt.powerOnJob ? rt.powerOnJob : Promise.resolve(powerOnStatus());
+}
+const plog = (msg: string) => console.log(`[power] ${new Date().toISOString()} ${msg}`);
+/** Run an amp call and classify its outcome instead of throwing. */
+const ampProbe = (call: () => Promise<unknown>): Promise<AmpProbe> =>
+  call().then(
+    () => ({ kind: "ok" }) as AmpProbe,
+    (e: unknown) => classifyAmpError(e),
+  );
 async function runPowerOn(target: AmpSource | null) {
+  // The amp answered HTTP at some point: worth reconnecting HA's yamaha_ynca afterwards whatever happened.
+  let ampAnswered = false;
   try {
     // Already on (false "off" reading or the user pressed it anyway): just make sure of the source and finish.
     const live = ampConfigured() ? await amp.basicStatus().catch(() => null) : null;
     if (live?.power) {
+      ampAnswered = true;
       if (target && live.input !== target) {
         setPowerStep("source");
         await haMedia.selectSource(target);
@@ -1135,24 +1155,40 @@ async function runPowerOn(target: AmpSource | null) {
     setPowerStep("wait");
     const host = env("AMP_HOST");
     if (host) {
+      const t0 = Date.now();
       if (!(await waitForTcp(host, 80))) throw new MediaError("Amp did not come up");
+      plog(`tcp 80 open after ${Math.round((Date.now() - t0) / 1000)} s`);
+      // Port open ≠ firmware ready (2026-10-15: HTTP 409 on the first command). Probe until clean.
+      const boot = await waitUntilReady(() => ampProbe(() => amp.basicStatus()), { log: plog });
+      ampAnswered = true;
+      if (!boot.ready)
+        plog(
+          `amp still not clean after ${Math.round(boot.elapsedMs / 1000)} s (${describeProbe(boot.last)}): sending power on anyway`,
+        );
     } else await sleep(90_000);
     setPowerStep("turn_on");
-    await haMedia.turnOn(); // XML when AMP_HOST is set; does not need HA's yamaha_ynca link
+    // XML when AMP_HOST is set (does not need HA's yamaha_ynca link); 409 / 5xx / timeouts are retried.
+    const cmd = await sendWithRetries(() => ampProbe(() => haMedia.turnOn()), { log: plog });
+    if (!cmd.ok)
+      throw new MediaError(`Amp ${describeProbe(cmd.last)} (power on, ${cmd.attempts} attempts)`);
+    ampAnswered = true;
     await sleep(1500);
     if (target) {
       setPowerStep("source");
       await haMedia.selectSource(target);
     }
     setPowerStep("done");
-    // HA's yamaha_ynca entry reconnects in the background; the panel works from the XML API meanwhile.
-    if (haConfigured())
+  } catch (e) {
+    setPowerStep("failed", mediaErrorMessage(e));
+    plog(`power-on failed: ${mediaErrorMessage(e)}`);
+  } finally {
+    // HA's yamaha_ynca entry sits in setup_retry for minutes after a power cut; reconnect it on every path
+    // once the amp answers (2026-10-15 it stayed in setup_retry for 30 min because the failed path skipped this).
+    if (haConfigured() && ampAnswered)
       void haMedia
         .reloadYncaIfRetrying()
         .then((r) => console.log("yamaha_ynca after power-on:", r))
         .catch((e) => console.warn("yamaha_ynca reconnect skipped:", e));
-  } catch (e) {
-    setPowerStep("failed", mediaErrorMessage(e));
   }
 }
 
@@ -2477,7 +2513,12 @@ export async function performMediaAction(a: MediaAction): Promise<void> {
         break;
       }
       if (a.on) await haMedia.turnOn();
-      else await haMedia.turnOff();
+      else {
+        // A queue left "playing" on an amp in standby would only be paused by the stall watchdog ~40 s later.
+        if (rt.persisted?.queue?.status === "playing")
+          await queueCommand("pause").catch(() => undefined);
+        await haMedia.turnOff();
+      }
       break;
     }
     case "amp.source":
@@ -2516,6 +2557,8 @@ export async function performMediaAction(a: MediaAction): Promise<void> {
     case "all_off":
       // Tolerant of entities that are already off or unavailable; the plug always goes off last.
       await haMedia.tv("turn_off").catch((e) => console.warn("all_off: TV off failed:", e));
+      if (rt.persisted?.queue?.status === "playing")
+        await queueCommand("pause").catch(() => undefined);
       await haMedia.turnOff().catch((e) => console.warn("all_off: amp off failed:", e));
       await sleep(3000);
       await haMedia.plug(false);
