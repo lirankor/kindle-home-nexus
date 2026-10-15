@@ -15,7 +15,7 @@ Started from a Lovable design mock, now developed locally in this repository (`g
 | `ytuner/` | vTuner replacement so the amp's NET RADIO input works again (`:8095`, via Caddy for `*.vtuner.com`) | container `ytuner` |
 | `relay/` | https → http stream pass-through for stations the amp cannot play directly (`:8792`) | container `relay` |
 | `kindle/` | the scripts that run **on the Kindle** (`nexus.sh`, `cron.sh`, config) — see `kindle/README.md` | the Kindle |
-| `docs/` | design reference + the media rework notes | — |
+| `docs/` | design reference, media rework notes, `HANDOFF.md` log, device notes (`notes/`), battery saver plan | — |
 | `AGENTS.md` | the working rules for this codebase (e-ink UX, keys, RTL, i18n, focus) — read it before changing the UI | — |
 
 ## Local development
