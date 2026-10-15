@@ -13,6 +13,19 @@ import os from "node:os";
 import path from "node:path";
 import { HomeError, fetchStates, ha, haConfigured, service } from "@/lib/home.server";
 import { resolveStationArt } from "@/lib/station-art";
+import {
+  PLAY_CONFIRM_MS,
+  STALL_CONFIRM_MS,
+  STALL_MAX_RETRIES,
+  STALL_REASON,
+  SkipCoalescer,
+  TransportLock,
+  decideResume,
+  freshStall,
+  rendererIdle,
+  stallStep,
+} from "@/lib/queue-transport";
+import type { StallState } from "@/lib/queue-transport";
 import type { CoverParams, StationArtResult, StationArtSource } from "@/lib/station-art";
 import type { HaState } from "@/lib/home.server";
 import {
@@ -74,6 +87,7 @@ import {
   parseTunerPlayInfo,
   parseYtunerStations,
   pickStreamUrl,
+  QUEUE_END_STOP_MS,
   queueAdvance,
   queueDue,
   queueJump,
@@ -137,9 +151,13 @@ type Runtime = {
   saveTimer: ReturnType<typeof setTimeout> | null;
   queueTimer: ReturnType<typeof setInterval> | null;
   queueBusy: boolean;
-  /** Ticks since the last check of the amp against our queue clock, and STOPPED answers in a row. */
+  /** Ticks since the last check of the amp against our queue clock. */
   queueTicks: number;
-  queueStoppedSeen: number;
+  /** Renderer stall watchdog (see queue-transport.ts) and the last replay error for the stall reason. */
+  stall: StallState;
+  stallReason: string | null;
+  /** Unplayable tracks skipped in a row by the watchdog (reset once something plays). */
+  stallSkips: number;
   powerOn: PowerOnStatus | null;
   ytunerIds: { at: number; byUrl: Map<string, YtunerStation> } | null;
   mixes: { day: string; builtAt: number; items: Map<MixId, MusicTrack[]> } | null;
@@ -163,7 +181,9 @@ const rt: Runtime = (g.__kindleMediaRuntime ??= {
   queueTimer: null,
   queueBusy: false,
   queueTicks: 0,
-  queueStoppedSeen: 0,
+  stall: freshStall(),
+  stallReason: null,
+  stallSkips: 0,
   powerOn: null,
   ytunerIds: null,
   mixes: null,
@@ -173,6 +193,10 @@ const rt: Runtime = (g.__kindleMediaRuntime ??= {
   imgNegative: new Map(),
   stationArt: new Map(),
 });
+// Fields added after a dev-server HMR reload of an older runtime object.
+rt.stall ??= freshStall();
+rt.stallReason ??= null;
+rt.stallSkips ??= 0;
 
 // ---- Persistence (MEDIA_STATE_DIR, default os.tmpdir()) ----
 const stateFile = () => path.join(env("MEDIA_STATE_DIR") || os.tmpdir(), "kindle-media-state.json");
@@ -1858,8 +1882,6 @@ async function tracksFor(sel: PlaySelection): Promise<{ title: string; tracks: M
 const QUEUE_TICK_MS = 2000;
 /** Every 3rd tick (6 s) while playing: ask the amp what it plays and follow it if it moved. */
 const QUEUE_VERIFY_TICKS = 3;
-/** STOPPED answers in a row (at 6 s apart) before we call the queue paused. */
-const QUEUE_STOPPED_CONFIRM = 2;
 const qlog = (msg: string) => console.log(`[queue] ${new Date().toISOString()} ${msg}`);
 const trackName = (q: QueueState, i: number) =>
   `${i + 1}/${q.tracks.length} ${q.tracks[i]?.title ?? "?"}`;
@@ -1882,9 +1904,39 @@ async function ensureServerSource() {
   else await amp.selectInput("SERVER");
 }
 
-/** SetAVTransportURI (retrying while the amp still answers 501 during the input switch) → Play → SetNext. */
-async function pushTrack(t: QueueTrack, next: QueueTrack | undefined, seekMs = 0) {
-  if (!ampConfigured()) return;
+/** HA's view of the player (yamaha_ynca): the second opinion when the amp's UPnP side is silent. */
+async function haPlayerState(): Promise<string | null> {
+  if (!haConfigured()) return null;
+  return ha<HaState>("GET", `/api/states/${AMP.player}`)
+    .then((st) => st.state)
+    .catch(() => null);
+}
+
+/** After Play the R-N500 takes its time: poll the renderer (HA's state when its UPnP side is silent)
+ *  until it reports PLAYING, at most PLAY_CONFIRM_MS. */
+async function waitPlaying(timeoutMs = PLAY_CONFIRM_MS): Promise<boolean> {
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    const st = await avTransport
+      .transportInfo()
+      .then((t) => t.state)
+      .catch(() => null);
+    if (st === "PLAYING") return true;
+    if (st === null && (await haPlayerState()) === "playing") return true;
+    if (Date.now() >= until) return false;
+    await sleep(500);
+  }
+}
+
+/** SetAVTransportURI (retrying while the amp still answers 501 during the input switch) → Play → wait for
+ *  PLAYING → Seek → SetNext. Resolves false when the renderer never confirmed PLAYING (the stall watchdog
+ *  takes it from there); throws when a call failed. Callers hold the transport lock. */
+async function pushTrack(
+  t: QueueTrack,
+  next: QueueTrack | undefined,
+  seekMs = 0,
+): Promise<boolean> {
+  if (!ampConfigured()) return true;
   // Both sizes the panel asks for: 240 for the amp view (drawn at once on a skip), 160 for lists.
   void warmArt([t.artItemId, next?.artItemId], 240)
     .then(() => warmArt([t.artItemId, next?.artItemId], 160))
@@ -1901,11 +1953,121 @@ async function pushTrack(t: QueueTrack, next: QueueTrack | undefined, seekMs = 0
     }
   }
   await avTransport.play();
+  const started = await waitPlaying();
+  if (!started)
+    qlog(
+      `renderer did not report PLAYING within ${PLAY_CONFIRM_MS / 1000} s of Play for ${t.title}`,
+    );
   if (seekMs > 1000) {
-    await sleep(800);
+    if (!started) await sleep(800);
     await avTransport.seek(seekMs).catch(() => undefined);
   }
   if (next) await avTransport.setNextUri(next.streamUrl, didlFor(next)).catch(() => undefined);
+  return started;
+}
+
+// ---- Transport discipline (2026-10-15): one renderer call at a time, skips coalesced, stalls watched ----
+// 20 "next" presses at 2–3 s used to be 20 SetURI/Play storms; the amp's network side dropped (HA:
+// unavailable → idle) while the queue kept "playing" with a running clock and resume was a no-op.
+const transport = new TransportLock();
+const resetStall = () => {
+  rt.stall = freshStall();
+  rt.stallReason = null;
+  rt.stallSkips = 0;
+};
+/** A track whose Play was never confirmed: the renderer refused it or is slow. Count the idle time
+ *  from the Play (not from the next verify) so the watchdog acts on its next tick. */
+const primeStall = () => {
+  if (rt.stall.idleSince === null)
+    rt.stall = { ...rt.stall, idleSince: Date.now() - STALL_CONFIRM_MS };
+};
+/** Record that the renderer got index `i` (clock runs from 0; stays frozen when Play was not confirmed). */
+async function markPushed(id: string, i: number, started: boolean) {
+  const q = rt.persisted?.queue;
+  if (!q || q.id !== id || q.index !== i || q.status !== "playing") return; // paused / stopped / moved on
+  await setQueue({
+    ...q,
+    startedAt: started ? Date.now() : null,
+    offsetMs: 0,
+    nextPushed: i + 1 < q.tracks.length,
+    stall: null,
+  });
+}
+/** Debounced skips: one SetURI/Play for the latest index. The amp's HTTP side stalls for a few seconds
+ *  right after DLNA activity, so a failed attempt gets one retry before the queue is paused with the reason. */
+const skips = new SkipCoalescer(
+  transport,
+  async (i) => {
+    const q = rt.persisted?.queue;
+    if (!q || q.status !== "playing" || q.index !== i) return;
+    let started: boolean;
+    try {
+      started = await pushTrack(q.tracks[i]!, q.tracks[i + 1]);
+    } catch (e) {
+      qlog(`skip to ${trackName(q, i)} failed (${mediaErrorMessage(e)}): one retry`);
+      await sleep(1500);
+      started = await pushTrack(q.tracks[i]!, q.tracks[i + 1]);
+    }
+    resetStall();
+    await markPushed(q.id, i, started);
+    if (!started) primeStall();
+    qlog(`skipped to ${trackName(q, i)}${started ? "" : " (renderer not PLAYING yet)"}`);
+  },
+  (e, i) => {
+    const q = rt.persisted?.queue;
+    if (!q || q.status !== "playing" || q.index !== i) return;
+    const reason = mediaErrorMessage(e);
+    qlog(`skip to ${trackName(q, i)} failed (${reason}): queue paused`);
+    void setQueue({ ...q, status: "paused", startedAt: null, offsetMs: 0, stall: reason }).catch(
+      () => undefined,
+    );
+  },
+);
+/** A stall inside the first seconds of a track = the renderer refused the stream, not a hiccup. */
+const UNPLAYABLE_MS = 5000;
+/** How many refused tracks in a row the watchdog skips before it gives up (a dead amp, not bad files). */
+const UNPLAYABLE_MAX_SKIPS = 3;
+/** Watchdog: the renderer refused this track twice — skip to the next one (bounded), else pause with the reason. */
+async function skipUnplayable(q: QueueState, now: number, seen: string) {
+  const n = queueJump(q, q.index + 1, now);
+  if (n.status === "ended") {
+    qlog(
+      `renderer refuses ${trackName(q, q.index)} (${seen}) and it was the last track: queue ended`,
+    );
+    resetStall();
+    if (ampConfigured()) await transport.run(() => avTransport.stop()).catch(() => undefined);
+    await setQueue(n);
+    return;
+  }
+  const skipsSoFar = rt.stallSkips + 1;
+  resetStall();
+  rt.stallSkips = skipsSoFar;
+  if (skipsSoFar > UNPLAYABLE_MAX_SKIPS) {
+    qlog(`renderer refused ${skipsSoFar} tracks in a row: queue paused (${STALL_REASON})`);
+    await setQueue({ ...q, status: "paused", startedAt: null, stall: STALL_REASON });
+    return;
+  }
+  qlog(
+    `renderer refuses ${trackName(q, q.index)} (${seen}, never started): skipping to ${trackName(n, n.index)} (${skipsSoFar}/${UNPLAYABLE_MAX_SKIPS})`,
+  );
+  await setQueue({ ...n, startedAt: null, stall: null });
+  await replayCurrent(n.id);
+}
+/** Stall watchdog replay: the current track again from 0, through the lock; a failure becomes the reason. */
+async function replayCurrent(id: string) {
+  await transport.run(async () => {
+    const q = rt.persisted?.queue;
+    if (!q || q.id !== id || q.status !== "playing") return;
+    try {
+      const started = await pushTrack(q.tracks[q.index]!, q.tracks[q.index + 1]);
+      rt.stallReason = started ? null : STALL_REASON;
+      await markPushed(id, q.index, started);
+      if (!started) primeStall();
+    } catch (e) {
+      rt.stallReason = mediaErrorMessage(e);
+      qlog(`replay of ${trackName(q, q.index)} failed: ${rt.stallReason}`);
+    }
+  });
 }
 
 function ensureQueueTimer() {
@@ -1933,10 +2095,24 @@ export async function queueJumpTo(index: number): Promise<QueueProgress | null> 
   const q = (await loadState()).queue;
   if (!q) throw new MediaError("No queue");
   if (!q.tracks[index]) throw new MediaError("No such track");
-  const n = queueJump(q, index, Date.now());
-  await pushTrack(n.tracks[n.index]!, n.tracks[n.index + 1]);
+  return skipTo(q, index, Date.now());
+}
+
+/** next / previous / a playlist row: the index moves now (panel and voice answer show the target, clock
+ *  frozen at 0:00); the renderer call follows SKIP_DEBOUNCE_MS after the last press, never overlapping. */
+async function skipTo(q: QueueState, index: number, now: number): Promise<QueueProgress | null> {
+  const n = queueJump(q, index, now);
+  if (n.status === "ended") {
+    skips.cancel();
+    if (ampConfigured()) void transport.run(() => avTransport.stop()).catch(() => undefined);
+    return setQueue(n);
+  }
   ensureQueueTimer();
-  return setQueue({ ...n, startedAt: Date.now(), nextPushed: n.index + 1 < n.tracks.length });
+  if (!ampConfigured())
+    return setQueue({ ...n, nextPushed: index + 1 < n.tracks.length, stall: null });
+  const p = await setQueue({ ...n, startedAt: null, stall: null });
+  skips.request(index);
+  return p;
 }
 
 export async function startQueue(
@@ -1956,9 +2132,13 @@ export async function startQueue(
     startedAt: Date.now(),
     offsetMs: 0,
     nextPushed: index + 1 < playable.length,
+    stall: null,
   };
-  await pushTrack(playable[index]!, playable[index + 1]);
-  q.startedAt = Date.now();
+  skips.cancel();
+  const started = await transport.run(() => pushTrack(playable[index]!, playable[index + 1]));
+  q.startedAt = started ? Date.now() : null;
+  resetStall();
+  if (!started) primeStall();
   ensureQueueTimer();
   return (await setQueue(q))!;
 }
@@ -1978,45 +2158,105 @@ export async function queueCommand(
   if (!q) throw new MediaError("No queue");
   const now = Date.now();
   const progress = queueProgress(q, now)!;
-  const jumpTo = async (i: number) => {
-    const n = queueJump(q, i, now);
-    if (n.status === "ended") {
-      await avTransport.stop().catch(() => undefined);
-      return setQueue(n);
-    }
-    await pushTrack(n.tracks[n.index]!, n.tracks[n.index + 1]);
-    return setQueue({ ...n, startedAt: Date.now(), nextPushed: n.index + 1 < n.tracks.length });
-  };
   const pause = async () => {
-    if (ampConfigured()) await avTransport.stop();
-    return setQueue({ ...q, status: "paused", startedAt: null, offsetMs: progress.positionMs });
-  };
-  const resume = async () => {
-    const base = q.status === "ended" ? queueJump(q, 0, now) : q;
-    await pushTrack(base.tracks[base.index]!, base.tracks[base.index + 1], base.offsetMs);
-    ensureQueueTimer();
-    return setQueue({
-      ...base,
-      status: "playing",
-      startedAt: Date.now(),
-      nextPushed: base.index + 1 < base.tracks.length,
+    skips.cancel();
+    // Our state first (the panel must never show a running clock on a stopped amp), then the renderer.
+    const p = await setQueue({
+      ...q,
+      status: "paused",
+      startedAt: null,
+      offsetMs: progress.positionMs,
     });
+    if (ampConfigured()) await transport.run(() => avTransport.stop());
+    return p;
   };
+  const resume = () => resumeQueue(q);
   switch (op) {
     case "next":
-      return jumpTo(q.index + 1);
+      return skipTo(q, q.index + 1, now);
     case "prev":
-      return jumpTo(progress.positionMs > 5000 ? q.index : Math.max(0, q.index - 1));
+      return skipTo(q, progress.positionMs > 5000 ? q.index : Math.max(0, q.index - 1), now);
     case "pause":
       return q.status === "playing" ? pause() : progress;
     case "resume":
-      return q.status === "playing" ? progress : resume();
+      return resume();
     case "toggle":
       return q.status === "playing" ? pause() : resume();
-    case "stop":
-      if (ampConfigured()) await avTransport.stop().catch(() => undefined);
-      return setQueue({ ...q, status: "stopped", startedAt: null, offsetMs: 0 });
+    case "stop": {
+      skips.cancel();
+      const p = await setQueue({
+        ...q,
+        status: "stopped",
+        startedAt: null,
+        offsetMs: 0,
+        stall: null,
+      });
+      if (ampConfigured()) await transport.run(() => avTransport.stop()).catch(() => undefined);
+      return p;
+    }
   }
+}
+
+/** Resume. From paused / stopped / ended: push the current (or first) track at its offset, as before. On a
+ *  queue the app believes is playing: ask the renderer — PLAYING → nothing (just restart a frozen clock),
+ *  anything else → re-send play for the current track from 0. This used to be a silent no-op. */
+async function resumeQueue(q: QueueState): Promise<QueueProgress | null> {
+  skips.cancel();
+  ensureQueueTimer();
+  return transport.run(async () => {
+    const cur = rt.persisted?.queue;
+    if (!cur || cur.id !== q.id) return queueProgress(cur ?? null, Date.now());
+    const upnp =
+      cur.status === "playing" && ampConfigured()
+        ? await avTransport
+            .transportInfo()
+            .then((t) => t.state)
+            .catch(() => null)
+        : null;
+    const d = ampConfigured()
+      ? decideResume(cur.status, cur.startedAt !== null, upnp)
+      : cur.status === "playing"
+        ? "noop"
+        : "resume";
+    const t = Date.now();
+    switch (d) {
+      case "noop":
+        return queueProgress(cur, t);
+      case "unfreeze":
+        resetStall();
+        return setQueue({ ...cur, startedAt: t, stall: null });
+      case "replay": {
+        qlog(
+          `resume: renderer ${upnp ?? "silent"} while we show ${trackName(cur, cur.index)} playing: replaying from 0`,
+        );
+        const started = await pushTrack(cur.tracks[cur.index]!, cur.tracks[cur.index + 1]);
+        resetStall();
+        return setQueue({
+          ...cur,
+          startedAt: started ? Date.now() : null,
+          offsetMs: 0,
+          nextPushed: cur.index + 1 < cur.tracks.length,
+          stall: null,
+        });
+      }
+      case "resume": {
+        const base = cur.status === "ended" ? queueJump(cur, 0, t) : cur;
+        const started = await pushTrack(
+          base.tracks[base.index]!,
+          base.tracks[base.index + 1],
+          base.offsetMs,
+        );
+        resetStall();
+        return setQueue({
+          ...base,
+          status: "playing",
+          startedAt: started ? Date.now() : null,
+          nextPushed: base.index + 1 < base.tracks.length,
+          stall: null,
+        });
+      }
+    }
+  });
 }
 
 /** Every 2 s while playing: once our clock says the track is over, confirm with GetPositionInfo and advance. */
@@ -2060,8 +2300,10 @@ async function reconcileQueueWithAmp() {
         startedAt: now,
         nextPushed: q.tracks[idx + 2] !== undefined,
       };
-      await pushTrack(n.tracks[n.index]!, n.tracks[n.index + 1]);
-      await setQueue({ ...n, startedAt: Date.now() });
+      const started = await transport.run(() =>
+        pushTrack(n.tracks[n.index]!, n.tracks[n.index + 1]),
+      );
+      await setQueue({ ...n, startedAt: started ? Date.now() : null });
       console.log(`queue continued after restart: track ${n.index + 1}/${q.tracks.length}`);
     } else {
       await setQueue({ ...q, status: "stopped", startedAt: null });
@@ -2076,25 +2318,30 @@ async function reconcileQueueWithAmp() {
 }
 
 async function queueTick() {
-  if (rt.queueBusy) return;
+  // A skip is pending or a renderer call is in flight: the amp is between states, do not judge it now.
+  if (rt.queueBusy || skips.busy) return;
   const q = rt.persisted?.queue;
   if (!q || q.status !== "playing") return;
   const now = Date.now();
   const due = queueDue(q, now);
   rt.queueTicks += 1;
-  const verify = ampConfigured() && rt.queueTicks >= QUEUE_VERIFY_TICKS;
+  // Every 3rd tick normally; every tick while the clock is frozen or an idle episode is being timed.
+  const verify =
+    ampConfigured() &&
+    (rt.queueTicks >= QUEUE_VERIFY_TICKS || q.startedAt === null || rt.stall.idleSince !== null);
   if (!due && !verify) return;
   rt.queueTicks = 0;
   rt.queueBusy = true;
   try {
-    const [pos, tr] = ampConfigured()
+    const [pos, tr, haState] = ampConfigured()
       ? await Promise.all([
           avTransport.positionInfo().catch(() => null),
           avTransport.transportInfo().catch(() => null),
+          due ? Promise.resolve(null) : haPlayerState(),
         ])
-      : [null, null];
+      : [null, null, null];
     if (!due) {
-      await verifyQueue(q, pos, tr?.state ?? null, now);
+      await verifyQueue(q, pos, tr?.state ?? null, haState, now);
       return;
     }
     const d = decideAdvance(q, pos, tr?.state ?? null);
@@ -2111,15 +2358,17 @@ async function queueTick() {
     } else {
       const n = queueAdvance(q, now);
       if (n.status === "ended") {
-        if (ampConfigured()) await avTransport.stop().catch(() => undefined);
+        if (ampConfigured()) await transport.run(() => avTransport.stop()).catch(() => undefined);
         await setQueue(n);
         qlog("ended after the last track");
       } else {
         qlog(
           `pushing ${trackName(n, n.index)} (amp: ${tr?.state ?? "?"}, ${pos?.trackUri ? "uri " + (trackIdFromUri(pos.trackUri) ?? "foreign") : "no uri"})`,
         );
-        await pushTrack(n.tracks[n.index]!, n.tracks[n.index + 1]);
-        await setQueue({ ...n, startedAt: Date.now() });
+        const started = await transport.run(() =>
+          pushTrack(n.tracks[n.index]!, n.tracks[n.index + 1]),
+        );
+        await setQueue({ ...n, startedAt: started ? Date.now() : null });
       }
     }
   } catch (e) {
@@ -2129,26 +2378,71 @@ async function queueTick() {
   }
 }
 
-/** Between track ends: follow the amp when it moved on its own, fix clock drift, notice a stop. */
+/** Between track ends: follow the amp when it moved on its own, fix clock drift, watch for a stall. */
 async function verifyQueue(
   q: QueueState,
   pos: PositionInfo | null,
   state: string | null,
+  haState: string | null,
   now: number,
 ) {
   const d = decideVerify(q, pos, state, now);
-  if (d.kind === "stopped") {
-    rt.queueStoppedSeen += 1;
-    if (rt.queueStoppedSeen < QUEUE_STOPPED_CONFIRM) return;
-    rt.queueStoppedSeen = 0;
-    const ours = queueProgress(q, now)!;
-    qlog(
-      `amp STOPPED at ${Math.round(ours.positionMs / 1000)} s of ${trackName(q, q.index)}: paused`,
-    );
-    await setQueue({ ...q, status: "paused", startedAt: null, offsetMs: ours.positionMs });
+  if (d.kind === "foreign") {
+    // Host and path only: a URI from another controller may carry a token in its query.
+    const shown = d.uri.replace(/\?.*$/, "");
+    qlog(`amp plays something else (${shown}): queue stopped`);
+    resetStall();
+    await setQueue({ ...q, status: "stopped", startedAt: null, offsetMs: 0 });
     return;
   }
-  rt.queueStoppedSeen = 0;
+  // Stall watchdog: idle with time left in the track (STOPPED at the very end is the due path's business).
+  const ours = queueProgress(q, now)!;
+  const nearEnd = ours.durationMs > 0 && ours.positionMs >= ours.durationMs - QUEUE_END_STOP_MS;
+  const idle = !nearEnd && rendererIdle(state, haState);
+  const step = stallStep(rt.stall, idle, now);
+  rt.stall = step.state;
+  const seen = `${state ?? "no UPnP"} / HA ${haState ?? "?"}`;
+  switch (step.action) {
+    case "freeze":
+      qlog(
+        `renderer idle (${seen}) at ${Math.round(ours.positionMs / 1000)} s of ${trackName(q, q.index)}: clock frozen, watching`,
+      );
+      await setQueue({ ...q, startedAt: null, offsetMs: ours.positionMs });
+      return;
+    case "replay":
+      // A track that never got past its first seconds even after a replay is one the amp refuses
+      // (ogg → Jellyfin transcode, WMA; seen 2026-10-15): move on instead of replaying it again.
+      if (ours.positionMs < UNPLAYABLE_MS && step.state.retries >= 2) {
+        await skipUnplayable(q, now, seen);
+        return;
+      }
+      qlog(
+        `renderer still idle (${seen}): replaying ${trackName(q, q.index)} from 0, retry ${step.state.retries}/${STALL_MAX_RETRIES}`,
+      );
+      await replayCurrent(q.id);
+      return;
+    case "give-up": {
+      const reason = rt.stallReason ?? STALL_REASON;
+      rt.stallReason = null;
+      qlog(`renderer stayed idle after ${STALL_MAX_RETRIES} replays: queue paused (${reason})`);
+      await setQueue({ ...q, status: "paused", startedAt: null, stall: reason });
+      return;
+    }
+    case "clear":
+      qlog(
+        `renderer playing again (${seen}) at ${Math.round((pos?.relTimeMs ?? ours.positionMs) / 1000)} s`,
+      );
+      rt.stallSkips = 0;
+      break;
+    case "none":
+      if (idle) {
+        // Idle again inside the backoff window: keep the clock frozen where it is.
+        if (q.startedAt !== null)
+          await setQueue({ ...q, startedAt: null, offsetMs: ours.positionMs });
+        return;
+      }
+  }
+  if (d.kind === "stopped") return; // an idle the watchdog is already timing
   if (d.kind === "follow") {
     const n = { ...queueJump(q, d.index, now), offsetMs: d.relTimeMs, startedAt: now };
     const after = n.tracks[n.index + 1];
@@ -2158,16 +2452,16 @@ async function verifyQueue(
       `amp moved from ${trackName(q, q.index)} to ${trackName(n, n.index)} at ${Math.round(d.relTimeMs / 1000)} s: following`,
     );
   } else if (d.kind === "resync") {
-    const ours = queueProgress(q, now)!;
     qlog(
       `clock off on ${trackName(q, q.index)}: ours ${Math.round(ours.positionMs / 1000)} s, amp ${Math.round(d.relTimeMs / 1000)} s: resync`,
     );
     await setQueue({ ...q, offsetMs: d.relTimeMs, startedAt: now });
-  } else if (d.kind === "foreign") {
-    // Host and path only: a URI from another controller may carry a token in its query.
-    const shown = d.uri.replace(/\?.*$/, "");
-    qlog(`amp plays something else (${shown}): queue stopped`);
-    await setQueue({ ...q, status: "stopped", startedAt: null, offsetMs: 0 });
+  } else if (q.startedAt === null) {
+    // Frozen clock (a skip whose Play was never confirmed, or an idle episode that cleared) while the
+    // renderer plays our track: run it again from the amp's position.
+    const rel =
+      pos && trackIdFromUri(pos.trackUri) === q.tracks[q.index]?.id ? pos.relTimeMs : null;
+    await setQueue({ ...q, startedAt: now, offsetMs: rel ?? q.offsetMs });
   }
 }
 

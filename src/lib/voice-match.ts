@@ -204,6 +204,8 @@ export const queueSummary = (q: QueueProgress | null | undefined) =>
     ? {
         title: q.title,
         status: q.status,
+        // Set when the app paused the queue itself ("renderer stopped" after 3 failed replays, an amp error).
+        stall: q.stall ?? null,
         index: q.index,
         count: q.count,
         positionMs: q.positionMs,

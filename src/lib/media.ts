@@ -255,6 +255,8 @@ export type QueueState = {
   offsetMs: number;
   /** SetNextAVTransportURI already sent for index + 1. */
   nextPushed: boolean;
+  /** Why the server paused the queue itself ("renderer stopped", an amp error); null otherwise. */
+  stall?: string | null;
 };
 /** The whole queue for the playlist screen (stream URLs stripped). */
 export type QueueList = { title: string; index: number; status: QueueStatus; tracks: MusicTrack[] };
@@ -270,6 +272,8 @@ export type QueueProgress = {
    *  only re-fetches its screen on a key press or every 20 s). Up to 3 upcoming, 1 previous. */
   prevTrack?: MusicTrack | null;
   nextTracks?: MusicTrack[];
+  /** Set when the server paused the queue itself (renderer stall watchdog / amp error). */
+  stall?: string | null;
 };
 
 // ---- Actions ----

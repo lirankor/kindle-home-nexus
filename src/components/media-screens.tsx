@@ -366,7 +366,9 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
               <span className="amp-time-pos">{mmss(position)}</span>
               <span className="amp-queue-pos">
                 {t("media.queuePos", { index: queue.index + 1, count: queue.count })}
-                {queue.status === "paused" ? ` · ${t("act.pause")}` : ""}
+                {queue.status === "paused"
+                  ? ` · ${queue.stall ? t("queue.stalled") : t("act.pause")}`
+                  : ""}
               </span>
               <span>{mmss(queue.durationMs)}</span>
             </div>

@@ -327,6 +327,8 @@ export const trackIdFromUri = (uri: string): string | null => {
 
 // ---- Queue arithmetic (the amp never reports STOPPED at the end of a pushed track) ----
 export const QUEUE_END_SLACK_MS = 400;
+/** STOPPED this close to the end of our clock is how the R-N500 ends a pushed track, not a stop. */
+export const QUEUE_END_STOP_MS = 15000;
 
 export function queueProgress(q: QueueState | null, now: number): QueueProgress | null {
   if (!q) return null;
@@ -343,6 +345,7 @@ export function queueProgress(q: QueueState | null, now: number): QueueProgress 
     positionMs,
     durationMs,
     status: q.status,
+    stall: q.stall ?? null,
     prevTrack: q.index > 0 ? stripStream(q.tracks[q.index - 1]!) : null,
     nextTracks: q.tracks.slice(q.index + 1, q.index + 4).map(stripStream),
   };
@@ -406,7 +409,7 @@ export function decideVerify(
   if (transportState === "STOPPED") {
     // STOPPED at 0:00 near the end of our clock is how the R-N500 ends a pushed track: the due
     // path handles that. STOPPED with time left is a real stop.
-    const nearEnd = ours.durationMs > 0 && ours.positionMs >= ours.durationMs - 15000;
+    const nearEnd = ours.durationMs > 0 && ours.positionMs >= ours.durationMs - QUEUE_END_STOP_MS;
     return nearEnd ? { kind: "ok" } : { kind: "stopped" };
   }
   if (idx !== q.index) return { kind: "follow", index: idx, relTimeMs: pos.relTimeMs ?? 0 };
