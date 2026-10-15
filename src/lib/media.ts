@@ -106,8 +106,8 @@ export type AmpStatus = {
   on: boolean;
   /** HA state: off, on, idle, playing, paused, unavailable. */
   state: string;
-  /** The renderer is really playing: HA's media_player or the DLNA renderer says `playing`
-   *  (not the app's queue belief, not merely "on"). Holds the screensaver off on the amp view. */
+  /** The renderer reports playing: HA's media_player or the DLNA renderer says `playing` (not the
+   *  app's queue belief). Informational (voice API); analogue inputs never report it. */
   playing: boolean;
   source: AmpSource | null;
   volumeDb: number | null;

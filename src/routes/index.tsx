@@ -289,19 +289,24 @@ function HomeControl() {
     root.dir = rtl ? "rtl" : "ltr";
   }, [lang, rtl]);
 
-  // No screensaver on the amp view while something really plays on the amp (HA / DLNA renderer
-  // `playing`, whatever the source): that screen is the "now playing" display. An amp that is merely
-  // on, or a paused / stopped queue, does not hold it off (2026-10-15: a paused queue kept the panel
-  // awake for 22 min). The 5 min count starts over once playback stops or the view is left. Only key
-  // presses reset the count below — snapshot polls and refresh hints never do.
-  const keepAwake = media.screen === "now" && !!media.data?.amp.playing;
+  // Owner's rule (2026-10-15): no screensaver only while the amp is ON (power on, any source — the amp
+  // cannot tell whether CD / PHONO / TV inputs play, so no playback check) AND the panel is on the amp
+  // view, the "now playing" display. Everywhere else, and once the amp is off, the saver starts
+  // SCREENSAVER_IDLE_MS after the last key. The power state comes from the Media snapshot the panel
+  // already polls (no extra timers): an amp going off while the view sits idle brings the saver with
+  // the next snapshot. Only key presses count as activity — snapshot polls and refresh hints never do.
+  const keepAwake = media.screen === "now" && !!media.data?.amp.on;
+  const lastKeyAt = useRef(Date.now());
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     const reset = () => {
       clearTimeout(timer);
-      if (!keepAwake) timer = setTimeout(() => setScreensaver(true), SCREENSAVER_IDLE_MS);
+      if (keepAwake) return;
+      const left = SCREENSAVER_IDLE_MS - (Date.now() - lastKeyAt.current);
+      timer = setTimeout(() => setScreensaver(true), Math.max(0, left));
     };
     const wake = (event: Event) => {
+      lastKeyAt.current = Date.now();
       if (screensaver) {
         event.preventDefault();
         event.stopImmediatePropagation();
