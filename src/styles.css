@@ -454,8 +454,6 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .battery-photo { position: absolute; top: 12px; left: 12px; z-index: 5; padding: 4px 10px; font-size: 24px; background: color-mix(in oklab, var(--background) 80%, transparent); }
 .battery-badge[data-low="true"] { background: var(--primary); color: var(--primary-foreground); font-weight: 700; }
 /* Kindle sleep cycle (battery saver): "sleeping · next HH:MM" opposite the battery badge on the photo. */
-.sleep-badge { position: absolute; top: 12px; right: 12px; z-index: 5; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 20px; font-weight: 600; color: var(--muted-foreground); background: color-mix(in oklab, var(--background) 80%, transparent); }
-.sleep-badge bdi { direction: ltr; }
 
 /* Round 4: bigger type on the card screens. */
 .device-tabs .eink-button { font-size: 24px; }

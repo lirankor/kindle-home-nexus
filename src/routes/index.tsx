@@ -55,8 +55,8 @@ import { useMediaPanel } from "@/lib/media-panel";
 import { loadPanelState, persistableScreen, savePanelState, type TabName } from "@/lib/panel-state";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import { useFullRefresh } from "@/lib/eink";
-import { BatteryBadge, SleepBadge } from "@/components/battery-badge";
-import { useKindleBattery, useKindleSleep } from "@/lib/battery";
+import { BatteryBadge } from "@/components/battery-badge";
+import { useKindleBattery } from "@/lib/battery";
 import { dateLocale, isRtl, makeT } from "@/lib/i18n";
 import { LangContext } from "@/lib/lang-context";
 import type { Key } from "@/lib/i18n";
@@ -153,7 +153,6 @@ function HomeControl() {
   const skipPhoto = useRef<() => void>(() => {});
   const [marking, setMarking] = useState(false);
   const battery = useKindleBattery();
-  const sleep = useKindleSleep();
   // F1 / F4 on the saver ask for a new photo even inside the night window (no automatic rotation there).
   const forceNextPhoto = useRef(false);
   // Tell the bridge where the photo is (x,y,w,h in CSS pixels) so it can dither only that region.
@@ -355,8 +354,8 @@ function HomeControl() {
   useFullRefresh(screensaver ? "saver" : "");
   // A new picture flashes; the same picture served again (night window) does not.
   useFullRefresh(photo.data?.assetId ?? photo.data?.image ?? "");
-  // Tell the bridge the screensaver is showing (<html data-eink-saver="1">): with no key for 5 min it
-  // then lets the Kindle sleep between scheduled wakes (bridge /schedule, docs/battery-saver-plan.md).
+  // Tell the bridge the screensaver is showing (<html data-eink-saver="1">): with no key for 5 min the
+  // Kindle may then switch its Wi-Fi radio off between updates (bridge /schedule, docs/battery-saver-plan.md).
   useEffect(() => {
     if (screensaver) document.documentElement.dataset["einkSaver"] = "1";
     else delete document.documentElement.dataset["einkSaver"];
@@ -756,7 +755,6 @@ function HomeControl() {
               alt={shot?.image ? t("photo.altImmich") : t("photo.altSample")}
             />
             {battery && <BatteryBadge battery={battery} variant="photo" />}
-            {sleep && <SleepBadge sleep={sleep} />}
             <div className="photo-caption">
               <section className="photo-block">
                 <h2>{t("photo.outdoor")}</h2>

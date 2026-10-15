@@ -160,7 +160,6 @@ const en = {
   "footer.label": "Physical button actions",
   "battery.label": "Battery {n}%",
   "battery.charging": "Charging, {n}%",
-  "sleep.badge": "sleeping · next {time}",
   "nav.label": "Device categories",
   // Media tab, amp view, source list (media rework M2)
   "media.tvName": "TV",
@@ -482,7 +481,6 @@ const he: Record<Key, string> = {
   "footer.label": "פעולות הכפתורים הפיזיים",
   "battery.label": "סוללה {n}%",
   "battery.charging": "בטעינה, {n}%",
-  "sleep.badge": "ישן · הבא {time}",
   "nav.label": "קטגוריות מכשירים",
   "media.tvName": "טלוויזיה",
   "media.amp": "מגבר",

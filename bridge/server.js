@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import puppeteer from "puppeteer";
 import sharp from "sharp";
-import { computeSchedule, localParts, readConfig as readScheduleConfig } from "./schedule.js";
+import { computeSchedule, readConfig as readScheduleConfig } from "./schedule.js";
 
 const env = (k, d) => process.env[k] ?? d;
 const APP_URL = env("APP_URL", "http://app:3000/");
@@ -22,11 +22,13 @@ const PROTOCOL_TIMEOUT_MS = Number(env("PROTOCOL_TIMEOUT_MS", 20000));
 // The page keeps a 1 s heartbeat in window.__alive; if it stops advancing for this long the page's JS is
 // frozen (seen 2026-10-09: the amp view stuck on one frame while the music moved on) → reload it.
 const ALIVE_STALE_MS = Number(env("ALIVE_STALE_MS", 45000));
-// Battery saver (see ../docs/battery-saver-plan.md): while the app shows its screensaver the Kindle
-// suspends between wakes; /schedule tells it when. SLEEP_ENABLED=0 keeps it awake (server-side kill
-// switch), SAVER_POLL_S is the awake poll cadence on the screensaver, KEEP_AWAKE_MS how long a key
-// press on the panel holds the device awake (= the app's own 5 min screensaver idle time).
-const SLEEP_ENABLED = env("SLEEP_ENABLED", "1") !== "0";
+// Battery saver (see ../docs/battery-saver-plan.md): the Kindle never suspends — while the app shows
+// its screensaver and nothing is in use it switches its Wi-Fi radio OFF between updates and brings it
+// up only to fetch. /schedule tells it when the next update is due. RADIO_DUTY_ENABLED=0 keeps the
+// radio up (server-side kill switch; the old name SLEEP_ENABLED still works), SAVER_POLL_S is the
+// fallback poll cadence on the screensaver, KEEP_AWAKE_MS how long a key press on the panel keeps the
+// radio up (= the app's own 5 min screensaver idle time).
+const RADIO_DUTY_ENABLED = env("RADIO_DUTY_ENABLED", env("SLEEP_ENABLED", "1")) !== "0";
 const SAVER_POLL_S = Number(env("SAVER_POLL_S", 60));
 const KEEP_AWAKE_MS = Number(env("KEEP_AWAKE_MS", 5 * 60 * 1000));
 const schedule = readScheduleConfig(process.env);
@@ -63,8 +65,9 @@ let page = null;
 let latest = null; // { buf, etag, fullGen, saver }
 let servedFullGen = -1; // the app's data-eink-full value the Kindle last drew with a full refresh
 let lastShotAt = null;
-let lastKeyAt = 0; // last /key hit: the device stays awake KEEP_AWAKE_MS after it
-let sleepInfo = null; // { nextWake, sleepSec, night, at } while the Kindle sleeps (shown as a badge on the screensaver)
+let lastKeyAt = 0; // last /key hit: the device keeps its radio up KEEP_AWAKE_MS after it
+// What /schedule last told the device, for /healthz: { verdict, windowSec, nextWake, label, night, at }.
+let lastDuty = null;
 let lastAlive = { value: 0, seenAt: 0 };
 let starting = null;
 const frames = new EventEmitter();
@@ -133,7 +136,6 @@ async function launch() {
     }
     log("page ready", APP_URL);
     await injectBattery(page);
-    if (sleepInfo) await injectSleep(page);
   })().finally(() => {
     starting = null;
   });
@@ -181,26 +183,6 @@ async function injectBattery(p) {
   } catch (e) {
     log("battery inject failed:", e.message);
   }
-}
-
-// Sleep state the same way: window.__kindleSleep = { nextWake (epoch ms), sleepSec, night } or null,
-// plus a "kindle-sleep" event; the screensaver shows "sleeping · next HH:MM" while it is set.
-async function injectSleep(p) {
-  if (!p) return;
-  try {
-    await p.evaluate((s) => {
-      window.__kindleSleep = s;
-      window.dispatchEvent(new CustomEvent("kindle-sleep", { detail: s }));
-    }, sleepInfo);
-  } catch (e) {
-    log("sleep inject failed:", e.message);
-  }
-}
-async function setSleepInfo(info) {
-  const was = sleepInfo;
-  sleepInfo = info;
-  if ((was === null) !== (info === null) || (info && was && info.nextWake !== was.nextWake))
-    await injectSleep(page);
 }
 
 // What the page reports about itself: poll cadence wish, screensaver showing, heartbeat.
@@ -415,10 +397,10 @@ const server = http.createServer(async (req, res) => {
           lastShotAt,
           appUrl: APP_URL,
           saver: latest?.saver ?? false,
-          sleep: sleepInfo,
+          duty: lastDuty,
           lastKeyAt: lastKeyAt ? new Date(lastKeyAt).toISOString() : null,
           schedule: {
-            enabled: SLEEP_ENABLED,
+            enabled: RADIO_DUTY_ENABLED,
             ...schedule,
             next: computeSchedule(Date.now(), schedule),
           },
@@ -450,15 +432,15 @@ const server = http.createServer(async (req, res) => {
       return res.end(seconds + "\n");
     }
     if (path === "/schedule") {
-      // One line for the Kindle: "<poll s> <sleep|awake> <wake epoch s> <sleep s> <night 0|1> <HH:MM local>".
-      // "sleep" only while the app shows the screensaver, no key was pressed for KEEP_AWAKE_MS and the
-      // server-side switch is on; the wake time comes from the schedule (day grid / night grid, local
-      // time zone) so the device never needs tz data. ?woke=1: the device resumed before its alarm (power
-      // slider) — treat it like a key so it stays awake for KEEP_AWAKE_MS.
+      // One line for the Kindle: "<poll s> <doze|awake> <next update epoch s> <window s> <night 0|1> <HH:MM local>".
+      // "doze" = you may switch the radio off until the next update; only while the app shows the
+      // screensaver, no key was pressed for KEEP_AWAKE_MS and the server-side switch is on. The next
+      // update time comes from the schedule (day grid / night grid, local time zone) so the device never
+      // needs tz data. ?woke=1 is accepted for compatibility and counts as a key press.
       const dflt = Math.min(Math.max(Number(url.searchParams.get("default")) || 20, 1), 600);
       if (url.searchParams.get("woke") === "1") {
         lastKeyAt = Date.now();
-        log("device woke early (power slider?), holding awake");
+        log("device reported an unplanned wake, keeping the radio up");
       }
       let state = { poll: "", saver: false };
       try {
@@ -467,31 +449,19 @@ const server = http.createServer(async (req, res) => {
       const now = Date.now();
       const sched = computeSchedule(now, schedule);
       const mode =
-        SLEEP_ENABLED && state.saver && now - lastKeyAt >= KEEP_AWAKE_MS ? "sleep" : "awake";
-      if (mode === "awake" && sleepInfo) await setSleepInfo(null);
+        RADIO_DUTY_ENABLED && state.saver && now - lastKeyAt >= KEEP_AWAKE_MS ? "doze" : "awake";
+      lastDuty = {
+        verdict: mode,
+        windowSec: mode === "doze" ? sched.windowSec : 0,
+        nextWake: Math.round(sched.wakeMs / 1000),
+        label: sched.label,
+        night: sched.night,
+        at: new Date().toISOString(),
+      };
       res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
       return res.end(
-        `${pollSeconds(state, dflt)} ${mode} ${Math.round(sched.wakeMs / 1000)} ${sched.sleepSec} ${sched.night ? 1 : 0} ${sched.label}\n`,
+        `${pollSeconds(state, dflt)} ${mode} ${Math.round(sched.wakeMs / 1000)} ${sched.windowSec} ${sched.night ? 1 : 0} ${sched.label}\n`,
       );
-    }
-    if (path === "/sleep") {
-      // The Kindle is about to suspend for ?secs= (until ?wake=, epoch s): show it on the screensaver
-      // ("sleeping · next HH:MM") and return that frame (empty 200 when it equals ?etag=).
-      const secs = Number(url.searchParams.get("secs"));
-      const wake = Number(url.searchParams.get("wake"));
-      if (!Number.isFinite(secs) || secs <= 0) {
-        res.writeHead(400);
-        return res.end("bad secs\n");
-      }
-      const nextWake = Number.isFinite(wake) && wake > 0 ? wake * 1000 : Date.now() + secs * 1000;
-      await setSleepInfo({
-        nextWake,
-        label: localParts(nextWake, schedule.tz).label, // local HH:MM: Chromium's own clock is UTC
-        sleepSec: Math.round(secs),
-        night: url.searchParams.get("night") === "1",
-        at: new Date().toISOString(),
-      });
-      return sendPng(res, await safeShoot(), url.searchParams.get("etag"));
     }
     if (path === "/hint") {
       // "full" or "partial": how the Kindle should draw the frame it just fetched. Full exactly once
@@ -544,7 +514,6 @@ const server = http.createServer(async (req, res) => {
         return res.end(`unknown key '${name}'. valid: ${Object.keys(KEYS).join(", ")}\n`);
       }
       lastKeyAt = Date.now();
-      if (sleepInfo) await setSleepInfo(null);
       return sendPng(res, await pressKey(code), url.searchParams.get("etag"));
     }
     if (path === "/reload") return sendPng(res, await reloadPage());
@@ -560,7 +529,7 @@ const server = http.createServer(async (req, res) => {
 async function main() {
   server.listen(PORT, "0.0.0.0", () => log(`bridge listening on :${PORT}, app ${APP_URL}`));
   log(
-    `sleep schedule: ${SLEEP_ENABLED ? "enabled" : "DISABLED"}, day every ${schedule.dayWakeMin} min, night ${String(Math.floor(schedule.nightStart / 60)).padStart(2, "0")}:${String(schedule.nightStart % 60).padStart(2, "0")}-${String(Math.floor(schedule.nightEnd / 60)).padStart(2, "0")}:${String(schedule.nightEnd % 60).padStart(2, "0")} every ${schedule.nightWakeMin} min (${schedule.tz})`,
+    `radio duty cycling: ${RADIO_DUTY_ENABLED ? "enabled" : "DISABLED"}, day every ${schedule.dayWakeMin} min, night ${String(Math.floor(schedule.nightStart / 60)).padStart(2, "0")}:${String(schedule.nightStart % 60).padStart(2, "0")}-${String(Math.floor(schedule.nightEnd / 60)).padStart(2, "0")}:${String(schedule.nightEnd % 60).padStart(2, "0")} every ${schedule.nightWakeMin} min (${schedule.tz})`,
   );
   await launch();
   await safeShoot();

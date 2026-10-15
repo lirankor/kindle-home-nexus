@@ -1,4 +1,4 @@
-# Battery saver plan (agreed in outline 2026-10-15, not built yet)
+# Battery saver plan (RTC suspend tried and rejected; radio duty cycling since 2026-10-16)
 
 ## Why
 The Kindle lasted about 24 h on a charge. Stock firmware gets weeks because the device is suspended except while the reader is used; our client (`kindle/nexus.sh`) keeps it awake around the clock.
@@ -16,98 +16,123 @@ The Kindle lasted about 24 h on a charge. Stock firmware gets weeks because the 
 
 Battery sysfs: `/sys/devices/system/yoshi_battery/yoshi_battery0/{battery_capacity,battery_current,battery_mAH,battery_voltage}`. Charging flag: `lipc-get-prop com.lab126.powerd isCharging`. Wi-Fi state: `lipc-get-prop com.lab126.wifid cmState`. No `iwconfig`/`wmiconfig`/`rtcwake` on the device.
 
-## Plan
-1. **Awake tweaks** (client): `ondemand` governor at start, battery report once a minute, screen fetch with an ETag/If-None-Match so an unchanged frame is a 304 with no PNG (bridge already computes `etag`), 60 s poll on the screensaver. Expected ~63 → ~45 mA.
-2. **Sleep in the screensaver**: when the app enters the screensaver (bridge can expose it, e.g. `<html data-eink-sleep="600">` → `/poll` answer or a new `/sleep` hint), the client draws the frame, sets the RTC alarm and suspends. Each wake: reconnect (~5 s), fetch a fresh frame, draw, suspend again (~10 s awake per cycle).
-3. **Wake schedule**: daytime every 10 min (new photo + readings). Night (about 23:00–07:00): **no photo rotation** (user's request) — the same photo stays up; at most one wake per hour for the clock/battery badge, or none.
-4. **Stay awake when in use**: any key within the last 5 min, or a Jellyfin queue playing on the Media tab (already 5 s polling), keeps today's behaviour.
-5. **Waking the panel**: a flick of the power slider → panel live in ~5 s. Optional one-off test with the user at the device: suspend 90 s, press the 5-way centre after 20 s, check whether `resumed … after Ns` in the log is early.
-
-Expected result: from ~24 h to well over a week.
+## Plan (owner's decisions, 2026-10-16 — these replace the original outline)
+1. **No RTC suspend at all.** The suspend experiment worked technically but is unusable: **a button press does not
+   wake a suspended Kindle 4** (owner's test, below) — only the power slider does, so the panel stopped being a
+   panel. All suspend code is gone from the client; the history is in commits `5086e49` / `884ec9f`.
+2. **Daytime saving = Wi-Fi radio duty cycling.** The device stays awake and reacts to every button at once; while
+   the screensaver shows and nothing is in use it switches the **radio** off between updates and brings it up only
+   to fetch: associate → frame + battery → radio off. Day cadence `DAY_WAKE_MIN` = 10 min.
+3. **Night window 00:00–06:00 local (Europe/Berlin): one update every two hours** (`NIGHT_WAKE_MIN=120`). The
+   screensaver photo does **not** rotate inside the window (same picture all night); readings, clock and battery
+   follow the 2-hourly update, so they can be up to two hours stale at night — that is the owner's trade.
+4. Everything else from the first stage stays: `ondemand` governor, battery report at most once a minute, ETag
+   fetches (empty 200 + `X-Unchanged`), 60 s screensaver poll as the fallback cadence, the schedule computed
+   server-side with DST handling, and the screensaver rule (held off only while the amp is ON *and* the panel is
+   on the amp view).
+5. **Every frame of the low-power path is a full flashing refresh** of a freshly fetched frame, followed by the
+   settle time and `sync` before anything else happens, and a reconnect always forces a full redraw.
 
 ## Gotchas for the implementer
 - The client runs on busybox 1.7.2 `/bin/sh` (no `read -t`, no `od`); `sleep` continues across suspend (the device slept 41 s inside a 20 s `sleep`, nothing broke).
-- Keep the cron watchdog (`b246a44`) from restarting the client while it is deliberately asleep: stamp `last_ok` before suspending or make the watchdog check the stamp's age against the planned sleep.
+- Keep the cron watchdog (`b246a44`) from restarting the client across a radio-off window: no fetch can succeed while the radio is down, so the stale threshold has to follow the current window length.
 - Device clock is UTC; night window must be computed in Europe/Berlin (simplest: let the bridge/app decide and send the sleep length).
-- The RTC alarm must be cleared (`echo 0 > wakealarm`) before setting a new one.
+- The RTC alarm must be cleared (`echo 0 > wakealarm`) before setting a new one. *(Only relevant to the rejected suspend design.)*
 
-## Status 2026-10-15 — built (bridge + app + client), rolled out in stages
 
-### What is implemented
-**Bridge** (`bridge/server.js`, pure schedule in `bridge/schedule.js`, tests `bridge/schedule.test.js` = `cd bridge && npm test`):
-- `GET /schedule?default=N` → one line `"<poll s> <sleep|awake> <wake epoch s> <sleep s> <night 0|1> <HH:MM local>"`.
-  `sleep` only while the app shows the screensaver (`<html data-eink-saver="1">`), no `/key` for `KEEP_AWAKE_MS` (5 min) and
-  `SLEEP_ENABLED` is on. Day: next point on the `DAY_WAKE_MIN` grid (:00 :10 :20 …), night (`NIGHT_START`–`NIGHT_END` local
-  time in `SLEEP_TZ`, DST via Intl): next point on the `NIGHT_WAKE_MIN` grid (on the hour). A point closer than 60 s is skipped.
-  The poll seconds replace `/poll` for the new client: 5 while music plays on the Media tab, 60 on the screensaver, else the device default.
-  `?woke=1` = the device resumed before its alarm (power slider): counts as a key, holds it awake 5 min.
-- `GET /sleep?secs=&wake=&night=&etag=` → the device commits to sleeping: the bridge injects `window.__kindleSleep` (+ `kindle-sleep`
-  event, `label` = local HH:MM of the wake), re-shoots and returns that frame ("sleeping · next HH:MM" badge, `SleepBadge`); cleared on the
-  next `/key` or an `awake` schedule.
-- ETag: the frame hash is now **md5** (the Kindle has `md5sum`, no `sha1sum`); `/screen.png?…&etag=<md5>` and `/key/<k>?etag=` answer an
-  **empty 200** (`X-Unchanged: 1`) when the frame is unchanged — busybox 1.7.2 wget rejects every status but 200/206, so no 304/204.
-- `/healthz` gained `saver`, `sleep`, `lastKeyAt`, `schedule{…, next}`.
-- Config = the app's `.env` (`.env.example`): `SLEEP_ENABLED=1 DAY_WAKE_MIN=10 NIGHT_START=23:00 NIGHT_END=07:00 NIGHT_WAKE_MIN=60 SLEEP_TZ=Europe/Berlin`,
-  passed to the bridge by `docker-compose.yml`. **Server-side kill switch: `SLEEP_ENABLED=0` + bridge recreate** → `/schedule` answers `awake`.
+## Status 2026-10-16 — built and rolled out: radio duty cycling, no suspend
 
-**App**: `src/lib/night-window.ts` (same night rule, tested incl. DST edges) — `getScreensaver` returns the **same photo** inside the night
-window (`lastPhoto` cache); F1/F4 on the saver pass `force` and still get a new one. The photo rotation period = `DAY_WAKE_MIN`
-(`SnapshotResult.photoMinutes`), the full-refresh hint follows the photo id (same photo = no flash at the hourly night wake). The saver sets
-`<html data-eink-saver="1">`; the badge is `SleepBadge` next to the battery badge (i18n `sleep.badge`).
+### What was removed
+All RTC-suspend code: `suspend_for` / `maybe_sleep` / `wait_wifi` / `sched_get` in `kindle/nexus.sh`, the `/sleep` endpoint and
+`sleepInfo` / `injectSleep` in `bridge/server.js`, and `window.__kindleSleep` / `useKindleSleep` / `SleepBadge` / the `sleep.badge`
+i18n keys / the `.sleep-badge` CSS in the app. The config keys `SLEEP`, `MIN_SLEEP`, `MAX_SLEEP`, `WAKE_HOLD`, `SLEEP_FALLBACK`,
+`SLEEP_OVERRIDE*` are gone, and so are the `/tmp/nexus.sleeping` / `/tmp/nexus.last_wake` stamps and the `asleep()` branch in
+`cron.sh`. **Why delete rather than hide behind a switch:** suspend is not one flag, it is a second power mode — a second main-loop
+branch, a second set of watchdog stamps and a second badge state, all in a 300-line busybox script that has to stay readable. The
+owner has ruled it out permanently, and `git show 5086e49 884ec9f` has the whole thing if it is ever wanted back.
 
-**Client** (`kindle/nexus.sh`, `kindle/cron.sh`, `kindle/config`):
-- Awake tweaks: `CPU_GOVERNOR=ondemand` at start (kernel offers conservative/ondemand/userspace/powersave/performance; restored to
-  `performance` on stop), battery report at most every `BATTERY_EVERY=60` s, every screen fetch carries `?etag=<md5 of the drawn frame>`
-  and an empty answer draws nothing, the poller takes its cadence + the sleep verdict from `/schedule` (60 s on the saver).
-- Sleep cycle (`maybe_sleep` in the main loop, so keys are never raced): on a poll flagged `sleep` → re-ask `/schedule` → `GET /sleep`
-  (badge frame) → RTC alarm = `rtc1/since_epoch + secs` (**`/sys/class/rtc/rtc1` = pmic_rtc is the only RTC with `wakealarm`, and its
-  clock is NOT the system clock** — `rtc0` has no alarm) → `echo mem > /sys/power/state` (blocks until resume) → clear the alarm, stamp,
-  wait for `wifid cmState=CONNECTED` (≤ `WIFI_WAIT=20` s) → `/schedule` again (3 bounded tries) → … Bridge unreachable after a wake →
-  nothing drawn, log, sleep `SLEEP_FALLBACK=600` s and retry. Alarm not accepted / suspend write fails / resumed ≥5 s early (slider) →
-  stay awake `WAKE_HOLD=300` s (tell the bridge `woke=1`). A button within `KEY_HOLD=300` s (the readers stamp `/tmp/nexus.last_key`)
-  blocks the suspend; the FIFO keeps queued keys for after the cycle.
-- Watchdog: `nexus.sh` writes `/tmp/nexus.sleeping` (planned wake epoch) before suspending and `/tmp/nexus.last_wake` after; `cron.sh`
-  skips its stale check while the alarm has not fired (+120 s grace) and for 120 s after a resume; a sleeping stamp left behind >120 s past
-  its alarm counts as stale again. Decision table: `dash kindle/tests/cron-test.sh` (12 cases, all pass).
-- **Kill switches:** `SLEEP=0` in `/mnt/us/nexus/config` (+ `nexus.sh restart`), or `touch /mnt/us/nexus/NOSLEEP` (checked before every
-  suspend, no restart needed), `DISABLED` stops the client entirely, `SLEEP_ENABLED=0` on the server. To reach a sleeping device: flick the
-  power slider (it then stays awake 5 min), then `ssh kindle`.
-- `SLEEP_OVERRIDE=120` + `SLEEP_OVERRIDE_CYCLES=3` in the config = three fixed 2-min cycles after a start, then the bridge schedule
-  (rollout test; label `test+120s (n left)`).
+### What was kept
+`ondemand` governor, battery report at most once a minute, ETag frame fetches (empty 200 + `X-Unchanged`), the 60 s screensaver poll
+as the fallback cadence, the bridge-side schedule with DST handling (`bridge/schedule.js`, pure + tested), the night photo hold
+(`src/lib/night-window.ts`), the screensaver rule itself, and the full-refresh + settle discipline.
 
-### Rollout log
-- 18:35–18:41Z bridge/app deployed (bridge Dockerfile now copies `schedule.js`; the first recreate crash-looped without it); panel reset to
-  Lights by the recreate and restored to the amp view with `/key/prev` + `/key/f3` (amp on, queue paused).
-- **Stage 1 (awake tweaks) live 18:41:51Z**, old config kept (new keys appended, `SLEEP=0`): `cpu governor ondemand` logged, bridge sees
-  `/schedule?default=20` + `/battery` + `/screen.png?fresh=1&etag=…` per poll, `/hint` only after a drawn frame; curl check of
-  `?etag=<current>` → `200`, `Content-Length: 0`, `X-Unchanged: 1`.
-- 18:50Z amp off, **saver at 18:53:39Z**; first `/sleep` 18:53:40Z but the device stayed awake: `wakealarm not set` — the pmic_rtc
-  `wakealarm` **reads back empty always** (even a past value is accepted with rc 0; verified by hand 19:02Z), so the read-back guard
-  was a false negative (safe failure: awake, retry after `WAKE_HOLD`). Hand test 19:04:36Z: alarm +45 → `echo mem` returned 19:05:20Z
-  (44 s), Wi-Fi CONNECTED on return. Guard changed to "our arithmetic + the write's rc"; client restarted 19:07:10Z with
-  `SLEEP=1 SLEEP_OVERRIDE=120 SLEEP_OVERRIDE_CYCLES=3`.
-- **Stage 2 (three 120 s cycles)** — device log (UTC, device clock ≈2 s behind the server) / bridge log:
-  `19:12:18 sleeping 120s (awake 308s)` → `19:14:18 resumed after 120s (planned 120)`, `wifi CONNECTED after 0s`, bridge
-  `/schedule` 19:14:22.99Z, `/battery`, `/sleep` 19:14:23.78Z → `19:14:22 sleeping 120s (awake 4s)` → `19:16:23 resumed after 121s`
-  → bridge hits 19:16:28.1–28.9Z → `sleeping (awake 4s)` → `19:18:27 resumed after 120s` → bridge 19:18:32.9–33.6Z. Each wake
-  produced a bridge hit ≤5 s after the resume and a fresh frame (`/sleep` 200, 560–630 ms, new etag each time).
-- **Stage 3 (real schedule)** — the 4th cycle took the grid: `19:18:31 sleeping 88s until 21:20` → `19:20:00 resumed after 89s
-  (planned 88)` → `19:20:04 sleeping 594s until 21:30 (awake 4s)` → `19:29:58 resumed after 594s (planned 594)`; healthz `sleep`
-  = `{label: "21:30", sleepSec: 594, night: false}`. At 19:29:43Z `/schedule?woke=1` was sent from the server to hold it awake
-  for the ssh read-out (log above) — it then polled normally at 60 s and goes back to sleep at the next poll after the hold.
-  Test override lines removed from the device config (SLEEP=1 stays); `cron.sh` never fired during the cycles.
-- **Measured awake time per cycle: 4 s** (resume → next suspend, device log), of which ~1 s is bridge traffic
-  (`/schedule` + `/battery` + `/sleep` ≈ 0.6–0.8 s incl. the re-shot); planned → actual sleep length exact to ±1 s.
-  CPU `time_in_state` after the governor change: 160 MHz accruing (177 s of 160 MHz in the first ~50 min awake vs 0 before).
-  Battery stayed on the charger (96–100 %, `charging=1`) during the whole test, so no drain figure yet — the owner's next unplugged
-  day gives it (healthz `battery` once a minute while awake, once per wake while sleeping).
+### The model
+`/schedule` answers `"<poll s> <doze|awake> <next update epoch> <window s> <night 0|1> <HH:MM local>"`. `doze` = "you may switch your
+radio off until the next update": only while the app shows the saver, no `/key` for `KEEP_AWAKE_MS` (5 min) and
+`RADIO_DUTY_ENABLED=1`. One cycle on the device:
 
-### Owner's button-wake test (not run — needs a person at the device, ~90 s)
-Question: does a button press wake the Kindle 4 from suspend (the keypad/fiveway expose no wakeup switch, so probably not)?
-1. Agent: wait for the saver + a sleep cycle (healthz `sleep` not null), note `nextWake` (local HH:MM on the badge).
-2. Owner: at least 20 s after the badge appeared, press the 5-way centre once; wait; do not touch the slider.
-3. Agent watches the bridge log for `/schedule`, `/sleep` or `/key/select` arriving **before** `nextWake`; then (after the next
-   wake or a slider flick) reads the device log: `resumed early after Ns (planned M): power slider? staying awake 300s` = the button
-   woke it (the client then holds 5 min and processes the queued key); `resumed after Ms (planned M)` = it did not, and the press
-   was queued in the FIFO and applied at the scheduled wake (the saver wakes to the UI then).
-4. Either way the panel is back within ~5 s of a slider flick (early resume → `/schedule?woke=1`, awake 5 min, badge dropped).
+    radio on -> battery -> /schedule -> fresh frame, eips -f -> EINK_SETTLE 2 s + sync -> wirelessEnable 0 ... window ...
+
+`lipc-set-prop com.lab126.cmd wirelessEnable 0` unloads the `ar6003` module and `wlan0` disappears (so it is a real power-down);
+`wirelessEnable 1` gives `cmState=PENDING` at +3 s and `CONNECTED` at **+6 s**, with the bridge reachable in the same second.
+The poller process is gone: the main loop blocks on the key FIFO (a press is seen instantly) and arms a one-shot timer for the next
+poll, tagged with a generation counter so a superseded timer is ignored.
+
+Schedule (app `.env` → compose → bridge): `DAY_WAKE_MIN=10`, night `00:00–06:00` `NIGHT_WAKE_MIN=120`, `SLEEP_TZ=Europe/Berlin`.
+Night updates land on 00:00 / 02:00 / 04:00 / 06:00 and the photo does not rotate between them — so at night the clock and the
+readings on the screensaver can be up to two hours old. That is the owner's trade, not a bug.
+
+### Full-refresh rule (the ruined frame of 2026-10-15)
+Every frame of the low-power path is a **freshly fetched PNG** (no `?etag=`) drawn with `eips -f`, followed by `EINK_SETTLE` and
+`sync` before anything else happens — the frame the owner looks at for the next 10 minutes (or two hours) must be complete.
+A reconnect always forces a full redraw (the client drops `/tmp/nexus.last.md5` inside `radio_up`, so the next frame, poll or key,
+is a complete PNG drawn with a full refresh), and a draw cut short (`/tmp/nexus.drawing` left behind by a restart or a kill) is
+redone in full. Measured: `eips -f -g` returns in **0.08–0.13 s** — it only submits the update, the controller needs about a second
+more, which is what the 2 s settle covers; there is no completion flag in sysfs on this device to wait on.
+
+### Watchdog
+`cron.sh` cannot use a flat 180 s any more: no fetch can succeed while the radio is off. `nexus.sh` writes
+`/tmp/nexus.window` = `"<end epoch> <window s>"` before switching the radio off and `cron.sh` uses
+**`max(180, window + 120)`** while `now < end + 120`; otherwise `max(180, POLL_SECONDS + 120)` from the same `config`. A window
+length in the stamp is capped at 7800 s so a corrupt file can never switch the watchdog off, and a stamp left behind by a crashed
+client stops counting as soon as its window has expired. `dash kindle/tests/cron-test.sh` = 23 cases, all passing, including the
+10-minute and 2-hour windows, the just-ended window, the expired one, the cap and the garbage stamp.
+
+### Kill switches
+| Where | Switch | Effect |
+|---|---|---|
+| device `config` | `RADIO_DUTY=0` (legacy `SLEEP=0` still read) | radio always on; needs `nexus.sh restart` |
+| device file | `touch /mnt/us/nexus/NORADIO` (legacy `NOSLEEP` still honoured) | radio always on, live, checked before every window |
+| device file | `DISABLED` | no client at all |
+| server `.env` | `RADIO_DUTY_ENABLED=0` (legacy `SLEEP_ENABLED` still read) + bridge **rebuild** | `/schedule` only ever says `awake` |
+
+Unlike the suspend design, the device is reachable over ssh whenever its radio is up, and a window can always be ended by pressing
+a button — no power slider needed.
+
+### Rollout log 2026-10-15/16 (UTC; the device clock runs ~3 s ahead of the server)
+- 22:19:36 radio probe on the device: `wirelessEnable 0` → `ar6003` unloaded and `wlan0` gone within 5 s, `cmState=NA`;
+  `wirelessEnable 1` → `PENDING` +3 s, `CONNECTED` **+6 s**, bridge `/healthz` OK in the same second.
+- 22:32:51–22:33:32 `docker compose up -d --build app` then `up -d --build --force-recreate --no-deps bridge`; `.env` switched to
+  `RADIO_DUTY_ENABLED=1 NIGHT_START=00:00 NIGHT_END=06:00 NIGHT_WAKE_MIN=120`. `/healthz` → `schedule.enabled true`,
+  `nightStart 0`, `nightEnd 360`, `nightWakeMin 120`, next update `02:00`. The panel was on the screensaver over the Lights tab
+  before and after (the bridge had already been recreated 21 min earlier, so there was no tab to restore).
+- 22:34:55 client deployed (`nexus.sh`, `cron.sh`, new `config` with the device's own `BRIDGE_TOKEN` kept; `.bak` of all three left
+  on the device) and restarted. 20 s polls with `?etag=` answering empty 200, battery once a minute.
+- 22:40:06 saver → first `doze`; **22:40:13 `radio off for 120s`**, bridge silent until **22:42:15**, then
+  `battery` + `/schedule` + `/screen.png?fresh=1` + `/hint` inside **0.9 s** and `22:42:21 radio off ... (radio was on 3s)`.
+  Per cycle: **~5 s associating + ~3 s of work = ~8 s of radio per window.**
+- 22:44:23 `touch NORADIO` during a window → `22:44:27 radio stays on: NORADIO file` (live kill switch verified).
+- 22:45:31 the test override expired and the device took the **real** schedule: `radio off for 4476s, next update 02:00`.
+- **Button test, 22:45:52** (a `select` event line written into the key FIFO exactly as the input reader writes it, 20 s into the
+  radio-off window): `key 194 -> select` at once, `/key/select` at the bridge 22:45:54.8Z, `radio on after 5s (key)`, frame +
+  `/hint` by 22:45:55.1 — **~5 s from press to a full redraw**, against a 10 s target. A real finger on the button exercises only
+  the input reader in front of that, which is unchanged.
+- **Watchdog across real windows:** the device was then given two **10-minute** windows (the real day cadence, which is longer
+  than the old flat 180 s stale threshold): radio off 22:52:02 → back **23:02:07**, off 23:02:10 → back **23:12:16**, ~0.7 s of
+  bridge traffic per cycle. No restart: the bridge log shows no `/reload` (every client start does one) and the client kept the
+  same pid. Two things protect it — the widened threshold, and the fact that `cron.sh` cannot reach `/healthz` while the radio is
+  down, so it exits before it would ever restart.
+- At 23:12:16 the test override was exhausted and the device took the real night schedule again: one update at 02:00 local.
+- Two consecutive screensaver window frames captured from the bridge (`01-window1-frame.png`, `02-window2-frame.png`) are
+  byte-identical complete frames (night = no photo rotation), and the post-key frame (`03-after-keypress.png`) is the complete
+  Lights tab. No sleep badge anywhere — the device is awake, so nothing claims otherwise.
+
+### What this does and does not save
+The radio is now up roughly **8 s per 10-minute window by day (1.3 %) and 8 s per 2-hour window at night (0.1 %)**, against
+100 % before. But the device **stays awake**, and the awake SoC — not the radio — is the bulk of the draw: the 2026-10-13
+measurement was ~63 mA idle with the `performance` governor, ~52 mA with `ondemand`. Published AR6003 idle-associated figures
+are in the 10–20 mA range, so the honest expectation is roughly **52 → 35–42 mA, i.e. ~24 h → ~30–36 h on a charge** — a
+useful improvement, not the week that suspend would have given. That is the price of a panel whose buttons work, and the owner
+chose it with the button-wake result in hand. **There is still no measured drain**: the device was on the charger for the whole
+rollout and `battery_current` while charging is charge-taper noise, not consumption. One unplugged day gives the real number
+(`/healthz` records the battery on every update, so the curve is already being logged).

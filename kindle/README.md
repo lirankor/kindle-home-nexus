@@ -30,25 +30,46 @@ another statement (`( …; r=$?; exit $r ) 2>/dev/null`).
 Verified 2026-10-15: bridge `--force-recreate` → next frame 3 s later; bridge `docker pause` 220 s → a failed fetch every
 ~50 s, no restart (healthz unreachable), fresh frame 10 s after unpause; main loop `kill -STOP` → watchdog restart at +282 s.
 
-Battery saver (2026-10-15, `docs/battery-saver-plan.md`): at start the CPU governor is set to `CPU_GOVERNOR`
-(`ondemand`, idles at 160 MHz; `performance` is restored on stop), the battery is reported at most every
-`BATTERY_EVERY` s, every screen fetch sends `?etag=<md5 of the frame on the panel>` and an empty answer means
-"unchanged, draw nothing", and the poller takes its cadence from `/schedule` (5 s music, 60 s screensaver, else
-`POLL_SECONDS`). While the app shows the screensaver and no button was pressed for 5 min, `/schedule` says `sleep`
-with the seconds until the next scheduled wake (day: every 10 min on the :00/:10/… grid; night 23:00–07:00 local:
-on the hour, no photo change) — the client then fetches `/sleep` (the frame with the "sleeping · next HH:MM"
-badge), sets the RTC alarm on `/sys/class/rtc/rtc1` (pmic_rtc, the only one with `wakealarm`; alarm = its own
-`since_epoch` + secs, NOT the system epoch) and writes `mem` to `/sys/power/state`, which blocks until the resume.
-After the resume it waits for Wi-Fi (`WIFI_WAIT`), asks `/schedule` again and sleeps again — about 10 s awake per
-cycle. A button within `KEY_HOLD` s, a resume ≥5 s before the alarm (power slider), a refused alarm or a failed
-suspend keep it awake for `WAKE_HOLD` s; a bridge that cannot be reached after a wake means "draw nothing, sleep
-`SLEEP_FALLBACK` s, try again". `cron.sh` is sleep-aware: `/tmp/nexus.sleeping` (planned wake epoch) and
-`/tmp/nexus.last_wake` suspend its stale check (120 s grace); `dash kindle/tests/cron-test.sh` runs its decision table.
-**Kill switches:** `SLEEP=0` in `config` (+ restart), `touch /mnt/us/nexus/NOSLEEP` (live, checked before every
-suspend), `DISABLED` (no client at all), or `SLEEP_ENABLED=0` in the server `.env` + bridge recreate. A sleeping
-device is unreachable until it wakes: flick the power slider (it then stays awake 5 min) and `ssh kindle`.
-`SLEEP_OVERRIDE=120` (+ `SLEEP_OVERRIDE_CYCLES=3`) = three fixed 2-min cycles after a start for a rollout test. The pmic_rtc
-`wakealarm` reads back empty always (write-only), so the client cannot verify the alarm beyond the write succeeding. `nexus.sh status` shows the sleep state and governor.
+Battery saver — **radio duty cycling** (2026-10-16, `docs/battery-saver-plan.md`): at start the CPU governor is set to
+`CPU_GOVERNOR` (`ondemand`, idles at 160 MHz; `performance` is restored on stop), the battery is reported at most every
+`BATTERY_EVERY` s, and every screen fetch sends `?etag=<md5 of the frame on the panel>` so an unchanged frame comes back
+as an empty 200 and nothing is drawn. **The device never suspends** — a button press cannot wake a suspended Kindle 4,
+only the power slider can (owner's test 2026-10-15), so it stays awake and reacts to every key at once. Instead, while
+the app shows the screensaver and no button was pressed for `KEY_HOLD` s, the bridge's `/schedule` answers `doze` with the
+seconds until the next scheduled update, and the client **switches the Wi-Fi radio off** for that window:
+
+    radio on -> battery report -> /schedule -> fresh frame, FULL refresh -> EINK_SETTLE + sync -> radio off ... window ...
+
+`lipc-set-prop com.lab126.cmd wirelessEnable 0` is what does it: the `ar6003` module is unloaded and `wlan0` disappears
+(verified 2026-10-15), so the radio is really powered down, not just marked down. `wirelessEnable 1` brings it back and
+`lipc-get-prop com.lab126.wifid cmState` reads `CONNECTED` **6 s** later (measured; bounded by `WIFI_WAIT`, with one extra
+`wirelessEnable 1` kick after 10 s). The schedule is server-side (the device clock is UTC): by day the next point on the
+`DAY_WAKE_MIN` grid (:00/:10/…), at night (00:00–06:00 local) every two hours, with no photo change.
+
+**Buttons during a radio-off window**: the main loop blocks on the key FIFO, so a press is handled the moment it happens —
+the radio comes back up (~6 s), the key is sent to the bridge and the frame is redrawn in full. There is no poller process
+any more: the main loop arms a one-shot timer for the next poll, and a press re-arms it to `POLL_SECONDS` (a superseded
+timer's line carries an old generation number and is ignored). **If the radio refuses to re-associate** within `WIFI_WAIT`,
+the client leaves it on, logs it and stops duty cycling for `RADIO_FAIL_HOLD` s — the panel is never left offline.
+`nexus.sh stop` and `start` both force the radio back on, so a client killed mid-window cannot strand the device.
+
+Every frame of the low-power path (the one the owner looks at for the whole window) is a **freshly fetched frame drawn with a
+full flashing refresh**, followed by `EINK_SETTLE` s and `sync` before anything else happens: partial updates ghost on this
+panel, and a half-finished one would stay on the screen for up to two hours (the owner's photo 2026-10-15: washed out, torn,
+ghosted). A reconnect always forces a full redraw (`/tmp/nexus.last.md5` is dropped so the next frame is a complete PNG), and
+a draw that was cut short (`/tmp/nexus.drawing` left behind by a restart) is redone in full. `eips` itself returns in ~0.1 s
+but the controller needs about a second more, which is what `EINK_SETTLE=2` covers.
+
+The watchdog knows about the windows: `nexus.sh` writes `/tmp/nexus.window` = `"<end epoch> <window s>"` before switching the
+radio off, and `cron.sh` widens its stale threshold to `max(180, window + 120)` while that window runs (otherwise every
+10-minute day window — and certainly every 2-hour night one — would look like a stuck client and get restarted). Without the
+stamp the threshold is `max(180, POLL_SECONDS + 120)`, and an absurd value in the stamp is capped at 7800 s so a corrupt file
+can never switch the watchdog off. Decision table: `dash kindle/tests/cron-test.sh` (23 cases).
+
+**Kill switches:** `RADIO_DUTY=0` in `config` (+ restart), `touch /mnt/us/nexus/NORADIO` (live, checked before every
+window; the older `NOSLEEP` name still works), `DISABLED` (no client at all), or `RADIO_DUTY_ENABLED=0` in the server `.env`
++ a bridge rebuild. `DOZE_OVERRIDE=120` (+ `DOZE_OVERRIDE_CYCLES=3`) = three fixed 2-minute windows after a start for a
+rollout test. `nexus.sh status` shows the radio state, the current window and the governor.
 
 Button map: 5-way = up/down/left/right/select, upper side buttons = prev tab,
 lower side buttons = next tab, Back = escape, Menu = menu, Home = home, keyboard = keyboard.

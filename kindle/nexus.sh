@@ -1,5 +1,7 @@
 #!/bin/sh
-# Kindle Home Nexus client: buttons -> bridge /key/<name>, PNG -> eips; sleeps (RTC suspend) on the screensaver.
+# Kindle Home Nexus client: buttons -> bridge /key/<name>, PNG -> eips. Saves power by switching the
+# Wi-Fi RADIO off between updates while the screensaver shows (the device itself never suspends: a key
+# press cannot wake a suspended Kindle 4, only the power slider can — see docs/battery-saver-plan.md).
 # Runs on the Kindle 4's own busybox 1.7.2 /bin/sh (no read -t, no od, no wget -T, wget -O refuses existing files,
 # wget accepts only HTTP 200/206, hexdump -e only from files, md5sum but no sha1sum).
 # Usage: nexus.sh start|stop|restart|status|run
@@ -13,23 +15,26 @@ FIFO=/tmp/nexus.keys
 SHOT=/tmp/nexus.png
 LAST=/tmp/nexus.last.md5   # md5 of the frame on the panel = the bridge's ETag; sent back as ?etag= so an unchanged frame is an empty 200
 STAMP=/tmp/nexus.last_ok   # epoch of the last successful fetch; cron.sh restarts us when it goes stale
-KEYSTAMP=/tmp/nexus.last_key   # epoch of the last hardware button event (the readers write it): no suspend within KEY_HOLD
-SLEEPING=/tmp/nexus.sleeping   # exists while suspended, holds the planned wake epoch: cron.sh skips its stale check
-LASTWAKE=/tmp/nexus.last_wake  # epoch of the last resume: cron.sh gives us WAKE_GRACE to reconnect
+KEYSTAMP=/tmp/nexus.last_key   # epoch of the last hardware button event (the readers write it): no radio-off within KEY_HOLD
+RADIOOFF=/tmp/nexus.radio_off  # exists while the Wi-Fi radio is switched off, holds the epoch of the next update
+WINDOW=/tmp/nexus.window   # "<end epoch> <window s>" of the current radio-off window: cron.sh widens its stale threshold with it
 BATSTAMP=/tmp/nexus.last_bat   # epoch of the last battery report (once a minute)
-RTC=/sys/class/rtc/rtc1        # pmic_rtc: the only RTC with a wakealarm. Its clock is NOT the system clock: alarm = its since_epoch + secs
+DRAWING=/tmp/nexus.drawing     # exists while eips runs: a draw cut short (restart, kill) is redone in full next cycle
 GOV=/sys/devices/system/cpu/cpu0/cpufreq
 URL="$BRIDGE_URL/$BRIDGE_TOKEN"
 T=${FETCH_TIMEOUT:-15}
-SLEEP=${SLEEP:-1}; MIN_SLEEP=${MIN_SLEEP:-30}; MAX_SLEEP=${MAX_SLEEP:-7200}; KEY_HOLD=${KEY_HOLD:-300}; WAKE_HOLD=${WAKE_HOLD:-300}
-WIFI_WAIT=${WIFI_WAIT:-20}; SLEEP_FALLBACK=${SLEEP_FALLBACK:-600}; BATTERY_EVERY=${BATTERY_EVERY:-60}
+# RADIO_DUTY=0 (or the legacy SLEEP=0) keeps the radio up around the clock.
+RADIO_DUTY=${RADIO_DUTY:-${SLEEP:-1}}
+MIN_DOZE=${MIN_DOZE:-60}; MAX_DOZE=${MAX_DOZE:-7800}; KEY_HOLD=${KEY_HOLD:-300}
+WIFI_WAIT=${WIFI_WAIT:-30}; RADIO_FAIL_HOLD=${RADIO_FAIL_HOLD:-900}
+BATTERY_EVERY=${BATTERY_EVERY:-60}; EINK_SETTLE=${EINK_SETTLE:-2}
 log() { echo "$(date '+%H:%M:%S') $*" >> $LOG; }
 get() { # get <outfile|-> <path> : wget with a hard timeout. busybox 1.7.2 wget has no -T, and a bridge that
   # vanishes mid-request (container recreate) leaves a half-open socket that would otherwise block forever.
   ( timeout -t $T wget -q -O "$1" "$URL$2"; r=$?; exit $r ) 2>/dev/null   # r=$? keeps ash from exec-ing wget (else "Terminated" leaks to the log)
 }
 ok() { date +%s > $STAMP; }
-nexus_pids() { # every shell running "nexus.sh run": main loop, its reader/poller subshells AND their while-loop grandchildren
+nexus_pids() { # every shell running "nexus.sh run": main loop, its reader subshells AND their while-loop grandchildren
   for p in /proc/[0-9]*; do case "$( { tr '\0' ' ' < $p/cmdline; } 2>/dev/null )" in *"nexus.sh run ") echo ${p#/proc/};; esac; done   # anchored: never match some other shell quoting it
 }
 set_governor() { # set_governor <name> : only when the kernel offers it (ondemand idles at 160 MHz, ~11 mA less than performance)
@@ -52,7 +57,9 @@ fetch() { # fetch <path> [full] ; draws if we got a non-empty file that differs 
       every=${FULL_REFRESH_EVERY:-0}
       if [ "$2" = "full" ] || [ "$hint" = "full" ] || { [ "$every" -gt 0 ] && [ $n -ge "$every" ]; }; then flag="-f"; n=0; else flag=""; fi
       echo $n > $COUNT
+      touch $DRAWING
       mv $SHOT.tmp $SHOT && eips $flag -g $SHOT && echo "$sum" > $LAST
+      rm -f $DRAWING
     fi
     return 0
   fi
@@ -70,7 +77,7 @@ reader() { # reader <device> <n> : one line "sec usec type code value" per input
   while :; do
     dd bs=16 count=1 of=/tmp/nexus.ev$2 2>/dev/null
     hexdump -v -e '1/4 "%u " 1/4 "%u " 1/2 "%u " 1/2 "%u " 1/4 "%u\n"' /tmp/nexus.ev$2
-    date +%s > $KEYSTAMP   # the main loop checks this before suspending: a button within KEY_HOLD keeps us awake
+    date +%s > $KEYSTAMP   # the main loop checks this before switching the radio off
   done < $1
 }
 
@@ -82,115 +89,123 @@ report_battery() { # tell the bridge our battery level and charging state (shown
   [ -n "$lvl" ] && get - "/battery?level=$lvl&charging=${chg:-0}" >/dev/null && echo $now > $BATSTAMP   # never -O /dev/null: this wget refuses existing files
 }
 
-poller() { # one "poll" line per cadence the bridge asks for (/schedule: 5 s while music plays on the Media tab, 60 s on the
-  # screensaver, else POLL_SECONDS) carrying the bridge's sleep/awake verdict, so the main loop only asks again when it may sleep
-  s=$POLL_SECONDS
-  while :; do
-    sleep $s
-    set -- $(get - "/schedule?default=$POLL_SECONDS")
-    s=$1; case "$s" in ''|*[!0-9]*) s=$POLL_SECONDS;; esac
-    [ "$s" -ge 1 ] && [ "$s" -le 600 ] || s=$POLL_SECONDS
-    echo "0 0 poll ${2:-awake} 0"
-  done
-}
-
-# ---- sleep cycle (docs/battery-saver-plan.md) ----
-# On the screensaver the bridge's /schedule says "sleep" with the seconds until the next scheduled wake (day: every
-# 10 min, night: hourly, computed server-side in local time). We draw the frame with the "sleeping · next HH:MM" badge,
-# set the RTC alarm and suspend; the write to /sys/power/state blocks until resume. After the resume: Wi-Fi back
-# (bounded), ask /schedule again, draw, suspend again — about 10 s awake per cycle. Anything unexpected (a key, an early
-# resume = power slider, a bridge that cannot be reached right after a wake) is handled without ever busy-looping.
-AWAKE_UNTIL=0   # epoch: after an early resume (slider) or a failed suspend we stay awake until then
-OVERRIDE_LEFT=${SLEEP_OVERRIDE_CYCLES:-3}   # how many SLEEP_OVERRIDE test cycles before the bridge schedule takes over
-WOKE=$(date +%s)
+# ---- radio duty cycle (docs/battery-saver-plan.md) ----
+# The device stays awake and reacts to every button at once. While the app shows the screensaver and no
+# button was pressed for 5 min, the bridge's /schedule answers "doze" with the seconds until the next
+# scheduled update (day: every DAY_WAKE_MIN on the :00/:10/… grid, night 00:00-06:00 local: every two
+# hours). We then draw a complete frame and switch the Wi-Fi radio off until that time. A button press
+# returns from the main loop's blocking read at once, brings the radio up (~6 s measured) and redraws.
+DUTY_UNTIL=0      # epoch: no duty cycling until then (set when the radio refused to come back)
+RECONNECTED=      # 1 right after the radio came back: the next frame is drawn with a full refresh
+RADIO_UP_AT=$(date +%s)   # when the radio last came up: gives the "radio on Ns" figure in the log
+OVERRIDE_LEFT=${DOZE_OVERRIDE_CYCLES:-3}   # how many DOZE_OVERRIDE test windows before the bridge schedule takes over
 BLOCKED=
-sleep_blocked() { # prints why we must stay awake, nothing when sleeping is fine
-  [ "$SLEEP" = "1" ] || { echo "SLEEP=0"; return; }
-  [ -f $DIR/NOSLEEP ] && { echo "NOSLEEP file"; return; }
+duty_blocked() { # prints why the radio must stay up, nothing when switching it off is fine
+  [ "$RADIO_DUTY" = "1" ] || { echo "RADIO_DUTY=0"; return; }
+  [ -f $DIR/NORADIO ] && { echo "NORADIO file"; return; }
+  [ -f $DIR/NOSLEEP ] && { echo "NOSLEEP file"; return; }   # the older name for the same kill switch
   now=$(date +%s)
   k=$(cat $KEYSTAMP 2>/dev/null || echo 0)
   [ $(( now - k )) -lt $KEY_HOLD ] && { echo "key $(( now - k ))s ago"; return; }
-  [ $now -lt $AWAKE_UNTIL ] && { echo "hold $(( AWAKE_UNTIL - now ))s"; return; }
+  [ $now -lt $DUTY_UNTIL ] && { echo "radio hold $(( DUTY_UNTIL - now ))s"; return; }
 }
-sched_get() { # /schedule with a few bounded retries (right after a resume the first request can fail before DHCP is done)
-  i=0
-  while [ $i -lt 3 ]; do
-    r=$(get - "/schedule?default=$POLL_SECONDS")
-    [ -n "$r" ] && { echo "$r"; return 0; }
-    i=$(( i + 1 )); sleep 2
-  done
+radio_state() { lipc-get-prop com.lab126.wifid cmState 2>/dev/null; }
+radio_down() { # radio_down <secs> <label> : switch the radio off until the next update; 1 = it stayed on
+  now=$(date +%s)
+  echo "$(( now + $1 )) $1" > $WINDOW   # cron.sh: no successful fetch is expected before that + its grace
+  if lipc-set-prop com.lab126.cmd wirelessEnable 0 2>/dev/null; then
+    echo $(( now + $1 )) > $RADIOOFF
+    log "radio off for ${1}s, next update $2 (radio was on $(( now - RADIO_UP_AT ))s)"
+    return 0
+  fi
+  rm -f $WINDOW
+  log "could not switch the radio off, leaving it on"
   return 1
 }
-wait_wifi() { # after a resume the ar6003 is powered off and wifid re-associates on its own (~5 s); bounded wait
+radio_up() { # radio_up <why> : bring the radio back and wait (bounded) for the association; always returns 0
+  [ -f $RADIOOFF ] || return 0
+  rm -f $RADIOOFF
+  rm -f $LAST; RECONNECTED=1   # force a full redraw after every reconnect: never leave a ghosted frame
+  t0=$(date +%s)
+  lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
   i=0
   while [ $i -lt $WIFI_WAIT ]; do
-    [ "$(lipc-get-prop com.lab126.wifid cmState 2>/dev/null)" = "CONNECTED" ] && break
+    [ "$(radio_state)" = "CONNECTED" ] && break
     sleep 1; i=$(( i + 1 ))
+    [ $i -eq 10 ] && lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null   # one more kick halfway
   done
-  log "wifi $(lipc-get-prop com.lab126.wifid cmState 2>/dev/null) after ${i}s"
-}
-suspend_for() { # suspend_for <secs> <label> : RTC alarm + suspend; returns 1 when we must stay awake instead
-  rtcnow=$(cat $RTC/since_epoch 2>/dev/null)
-  case "$rtcnow" in ''|*[!0-9]*) AWAKE_UNTIL=$(( $(date +%s) + WAKE_HOLD )); log "no rtc clock, staying awake ${WAKE_HOLD}s"; return 1;; esac
-  alarm=$(( rtcnow + $1 ))
-  echo 0 > $RTC/wakealarm 2>/dev/null   # must be cleared before a new value is accepted
-  # pmic_rtc's wakealarm is write-only (reads back empty, even a past value is taken with rc 0 — verified 2026-10-15), so the
-  # only guards are our own arithmetic (secs validated by the caller, alarm = the RTC's own clock + secs) and the write's rc.
-  echo $alarm > $RTC/wakealarm 2>/dev/null || { AWAKE_UNTIL=$(( $(date +%s) + WAKE_HOLD )); log "wakealarm write failed ($alarm), staying awake ${WAKE_HOLD}s"; return 1; }
-  t0=$(date +%s)
-  echo $(( t0 + $1 )) > $SLEEPING; ok
-  log "sleeping ${1}s until $2 (awake $(( t0 - WOKE ))s)"
-  sync
-  echo mem > /sys/power/state 2>>$LOG   # blocks until resume
-  rc=$?
-  t1=$(date +%s); slept=$(( t1 - t0 ))
-  echo 0 > $RTC/wakealarm 2>/dev/null
-  rm -f $SLEEPING; echo $t1 > $LASTWAKE; ok; WOKE=$t1
-  if [ $rc -ne 0 ]; then
-    AWAKE_UNTIL=$(( t1 + WAKE_HOLD )); log "suspend failed (rc=$rc), staying awake ${WAKE_HOLD}s"; return 1
+  RADIO_UP_AT=$(date +%s)
+  if [ "$(radio_state)" = "CONNECTED" ]; then
+    log "radio on after ${i}s ($1)"
+    return 0
   fi
-  if [ $slept -lt $(( $1 - 5 )) ]; then
-    AWAKE_UNTIL=$(( t1 + WAKE_HOLD )); log "resumed early after ${slept}s (planned $1): power slider? staying awake ${WAKE_HOLD}s"
-  else
-    log "resumed after ${slept}s (planned $1)"
-  fi
+  # Never leave the panel offline: keep the radio up and stop duty cycling for a while.
+  DUTY_UNTIL=$(( RADIO_UP_AT + RADIO_FAIL_HOLD ))
+  log "radio still $(radio_state) after ${i}s ($1): leaving it on, no duty cycling for ${RADIO_FAIL_HOLD}s"
   return 0
 }
-maybe_sleep() { # called from the main loop after a poll the bridge flagged "sleep"
-  cycle=0   # >0 once we have been suspended at least once in this call
-  while :; do
-    r=$(sleep_blocked)
-    if [ -n "$r" ]; then
-      [ "$r" != "$BLOCKED" ] && log "awake: $r"; BLOCKED=$r
-      if [ $cycle -gt 0 ]; then get - "/schedule?woke=1" >/dev/null; fetch "/screen.png?fresh=1&etag=$(etag)"; fi   # bridge: hold awake, drop the badge
-      return
-    fi
-    BLOCKED=
-    sched=$(sched_get)
-    if [ -z "$sched" ]; then
-      [ $cycle -eq 0 ] && return   # not sleeping yet and the bridge is away: the normal poll loop shows the footer
-      log "bridge unreachable after the wake: sleeping ${SLEEP_FALLBACK}s"
-      suspend_for $SLEEP_FALLBACK "fallback" || return
-      wait_wifi; cycle=$(( cycle + 1 )); continue
-    fi
-    set -- $sched   # "<poll s> <sleep|awake> <wake epoch> <sleep s> <night> <HH:MM>"
-    if [ "$2" != "sleep" ]; then
-      [ $cycle -gt 0 ] && fetch "/screen.png?fresh=1&etag=$(etag)"
-      return
-    fi
-    secs=$4; wake=$3; label=$6
-    if [ -n "$SLEEP_OVERRIDE" ] && [ $OVERRIDE_LEFT -gt 0 ]; then   # rollout test: a few short cycles, then the real schedule (no ssh needed to switch)
-      OVERRIDE_LEFT=$(( OVERRIDE_LEFT - 1 )); secs=$SLEEP_OVERRIDE; wake=$(( $(date +%s) + secs )); label="test+${secs}s ($OVERRIDE_LEFT left)"
-    fi
-    case "$secs" in ''|*[!0-9]*) log "bad schedule: $sched"; return;; esac
-    [ "$secs" -ge $MIN_SLEEP ] && [ "$secs" -le $MAX_SLEEP ] || { log "schedule out of range: $sched"; return; }
-    report_battery
-    fetch "/sleep?secs=$secs&wake=$wake&night=$5&etag=$(etag)"   # the frame with the badge; on failure right after a wake we still sleep
-    [ -n "$(sleep_blocked)" ] && continue   # a button arrived while we talked to the bridge
-    suspend_for $secs "$label" || return
-    wait_wifi
-    cycle=$(( cycle + 1 ))
-  done
+radio_force_on() { # at start and stop: an instance that died mid-window must not leave the radio off
+  [ "$(lipc-get-prop com.lab126.cmd wirelessEnable 2>/dev/null)" = "0" ] || return 0
+  lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
+  i=0
+  while [ $i -lt $WIFI_WAIT ] && [ "$(radio_state)" != "CONNECTED" ]; do sleep 1; i=$(( i + 1 )); done
+  log "radio was off, switched on again after ${i}s ($(radio_state))"
+}
+
+# ---- poll timer ----
+# There is no poller process any more: the main loop blocks on the FIFO (so a button is handled the
+# instant it is pressed) and arms a one-shot timer for the next poll. GEN makes a superseded timer's
+# line (one armed for the end of a radio-off window, cut short by a key press) harmless.
+GEN=0
+TIMER=
+arm() { # arm <secs> : one "poll" line in <secs>, replacing whatever was armed
+  GEN=$(( GEN + 1 ))
+  [ -n "$TIMER" ] && kill $TIMER 2>/dev/null
+  ( sleep "$1"; echo "0 0 poll $GEN 0" > $FIFO ) &
+  TIMER=$!
+}
+
+cycle() { # one scheduled update: radio up if needed, battery + frame, then decide the next window
+  radio_up poll
+  FF=; [ "$RECONNECTED" = "1" ] && { FF=full; RECONNECTED=; }   # first frame after a reconnect: full refresh
+  report_battery
+  sched=$(get - "/schedule?default=$POLL_SECONDS")
+  set -- $sched   # "<poll s> <doze|awake> <next update epoch> <window s> <night 0|1> <HH:MM local>"
+  s=$1; verdict=$2; secs=$4; label=$6
+  case "$s" in ''|*[!0-9]*) s=$POLL_SECONDS;; esac
+  [ "$s" -ge 1 ] && [ "$s" -le 600 ] || s=$POLL_SECONDS
+  if [ -n "$DOZE_OVERRIDE" ] && [ "$verdict" = "doze" ] && [ $OVERRIDE_LEFT -gt 0 ]; then   # rollout test: a few short windows, then the real schedule
+    OVERRIDE_LEFT=$(( OVERRIDE_LEFT - 1 )); secs=$DOZE_OVERRIDE; label="test+${secs}s ($OVERRIDE_LEFT left)"
+  fi
+  if [ "$verdict" != "doze" ]; then
+    [ -n "$sched" ] || log "no schedule from the bridge, polling every ${s}s"
+    fetch "/screen.png?fresh=1&etag=$(etag)" $FF
+    arm $s
+    return
+  fi
+  r=$(duty_blocked)
+  if [ -n "$r" ]; then
+    [ "$r" != "$BLOCKED" ] && log "radio stays on: $r"; BLOCKED=$r
+    fetch "/screen.png?fresh=1&etag=$(etag)" $FF
+    arm $s
+    return
+  fi
+  BLOCKED=
+  case "$secs" in ''|*[!0-9]*) log "bad schedule: $sched"; fetch "/screen.png?fresh=1&etag=$(etag)" $FF; arm $s; return;; esac
+  if [ "$secs" -lt $MIN_DOZE ] || [ "$secs" -gt $MAX_DOZE ]; then
+    log "window out of range: $sched"
+    fetch "/screen.png?fresh=1&etag=$(etag)" $FF; arm $s; return
+  fi
+  # Every frame of the low-power path is a FULL flashing refresh of a freshly fetched frame: partial
+  # updates ghost on this panel and a half-finished one would stay on the screen for the whole window
+  # (the owner's photo 2026-10-15: washed out, torn, ghosted). Then settle + sync before anything else.
+  [ -f $DRAWING ] && { log "previous draw was cut short, redrawing in full"; rm -f $DRAWING; }
+  rm -f $LAST
+  fetch "/screen.png?fresh=1" full
+  sleep $EINK_SETTLE
+  sync
+  if [ -n "$(duty_blocked)" ]; then arm $s; return; fi   # a button arrived while we drew
+  if radio_down $secs "$label"; then arm $secs; else arm $s; fi
 }
 
 keyname() { # keyname <code>
@@ -204,36 +219,41 @@ keyname() { # keyname <code>
 }
 
 run() {
-  log "starting, bridge=$BRIDGE_URL sleep=$SLEEP"
+  log "starting, bridge=$BRIDGE_URL radio_duty=$RADIO_DUTY"
   if [ "$STOP_FRAMEWORK" = "1" ]; then
     log "stopping framework"; /etc/init.d/framework stop >> $LOG 2>&1
   fi
   lipc-set-prop com.lab126.powerd preventScreenSaver 1 2>/dev/null
   set_governor "${CPU_GOVERNOR-ondemand}"
+  radio_force_on
   eips -c
-  rm -f $FIFO $LAST $SLEEPING; mkfifo $FIFO
+  rm -f $FIFO $LAST $RADIOOFF $WINDOW $DRAWING; mkfifo $FIFO
   ok   # the watchdog's stale clock starts now, not at an unknown time in the past
   reader /dev/input/event0 0 > $FIFO &
   R0=$!
   reader /dev/input/event1 1 > $FIFO &
   R1=$!
-  poller > $FIFO &
-  P=$!
-  echo "$R0 $R1 $P" > $KIDS
-  trap "kill $R0 $R1 $P 2>/dev/null; killall dd 2>/dev/null; exit 0" TERM INT
+  echo "$R0 $R1" > $KIDS
+  trap 'kill $R0 $R1 $TIMER 2>/dev/null; killall dd 2>/dev/null; exit 0' TERM INT
   fetch /reload full || fetch /screen.png full
+  arm ${POLL_SECONDS:-20}
   while read sec usec type code value; do
     if [ "$type" = "poll" ]; then
-      report_battery
-      fetch "/screen.png?fresh=1&etag=$(etag)"
-      [ "$code" = "sleep" ] && maybe_sleep
+      [ "$code" = "$GEN" ] || continue   # a timer we superseded (a key press cut its window short)
+      cycle
       continue
     fi
     [ "$type" = "1" ] && [ "$value" = "1" ] || continue
     k=$(keyname $code)
     [ -n "$k" ] || continue
     log "key $code -> $k"
-    case $k in prev|next) fetch "/key/$k?etag=$(etag)" full;; *) fetch "/key/$k?etag=$(etag)";; esac
+    radio_up key   # a press while the radio is down: back up (~6 s) and the frame is redrawn in full
+    if [ "$RECONNECTED" = "1" ]; then
+      RECONNECTED=; fetch "/key/$k" full
+    else
+      case $k in prev|next) fetch "/key/$k?etag=$(etag)" full;; *) fetch "/key/$k?etag=$(etag)";; esac
+    fi
+    arm ${POLL_SECONDS:-20}   # the panel is in use: back to the short cadence (and re-ask /schedule)
   done < $FIFO
   log "fifo closed, exiting"
 }
@@ -252,8 +272,9 @@ case "$1" in
     i=0; while [ -n "$(nexus_pids)" ] && [ $i -lt 20 ]; do sleep 1; i=$(( i + 1 )); done
     pids=$(nexus_pids); [ -n "$pids" ] && kill -9 $pids 2>/dev/null
     killall dd 2>/dev/null
-    echo 0 > $RTC/wakealarm 2>/dev/null
-    rm -f $PID $KIDS $STAMP $SLEEPING $LASTWAKE $KEYSTAMP $BATSTAMP
+    rm -f $RADIOOFF
+    radio_force_on   # never leave the device offline behind us
+    rm -f $PID $KIDS $STAMP $WINDOW $KEYSTAMP $BATSTAMP $DRAWING
     lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
     [ -f $GOV/scaling_governor ] && echo performance > $GOV/scaling_governor 2>/dev/null   # the stock setting
     [ "$STOP_FRAMEWORK" = "1" ] && /etc/init.d/framework start >/dev/null 2>&1
@@ -262,9 +283,9 @@ case "$1" in
   status)
     if [ -f $PID ] && kill -0 $(cat $PID) 2>/dev/null; then echo "running pid $(cat $PID)"; else echo "not running"; fi
     [ -f $STAMP ] && echo "last successful fetch $(( $(date +%s) - $(cat $STAMP) ))s ago"
-    [ -f $SLEEPING ] && echo "sleeping stamp present (planned wake $(cat $SLEEPING))"
-    [ -f $LASTWAKE ] && echo "last wake $(( $(date +%s) - $(cat $LASTWAKE) ))s ago"
-    echo "sleep=$SLEEP$([ -f $DIR/NOSLEEP ] && echo ' (NOSLEEP file)') governor=$(cat $GOV/scaling_governor 2>/dev/null)"
+    [ -f $RADIOOFF ] && echo "radio off, next update in $(( $(cat $RADIOOFF) - $(date +%s) ))s"
+    [ -f $WINDOW ] && echo "current window: $(cat $WINDOW) (end epoch, seconds)"
+    echo "radio_duty=$RADIO_DUTY$([ -f $DIR/NORADIO ] && echo ' (NORADIO file)')$([ -f $DIR/NOSLEEP ] && echo ' (NOSLEEP file)') wifi=$(radio_state) governor=$(cat $GOV/scaling_governor 2>/dev/null)"
     tail -5 $LOG 2>/dev/null;;
   *) echo "usage: $0 start|stop|restart|status"; exit 1;;
 esac

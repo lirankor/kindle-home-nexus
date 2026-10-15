@@ -9,13 +9,14 @@ FETCH_TIMEOUT=15                          # hard timeout (s) for every bridge ca
 FAIL_HINT_AFTER=3                         # draw the "bridge unreachable" footer after N consecutive failed fetches
 CPU_GOVERNOR=ondemand                     # set at start when the kernel offers it (idles at 160 MHz); empty = leave the stock "performance"
 BATTERY_EVERY=60                          # report the battery to the bridge at most every N s
-# --- battery saver: suspend on the screensaver, wake on an RTC alarm when the bridge's /schedule says so ---
-SLEEP=1                                   # KILL SWITCH: 0 = never suspend (needs a restart); `touch /mnt/us/nexus/NOSLEEP` does the same live
-MIN_SLEEP=30                              # ignore a schedule shorter than this (s)
-MAX_SLEEP=7200                            # ... or longer than this (s): never sleep past a sane alarm
-KEY_HOLD=300                              # a hardware button within the last N s keeps the device awake (same 5 min as the app's screensaver)
-WAKE_HOLD=300                             # after an early resume (power slider) or a failed suspend stay awake N s
-WIFI_WAIT=20                              # max s to wait for wifid CONNECTED after a resume (~5 s measured)
-SLEEP_FALLBACK=600                        # bridge unreachable right after a wake: sleep this long and try again
-SLEEP_OVERRIDE=                           # rollout test only: a fixed sleep length in s (e.g. 120) instead of the bridge schedule; empty = schedule
-SLEEP_OVERRIDE_CYCLES=3                   # ... for this many cycles after a start, then the schedule applies
+# --- battery saver: the device never suspends; it switches the Wi-Fi RADIO off between updates while the
+# --- screensaver shows and nothing is in use (docs/battery-saver-plan.md).
+RADIO_DUTY=1                              # KILL SWITCH: 0 = radio always on (needs a restart); `touch /mnt/us/nexus/NORADIO` does the same live
+MIN_DOZE=60                               # do not bother switching the radio off for less than this (s)
+MAX_DOZE=7800                             # ... or for longer than this (s): the 2-hourly night window plus headroom
+KEY_HOLD=300                              # a hardware button within the last N s keeps the radio up (same 5 min as the app's screensaver)
+WIFI_WAIT=30                              # max s to wait for wifid CONNECTED after switching the radio back on (6 s measured)
+RADIO_FAIL_HOLD=900                       # radio refused to re-associate: leave it on and stop duty cycling for N s
+EINK_SETTLE=2                             # s to let the e-ink controller finish the (full) draw before anything else happens
+DOZE_OVERRIDE=                            # rollout test only: a fixed window length in s (e.g. 120) instead of the bridge schedule; empty = schedule
+DOZE_OVERRIDE_CYCLES=3                    # ... for this many windows after a start, then the schedule applies

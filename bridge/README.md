@@ -15,10 +15,10 @@ and serves 8-bit grayscale PNG screenshots (WIDTH x HEIGHT) for a Kindle to draw
 | `BUSY_WAIT_MS` | `6000` | After that, keep waiting (up to this long) while the page sets `<html data-eink-busy>`, e.g. the screensaver fetching the next photo after F1 |
 | `PAGE_RELOAD_MS` | `0` | Reload the page every N ms (0 = never) |
 | `PUPPETEER_EXECUTABLE_PATH` | unset | Use a system Chrome instead of the bundled one |
-| `SLEEP_ENABLED` | `1` | `0` = `/schedule` never says `sleep` (server-side kill switch for the Kindle's sleep cycle) |
-| `DAY_WAKE_MIN` / `NIGHT_START` / `NIGHT_END` / `NIGHT_WAKE_MIN` / `SLEEP_TZ` | `10` / `23:00` / `07:00` / `60` / `Europe/Berlin` | Wake schedule (`schedule.js`; the same keys live in the app's `.env`) |
-| `SAVER_POLL_S` | `60` | Poll cadence `/poll` and `/schedule` answer while the screensaver shows |
-| `KEEP_AWAKE_MS` | `300000` | A `/key` (or `/schedule?woke=1`) holds the device awake this long |
+| `RADIO_DUTY_ENABLED` | `1` | `0` = `/schedule` never says `doze` (server-side kill switch for the Kindle's radio duty cycle; the old name `SLEEP_ENABLED` is still read) |
+| `DAY_WAKE_MIN` / `NIGHT_START` / `NIGHT_END` / `NIGHT_WAKE_MIN` / `SLEEP_TZ` | `10` / `00:00` / `06:00` / `120` / `Europe/Berlin` | Update schedule (`schedule.js`; the same keys live in the app's `.env`) |
+| `SAVER_POLL_S` | `60` | Poll cadence `/poll` and `/schedule` answer while the screensaver shows (the fallback whenever the device is not duty cycling) |
+| `KEEP_AWAKE_MS` | `300000` | A `/key` (or `/schedule?woke=1`) keeps the device's radio up this long |
 
 ## Endpoints (all GET)
 
@@ -28,18 +28,15 @@ and serves 8-bit grayscale PNG screenshots (WIDTH x HEIGHT) for a Kindle to draw
   (max 60000): returns 304 if nothing changed in time. `?fresh=1` takes a new screenshot first instead of serving
   the last frame (the Kindle's polls).
 - `GET /poll?default=<s>`: seconds the Kindle should sleep before its next poll: the app's `<html data-eink-poll>` (5 while a Jellyfin queue plays on the Media tab), `SAVER_POLL_S` while the screensaver shows, else `default`.
-- `GET /schedule?default=<s>[&woke=1]`: one line `"<poll s> <sleep|awake> <wake epoch s> <sleep s> <night 0|1> <HH:MM local>"` —
-  the Kindle's battery saver. `sleep` only while the app shows the screensaver (`<html data-eink-saver="1">`), no key for
-  `KEEP_AWAKE_MS` and `SLEEP_ENABLED`; the wake is the next point on the day grid (`DAY_WAKE_MIN`) or, in the night window
-  (`NIGHT_START`–`NIGHT_END` in `SLEEP_TZ`), the night grid (`NIGHT_WAKE_MIN`, on the hour). `woke=1` = the device resumed early
-  (power slider) and is held awake like after a key.
-- `GET /sleep?secs=&wake=&night=&etag=`: the Kindle is about to suspend — the bridge sets `window.__kindleSleep`
-  (`{nextWake, label, sleepSec, night}` + `kindle-sleep` event; the app shows "sleeping · next HH:MM") and returns the
-  re-shot frame (empty 200 when it equals `etag`). Cleared by the next `/key` or an `awake` schedule.
+- `GET /schedule?default=<s>[&woke=1]`: one line `"<poll s> <doze|awake> <next update epoch s> <window s> <night 0|1> <HH:MM local>"` —
+  the Kindle's battery saver. `doze` ("you may switch your radio off until the next update") only while the app shows the
+  screensaver (`<html data-eink-saver="1">`), no key for `KEEP_AWAKE_MS` and `RADIO_DUTY_ENABLED`; the next update is the next
+  point on the day grid (`DAY_WAKE_MIN`) or, in the night window (`NIGHT_START`–`NIGHT_END` in `SLEEP_TZ`), on the night grid
+  (`NIGHT_WAKE_MIN`). The device never suspends, so there is no wake-up endpoint; `woke=1` is still accepted and counts as a key.
 - `/key/<name>[?etag=]` press a key, settle, return a fresh frame. Names: `up down left right select enter ok back escape prev pageup next pagedown home menu keyboard`. Unknown name gives 400.
 - `/reload` reload the page, return a frame.
-- `/healthz` JSON `{ok, etag, fullGen, servedFullGen, battery, lastShotAt, appUrl, saver, sleep, lastKeyAt, schedule{…, next}}`.
-- Tests: `npm test` (`node --test`, `schedule.test.js`: grid, night window, DST edges, 2-day sweep).
+- `/healthz` JSON `{ok, etag, fullGen, servedFullGen, battery, lastShotAt, appUrl, saver, duty, lastKeyAt, schedule{…, next}}` — `duty` is what `/schedule` last told the device (`{verdict, windowSec, nextWake, label, night, at}`), the server-side way to see the radio duty cycle working.
+- Tests: `npm test` (`node --test`, `schedule.test.js`: grid, the 00:00/06:00 night edges, both DST transitions inside the night window, 2-day sweep).
 
 ## Run locally
 

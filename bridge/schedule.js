@@ -1,18 +1,19 @@
-// Wake schedule for the Kindle's sleep cycle (battery saver). Pure: no I/O, no timers.
+// Update schedule for the Kindle's radio duty cycle (battery saver). Pure: no I/O, no timers.
 //
-// The Kindle's clock is UTC and it has no time-zone data, so the bridge decides when the panel
-// wakes next and hands it a sleep length in seconds. Day: every DAY_WAKE_MIN minutes on the grid
-// (:00, :10, :20 … so the badge shows round times). Night (NIGHT_START–NIGHT_END local time,
-// Europe/Berlin incl. DST): one wake every NIGHT_WAKE_MIN minutes (default hourly, on the hour) —
+// The device never suspends: while the screensaver shows and nothing is in use it switches its Wi-Fi
+// radio off between updates. Its clock is UTC and it has no time-zone data, so the bridge decides when
+// the next update is due and hands it a window length in seconds. Day: every DAY_WAKE_MIN minutes on
+// the grid (:00, :10, :20 … so updates land on round times). Night (NIGHT_START–NIGHT_END local time,
+// Europe/Berlin incl. DST): one update every NIGHT_WAKE_MIN minutes (default: every 2 h, on the hour) —
 // the screensaver photo is not rotated at night (the app enforces that; see src/lib/night-window.ts).
 
 export const DEFAULTS = Object.freeze({
   dayWakeMin: 10,
-  nightStart: "23:00",
-  nightEnd: "07:00",
-  nightWakeMin: 60,
+  nightStart: "00:00",
+  nightEnd: "06:00",
+  nightWakeMin: 120,
   tz: "Europe/Berlin",
-  minSleepSec: 60, // a grid point closer than this is skipped (the Kindle needs ~10 s awake per cycle)
+  minWindowSec: 60, // a grid point closer than this is skipped (a cycle costs the device ~8 s of radio)
 });
 
 /** "HH:MM" → minutes after local midnight; invalid → `dflt`. */
@@ -37,7 +38,7 @@ export function readConfig(env = {}) {
     nightEnd: parseHHMM(env.NIGHT_END, parseHHMM(DEFAULTS.nightEnd)),
     nightWakeMin: num("NIGHT_WAKE_MIN", DEFAULTS.nightWakeMin, 1, 720),
     tz: validTz(env.SLEEP_TZ) ? env.SLEEP_TZ : DEFAULTS.tz,
-    minSleepSec: DEFAULTS.minSleepSec,
+    minWindowSec: DEFAULTS.minWindowSec,
   };
 }
 
@@ -99,22 +100,22 @@ export function isNight(ms, cfg) {
 const gridCeil = (fromSec, stepSec) => Math.ceil(fromSec / stepSec) * stepSec;
 
 /**
- * Next wake for a device that is about to sleep at `nowMs`.
- * Returns { night, wakeMs, sleepSec, label } — `night` says whether `nowMs` is in the night window,
- * `label` is the local HH:MM of the wake (computed from the resulting instant, so a DST jump during
- * the sleep shows the real local time; the sleep length itself is always one grid step or less).
+ * Next update for a device about to switch its radio off at `nowMs`.
+ * Returns { night, wakeMs, windowSec, label } — `night` says whether `nowMs` is in the night window,
+ * `label` is the local HH:MM of the next update (computed from the resulting instant, so a DST jump
+ * inside the window shows the real local time; the window itself is always one grid step or less).
  */
 export function computeSchedule(nowMs, cfg) {
   const now = localParts(nowMs, cfg.tz);
   const L = now.secondOfDay;
-  const earliest = L + cfg.minSleepSec;
+  const earliest = L + cfg.minWindowSec;
   const dayStep = cfg.dayWakeMin * 60;
   const nightStep = cfg.nightWakeMin * 60;
   const night = isNight(nowMs, cfg);
   let T;
   if (night) {
     T = gridCeil(earliest, nightStep);
-    // The night may end before the next night-grid point: resume day wakes right at its end.
+    // The night may end before the next night-grid point: resume day updates right at its end.
     if (cfg.nightStart !== cfg.nightEnd) {
       let endSec = cfg.nightEnd * 60;
       if (endSec < L) endSec += 86400; // the window wraps past midnight and we are before it
@@ -122,10 +123,10 @@ export function computeSchedule(nowMs, cfg) {
     }
   } else {
     T = gridCeil(earliest, dayStep);
-    // Crossing into the night: snap to the night grid so the first night wake is already an hourly one.
+    // Crossing into the night: snap to the night grid so the first night update is already on it.
     if (isNight(nowMs + (T - L) * 1000, cfg)) T = gridCeil(T, nightStep);
   }
-  const sleepSec = T - L;
-  const wakeMs = nowMs + sleepSec * 1000;
-  return { night, wakeMs, sleepSec, label: localParts(wakeMs, cfg.tz).label };
+  const windowSec = T - L;
+  const wakeMs = nowMs + windowSec * 1000;
+  return { night, wakeMs, windowSec, label: localParts(wakeMs, cfg.tz).label };
 }

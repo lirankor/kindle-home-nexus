@@ -44,12 +44,12 @@ services:
       KEY_SETTLE_MS: "200"
       PAGE_RELOAD_MS: "0"
       BRIDGE_TOKEN: ${BRIDGE_TOKEN:-}
-      # Kindle sleep schedule (same keys as the app's .env, see .env.example).
-      SLEEP_ENABLED: ${SLEEP_ENABLED:-1}
+      # Kindle radio duty cycle / update schedule (same keys as the app's .env, see .env.example).
+      RADIO_DUTY_ENABLED: ${RADIO_DUTY_ENABLED:-1}
       DAY_WAKE_MIN: ${DAY_WAKE_MIN:-10}
-      NIGHT_START: ${NIGHT_START:-23:00}
-      NIGHT_END: ${NIGHT_END:-07:00}
-      NIGHT_WAKE_MIN: ${NIGHT_WAKE_MIN:-60}
+      NIGHT_START: ${NIGHT_START:-00:00}
+      NIGHT_END: ${NIGHT_END:-06:00}
+      NIGHT_WAKE_MIN: ${NIGHT_WAKE_MIN:-120}
       SLEEP_TZ: ${SLEEP_TZ:-Europe/Berlin}
     # Chromium needs more than Docker's default 64MB /dev/shm
     shm_size: "512m"
