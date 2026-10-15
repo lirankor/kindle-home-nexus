@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { parseLang } from "@/lib/i18n";
+import { isNight, nightWindowFromEnv, photoMinutesFromEnv } from "@/lib/night-window";
 import { LIGHT_IDS, MEDIA_IDS, MEDIA_OPS, ROOM_IDS, SWITCH_IDS } from "@/lib/home";
 import type { Action, ActionResult, Snapshot, SnapshotResult } from "@/lib/home";
 import {
@@ -43,11 +44,12 @@ const actionSchema = z.discriminatedUnion("type", [
 async function snapshotResult(): Promise<SnapshotResult> {
   // Read per request so UI_LANGUAGE can change without a rebuild.
   const lang = parseLang(process.env["UI_LANGUAGE"]);
-  if (!haConfigured()) return { configured: false, snapshot: null, lang };
+  const photoMinutes = photoMinutesFromEnv();
+  if (!haConfigured()) return { configured: false, snapshot: null, lang, photoMinutes };
   try {
-    return { configured: true, snapshot: await readSnapshot(), lang };
+    return { configured: true, snapshot: await readSnapshot(), lang, photoMinutes };
   } catch (e) {
-    return { configured: true, error: errorMessage(e), snapshot: null, lang };
+    return { configured: true, error: errorMessage(e), snapshot: null, lang, photoMinutes };
   }
 }
 
@@ -85,12 +87,28 @@ export type ScreensaverResult = {
   result: SnapshotResult;
 };
 
-export const getScreensaver = createServerFn({ method: "GET" }).handler(
-  async (): Promise<ScreensaverResult> => {
+// The photo shown last, kept so the night window (NIGHT_START–NIGHT_END local, see night-window.ts)
+// can serve the same picture again: no photo rotation at night while the Kindle sleeps. An explicit
+// F1 (mark) / F4 (skip) on the saver passes `force` and always gets a new one.
+let lastPhoto: { image: string; assetId: string; marked: number } | null = null;
+
+export const getScreensaver = createServerFn({ method: "GET" })
+  .validator((input: unknown) => {
+    const force = !!(
+      input &&
+      typeof input === "object" &&
+      (input as { force?: unknown }).force === true
+    );
+    return { force };
+  })
+  .handler(async ({ data }): Promise<ScreensaverResult> => {
     const readings = snapshotResult();
     if (!immichConfigured()) return { image: null, sample: true, result: await readings };
     try {
+      if (!data.force && lastPhoto && isNight(new Date(), nightWindowFromEnv()))
+        return { ...lastPhoto, sample: false, result: await readings };
       const [photo, result] = await Promise.all([randomFavorite(), readings]);
+      lastPhoto = { image: photo.image, assetId: photo.assetId, marked: photo.marked };
       return {
         image: photo.image,
         assetId: photo.assetId,
@@ -102,8 +120,7 @@ export const getScreensaver = createServerFn({ method: "GET" }).handler(
       console.error("Immich screensaver failed:", e);
       return { image: null, sample: true, note: "Immich unreachable", result: await readings };
     }
-  },
-);
+  });
 
 /** F1 on the screensaver: mark the shown favourite as good on e-ink. It is never shown again. */
 export const markScreensaverPhoto = createServerFn({ method: "POST" })

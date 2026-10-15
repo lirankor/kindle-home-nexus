@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 import puppeteer from "puppeteer";
 import sharp from "sharp";
+import { computeSchedule, localParts, readConfig as readScheduleConfig } from "./schedule.js";
 
 const env = (k, d) => process.env[k] ?? d;
 const APP_URL = env("APP_URL", "http://app:3000/");
@@ -21,15 +22,37 @@ const PROTOCOL_TIMEOUT_MS = Number(env("PROTOCOL_TIMEOUT_MS", 20000));
 // The page keeps a 1 s heartbeat in window.__alive; if it stops advancing for this long the page's JS is
 // frozen (seen 2026-10-09: the amp view stuck on one frame while the music moved on) → reload it.
 const ALIVE_STALE_MS = Number(env("ALIVE_STALE_MS", 45000));
+// Battery saver (see ../docs/battery-saver-plan.md): while the app shows its screensaver the Kindle
+// suspends between wakes; /schedule tells it when. SLEEP_ENABLED=0 keeps it awake (server-side kill
+// switch), SAVER_POLL_S is the awake poll cadence on the screensaver, KEEP_AWAKE_MS how long a key
+// press on the panel holds the device awake (= the app's own 5 min screensaver idle time).
+const SLEEP_ENABLED = env("SLEEP_ENABLED", "1") !== "0";
+const SAVER_POLL_S = Number(env("SAVER_POLL_S", 60));
+const KEEP_AWAKE_MS = Number(env("KEEP_AWAKE_MS", 5 * 60 * 1000));
+const schedule = readScheduleConfig(process.env);
 
 const KEYS = {
-  up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight",
-  select: "Enter", enter: "Enter", ok: "Enter",
+  up: "ArrowUp",
+  down: "ArrowDown",
+  left: "ArrowLeft",
+  right: "ArrowRight",
+  select: "Enter",
+  enter: "Enter",
+  ok: "Enter",
   escape: "Escape",
-  prev: "PageUp", pageup: "PageUp", next: "PageDown", pagedown: "PageDown",
+  prev: "PageUp",
+  pageup: "PageUp",
+  next: "PageDown",
+  pagedown: "PageDown",
   // Kindle bottom row (Back, Keyboard, Menu, Home) = soft keys F1..F4, matching the app footer left to right.
-  back: "F1", keyboard: "F2", menu: "F3", home: "F4",
-  f1: "F1", f2: "F2", f3: "F3", f4: "F4",
+  back: "F1",
+  keyboard: "F2",
+  menu: "F3",
+  home: "F4",
+  f1: "F1",
+  f2: "F2",
+  f3: "F3",
+  f4: "F4",
 };
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -37,9 +60,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let browser = null;
 let page = null;
-let latest = null; // { buf, etag, fullGen }
+let latest = null; // { buf, etag, fullGen, saver }
 let servedFullGen = -1; // the app's data-eink-full value the Kindle last drew with a full refresh
 let lastShotAt = null;
+let lastKeyAt = 0; // last /key hit: the device stays awake KEEP_AWAKE_MS after it
+let sleepInfo = null; // { nextWake, sleepSec, night, at } while the Kindle sleeps (shown as a badge on the screensaver)
 let lastAlive = { value: 0, seenAt: 0 };
 let starting = null;
 const frames = new EventEmitter();
@@ -56,7 +81,9 @@ const exclusive = (fn) => {
 async function launch() {
   if (starting) return starting;
   starting = (async () => {
-    try { await browser?.close(); } catch {}
+    try {
+      await browser?.close();
+    } catch {}
     browser = page = null;
     log("launching chromium");
     browser = await puppeteer.launch({
@@ -64,19 +91,31 @@ async function launch() {
       protocolTimeout: PROTOCOL_TIMEOUT_MS,
       executablePath: env("PUPPETEER_EXECUTABLE_PATH", undefined) || undefined,
       args: [
-        "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
-        "--disable-gpu", "--hide-scrollbars", "--force-color-profile=srgb",
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--hide-scrollbars",
+        "--force-color-profile=srgb",
         "--disable-features=HttpsUpgrades,HttpsFirstBalancedModeAutoEnable,HttpsFirstModeV2ForEngagedSites",
         `--window-size=${WIDTH},${HEIGHT}`,
       ],
     });
-    browser.on("disconnected", () => { log("browser disconnected"); browser = page = null; });
+    browser.on("disconnected", () => {
+      log("browser disconnected");
+      browser = page = null;
+    });
     page = await browser.newPage();
-    page.on("error", (e) => { log("page crash", e.message); page = null; });
+    page.on("error", (e) => {
+      log("page crash", e.message);
+      page = null;
+    });
     // Heartbeat for the freeze watchdog in shoot(); evaluateOnNewDocument survives reloads.
     await page.evaluateOnNewDocument(() => {
       window.__alive = Date.now();
-      setInterval(() => { window.__alive = Date.now(); }, 1000);
+      setInterval(() => {
+        window.__alive = Date.now();
+      }, 1000);
     });
     lastAlive = { value: 0, seenAt: Date.now() };
     await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });
@@ -94,7 +133,10 @@ async function launch() {
     }
     log("page ready", APP_URL);
     await injectBattery(page);
-  })().finally(() => { starting = null; });
+    if (sleepInfo) await injectSleep(page);
+  })().finally(() => {
+    starting = null;
+  });
   return starting;
 }
 
@@ -136,7 +178,47 @@ async function injectBattery(p) {
       window.__kindleBattery = b;
       window.dispatchEvent(new CustomEvent("kindle-battery", { detail: b }));
     }, battery);
-  } catch (e) { log("battery inject failed:", e.message); }
+  } catch (e) {
+    log("battery inject failed:", e.message);
+  }
+}
+
+// Sleep state the same way: window.__kindleSleep = { nextWake (epoch ms), sleepSec, night } or null,
+// plus a "kindle-sleep" event; the screensaver shows "sleeping · next HH:MM" while it is set.
+async function injectSleep(p) {
+  if (!p) return;
+  try {
+    await p.evaluate((s) => {
+      window.__kindleSleep = s;
+      window.dispatchEvent(new CustomEvent("kindle-sleep", { detail: s }));
+    }, sleepInfo);
+  } catch (e) {
+    log("sleep inject failed:", e.message);
+  }
+}
+async function setSleepInfo(info) {
+  const was = sleepInfo;
+  sleepInfo = info;
+  if ((was === null) !== (info === null) || (info && was && info.nextWake !== was.nextWake))
+    await injectSleep(page);
+}
+
+// What the page reports about itself: poll cadence wish, screensaver showing, heartbeat.
+const pageState = () =>
+  exclusive(async () =>
+    (await ensurePage()).evaluate(() => ({
+      poll: document.documentElement.dataset.einkPoll || "",
+      saver: document.documentElement.dataset.einkSaver === "1",
+    })),
+  );
+
+// Seconds until the Kindle's next poll: the app's wish (5 while a queue plays on the Media tab),
+// else SAVER_POLL_S on the screensaver, else the device's own default.
+function pollSeconds(state, dflt) {
+  const n = Number(state.poll);
+  if (Number.isFinite(n) && n >= 1 && n <= 600) return Math.round(n);
+  if (state.saver) return SAVER_POLL_S;
+  return dflt;
 }
 
 async function shoot() {
@@ -148,19 +230,28 @@ async function shoot() {
   let fullGen = 0;
   let photo = null;
   let alive = 0;
+  let saver = false;
   try {
-    const ds = await p.evaluate(() => ({ f: document.documentElement.dataset.einkFull || "0", p: document.documentElement.dataset.einkPhoto || "", a: window.__alive || 0 }));
+    const ds = await p.evaluate(() => ({
+      f: document.documentElement.dataset.einkFull || "0",
+      p: document.documentElement.dataset.einkPhoto || "",
+      a: window.__alive || 0,
+      s: document.documentElement.dataset.einkSaver === "1",
+    }));
     fullGen = Number(ds.f) || 0;
     const m = /^(\d+),(\d+),(\d+),(\d+)$/.exec(ds.p || "");
     if (m) photo = { x: +m[1], y: +m[2], w: +m[3], h: +m[4] };
     alive = ds.a;
+    saver = ds.s;
   } catch {}
   // Freeze watchdog: the heartbeat must move between shots; a page whose timers stopped gets reloaded
   // (same profile, so the remembered tab survives); if even that hangs, the protocol timeout relaunches.
   if (alive) {
     if (alive !== lastAlive.value) lastAlive = { value: alive, seenAt: Date.now() };
     else if (Date.now() - lastAlive.seenAt > ALIVE_STALE_MS) {
-      log(`page heartbeat stalled for ${Math.round((Date.now() - lastAlive.seenAt) / 1000)} s, reloading`);
+      log(
+        `page heartbeat stalled for ${Math.round((Date.now() - lastAlive.seenAt) / 1000)} s, reloading`,
+      );
       lastAlive = { value: 0, seenAt: Date.now() };
       await p.reload({ waitUntil: "networkidle0", timeout: 20000 });
       return shoot();
@@ -171,22 +262,44 @@ async function shoot() {
     .flatten({ background: "#ffffff" })
     .grayscale()
     .toColourspace("b-w");
-  if (photo && photo.w > 8 && photo.h > 8 && photo.x + photo.w <= WIDTH && photo.y + photo.h <= HEIGHT) {
+  if (
+    photo &&
+    photo.w > 8 &&
+    photo.h > 8 &&
+    photo.x + photo.w <= WIDTH &&
+    photo.y + photo.h <= HEIGHT
+  ) {
     try {
-      frame = sharp(await processPhotoRegion(await frame.png({ palette: false }).toBuffer(), photo));
-    } catch (e) { log("photo processing failed:", e.message); }
+      frame = sharp(
+        await processPhotoRegion(await frame.png({ palette: false }).toBuffer(), photo),
+      );
+    } catch (e) {
+      log("photo processing failed:", e.message);
+    }
   }
-  let buf = await frame.grayscale().toColourspace("b-w").removeAlpha().png({ palette: false, compressionLevel: 9 }).toBuffer();
+  let buf = await frame
+    .grayscale()
+    .toColourspace("b-w")
+    .removeAlpha()
+    .png({ palette: false, compressionLevel: 9 })
+    .toBuffer();
   // eips can only draw 8-bit single-channel PNGs; never serve anything else.
   const meta = await sharp(buf).metadata();
   if (meta.channels !== 1 || meta.depth !== "uchar") {
     log(`frame not 8-bit grayscale (channels=${meta.channels}, depth=${meta.depth}), re-encoding`);
-    buf = await sharp(buf).flatten({ background: "#ffffff" }).grayscale().toColourspace("b-w").removeAlpha()
-      .png({ palette: false, compressionLevel: 9 }).toBuffer();
+    buf = await sharp(buf)
+      .flatten({ background: "#ffffff" })
+      .grayscale()
+      .toColourspace("b-w")
+      .removeAlpha()
+      .png({ palette: false, compressionLevel: 9 })
+      .toBuffer();
   }
-  const etag = crypto.createHash("sha1").update(buf).digest("hex");
+  // md5, not sha1: the Kindle's busybox has md5sum only, and it sends the hash of the frame it drew
+  // back as ?etag= so an unchanged frame costs no PNG.
+  const etag = crypto.createHash("md5").update(buf).digest("hex");
   const changed = !latest || latest.etag !== etag;
-  latest = { buf, etag, fullGen };
+  latest = { buf, etag, fullGen, saver };
   lastShotAt = new Date().toISOString();
   if (changed) frames.emit("frame", latest);
   return latest;
@@ -238,7 +351,19 @@ async function reloadPage() {
   });
 }
 
-function sendPng(res, frame) {
+// `since` = the ?etag= the client sent: an identical frame is answered with an empty 200 (the
+// Kindle's busybox 1.7.2 wget treats anything but 200/206 as an error, so no 304/204).
+function sendPng(res, frame, since) {
+  if (since && since === frame.etag) {
+    res.writeHead(200, {
+      "Content-Type": "image/png",
+      "Content-Length": 0,
+      ETag: frame.etag,
+      "X-Unchanged": "1",
+      "Cache-Control": "no-store",
+    });
+    return res.end();
+  }
   res.writeHead(200, {
     "Content-Type": "image/png",
     "Content-Length": frame.buf.length,
@@ -249,7 +374,8 @@ function sendPng(res, frame) {
 }
 
 const BRIDGE_TOKEN = process.env.BRIDGE_TOKEN || "";
-if (!BRIDGE_TOKEN) console.log("WARNING: BRIDGE_TOKEN unset, bridge is open to anyone who can reach it");
+if (!BRIDGE_TOKEN)
+  console.log("WARNING: BRIDGE_TOKEN unset, bridge is open to anyone who can reach it");
 
 const server = http.createServer(async (req, res) => {
   const t0 = Date.now();
@@ -265,7 +391,8 @@ const server = http.createServer(async (req, res) => {
     shownPath = "/[redacted]" + url.pathname;
   }
   res.on("finish", () =>
-    log(`${req.method} ${shownPath}${url.search || ""} -> ${res.statusCode} ${Date.now() - t0}ms`));
+    log(`${req.method} ${shownPath}${url.search || ""} -> ${res.statusCode} ${Date.now() - t0}ms`),
+  );
   try {
     const path = url.pathname.replace(/\/+$/, "") || "/";
     if (BRIDGE_TOKEN && path !== "/healthz") {
@@ -278,14 +405,33 @@ const server = http.createServer(async (req, res) => {
     }
     if (path === "/healthz") {
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      return res.end(JSON.stringify({
-        ok: !!latest, etag: latest?.etag ?? null, fullGen: latest?.fullGen ?? null, servedFullGen, battery, lastShotAt, appUrl: APP_URL,
-      }));
+      return res.end(
+        JSON.stringify({
+          ok: !!latest,
+          etag: latest?.etag ?? null,
+          fullGen: latest?.fullGen ?? null,
+          servedFullGen,
+          battery,
+          lastShotAt,
+          appUrl: APP_URL,
+          saver: latest?.saver ?? false,
+          sleep: sleepInfo,
+          lastKeyAt: lastKeyAt ? new Date(lastKeyAt).toISOString() : null,
+          schedule: {
+            enabled: SLEEP_ENABLED,
+            ...schedule,
+            next: computeSchedule(Date.now(), schedule),
+          },
+        }),
+      );
     }
     if (path === "/battery") {
       const level = Number(url.searchParams.get("level"));
       const charging = url.searchParams.get("charging") === "1";
-      if (!Number.isFinite(level) || level < 0 || level > 100) { res.writeHead(400); return res.end("bad level\n"); }
+      if (!Number.isFinite(level) || level < 0 || level > 100) {
+        res.writeHead(400);
+        return res.end("bad level\n");
+      }
       battery = { level: Math.round(level), charging, at: new Date().toISOString() };
       await injectBattery(page);
       res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
@@ -293,16 +439,59 @@ const server = http.createServer(async (req, res) => {
     }
     if (path === "/poll") {
       // Seconds the Kindle should sleep before its next screen poll: the app's <html data-eink-poll>
-      // (5 while a Jellyfin queue plays on the Media tab), else the Kindle's own default.
+      // (5 while a Jellyfin queue plays on the Media tab), SAVER_POLL_S on the screensaver, else the
+      // Kindle's own default.
       const dflt = Math.min(Math.max(Number(url.searchParams.get("default")) || 20, 1), 600);
       let seconds = dflt;
       try {
-        const v = await exclusive(async () => (await ensurePage()).evaluate(() => document.documentElement.dataset.einkPoll || ""));
-        const n = Number(v);
-        if (Number.isFinite(n) && n >= 1 && n <= 600) seconds = Math.round(n);
+        seconds = pollSeconds(await pageState(), dflt);
       } catch {}
       res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
       return res.end(seconds + "\n");
+    }
+    if (path === "/schedule") {
+      // One line for the Kindle: "<poll s> <sleep|awake> <wake epoch s> <sleep s> <night 0|1> <HH:MM local>".
+      // "sleep" only while the app shows the screensaver, no key was pressed for KEEP_AWAKE_MS and the
+      // server-side switch is on; the wake time comes from the schedule (day grid / night grid, local
+      // time zone) so the device never needs tz data. ?woke=1: the device resumed before its alarm (power
+      // slider) — treat it like a key so it stays awake for KEEP_AWAKE_MS.
+      const dflt = Math.min(Math.max(Number(url.searchParams.get("default")) || 20, 1), 600);
+      if (url.searchParams.get("woke") === "1") {
+        lastKeyAt = Date.now();
+        log("device woke early (power slider?), holding awake");
+      }
+      let state = { poll: "", saver: false };
+      try {
+        state = await pageState();
+      } catch {}
+      const now = Date.now();
+      const sched = computeSchedule(now, schedule);
+      const mode =
+        SLEEP_ENABLED && state.saver && now - lastKeyAt >= KEEP_AWAKE_MS ? "sleep" : "awake";
+      if (mode === "awake" && sleepInfo) await setSleepInfo(null);
+      res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
+      return res.end(
+        `${pollSeconds(state, dflt)} ${mode} ${Math.round(sched.wakeMs / 1000)} ${sched.sleepSec} ${sched.night ? 1 : 0} ${sched.label}\n`,
+      );
+    }
+    if (path === "/sleep") {
+      // The Kindle is about to suspend for ?secs= (until ?wake=, epoch s): show it on the screensaver
+      // ("sleeping · next HH:MM") and return that frame (empty 200 when it equals ?etag=).
+      const secs = Number(url.searchParams.get("secs"));
+      const wake = Number(url.searchParams.get("wake"));
+      if (!Number.isFinite(secs) || secs <= 0) {
+        res.writeHead(400);
+        return res.end("bad secs\n");
+      }
+      const nextWake = Number.isFinite(wake) && wake > 0 ? wake * 1000 : Date.now() + secs * 1000;
+      await setSleepInfo({
+        nextWake,
+        label: localParts(nextWake, schedule.tz).label, // local HH:MM: Chromium's own clock is UTC
+        sleepSec: Math.round(secs),
+        night: url.searchParams.get("night") === "1",
+        at: new Date().toISOString(),
+      });
+      return sendPng(res, await safeShoot(), url.searchParams.get("etag"));
     }
     if (path === "/hint") {
       // "full" or "partial": how the Kindle should draw the frame it just fetched. Full exactly once
@@ -310,7 +499,11 @@ const server = http.createServer(async (req, res) => {
       const gen = latest?.fullGen ?? 0;
       const hint = gen !== servedFullGen ? "full" : "partial";
       servedFullGen = gen;
-      res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store", ETag: latest?.etag ?? "" });
+      res.writeHead(200, {
+        "Content-Type": "text/plain",
+        "Cache-Control": "no-store",
+        ETag: latest?.etag ?? "",
+      });
       return res.end(hint + "\n");
     }
     if (path === "/screen.png") {
@@ -318,10 +511,18 @@ const server = http.createServer(async (req, res) => {
       const wait = Math.min(Math.max(Number(url.searchParams.get("wait")) || 0, 0), 60000);
       // fresh=1: screenshot now instead of serving the last frame (polls; keys always shoot).
       if (!latest || url.searchParams.get("fresh") === "1") await safeShoot();
+      if (url.searchParams.get("etag")) return sendPng(res, latest, url.searchParams.get("etag"));
       if (since && latest.etag === since) {
-        if (!wait) { res.writeHead(304, { ETag: since, "Cache-Control": "no-store" }); return res.end(); }
+        if (!wait) {
+          res.writeHead(304, { ETag: since, "Cache-Control": "no-store" });
+          return res.end();
+        }
         const frame = await new Promise((resolve) => {
-          const done = (f) => { clearTimeout(timer); frames.off("frame", done); resolve(f); };
+          const done = (f) => {
+            clearTimeout(timer);
+            frames.off("frame", done);
+            resolve(f);
+          };
           const timer = setTimeout(() => done(null), wait);
           frames.on("frame", done);
           req.on("close", () => done(null));
@@ -342,7 +543,9 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(400, { "Content-Type": "text/plain" });
         return res.end(`unknown key '${name}'. valid: ${Object.keys(KEYS).join(", ")}\n`);
       }
-      return sendPng(res, await pressKey(code));
+      lastKeyAt = Date.now();
+      if (sleepInfo) await setSleepInfo(null);
+      return sendPng(res, await pressKey(code), url.searchParams.get("etag"));
     }
     if (path === "/reload") return sendPng(res, await reloadPage());
     res.writeHead(404, { "Content-Type": "text/plain" });
@@ -356,6 +559,9 @@ const server = http.createServer(async (req, res) => {
 
 async function main() {
   server.listen(PORT, "0.0.0.0", () => log(`bridge listening on :${PORT}, app ${APP_URL}`));
+  log(
+    `sleep schedule: ${SLEEP_ENABLED ? "enabled" : "DISABLED"}, day every ${schedule.dayWakeMin} min, night ${String(Math.floor(schedule.nightStart / 60)).padStart(2, "0")}:${String(schedule.nightStart % 60).padStart(2, "0")}-${String(Math.floor(schedule.nightEnd / 60)).padStart(2, "0")}:${String(schedule.nightEnd % 60).padStart(2, "0")} every ${schedule.nightWakeMin} min (${schedule.tz})`,
+  );
   await launch();
   await safeShoot();
   setInterval(() => safeShoot().catch((e) => log("refresh error", e.message)), REFRESH_MS);
@@ -364,6 +570,14 @@ async function main() {
 }
 
 for (const s of ["SIGINT", "SIGTERM"])
-  process.on(s, async () => { try { await browser?.close(); } catch {} process.exit(0); });
+  process.on(s, async () => {
+    try {
+      await browser?.close();
+    } catch {}
+    process.exit(0);
+  });
 
-main().catch((e) => { log("fatal", e.stack || e.message); process.exit(1); });
+main().catch((e) => {
+  log("fatal", e.stack || e.message);
+  process.exit(1);
+});

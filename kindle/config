@@ -1,9 +1,20 @@
 # Kindle Home Nexus client config (POSIX sh, UNIX line endings)
 BRIDGE_URL="http://192.168.1.15:8790"   # pop-os bridge (docker)
-POLL_SECONDS=20                            # how often to re-fetch the screen when idle
+POLL_SECONDS=20                            # how often to re-fetch the screen when idle (the bridge shortens/lengthens it: 5 s music, 60 s screensaver)
 STOP_FRAMEWORK=1                           # 1 = stop the Kindle reader UI while running (frees RAM, frees buttons)
 BRIDGE_TOKEN=""                           # must match BRIDGE_TOKEN in the server .env
 FULL_REFRESH_EVERY=0                      # 0 = full (flashing) refresh only when the app asks (screen/page/song change) or on tab keys; N>0 adds one every N drawn frames
 FLIP_SIDE_BUTTONS=1                       # 1 = upper side buttons go to the next tab (RTL layout), 0 = previous
 FETCH_TIMEOUT=15                          # hard timeout (s) for every bridge call; the stock wget has no -T
 FAIL_HINT_AFTER=3                         # draw the "bridge unreachable" footer after N consecutive failed fetches
+CPU_GOVERNOR=ondemand                     # set at start when the kernel offers it (idles at 160 MHz); empty = leave the stock "performance"
+BATTERY_EVERY=60                          # report the battery to the bridge at most every N s
+# --- battery saver: suspend on the screensaver, wake on an RTC alarm when the bridge's /schedule says so ---
+SLEEP=1                                   # KILL SWITCH: 0 = never suspend (needs a restart); `touch /mnt/us/nexus/NOSLEEP` does the same live
+MIN_SLEEP=30                              # ignore a schedule shorter than this (s)
+MAX_SLEEP=7200                            # ... or longer than this (s): never sleep past a sane alarm
+KEY_HOLD=300                              # a hardware button within the last N s keeps the device awake (same 5 min as the app's screensaver)
+WAKE_HOLD=300                             # after an early resume (power slider) or a failed suspend stay awake N s
+WIFI_WAIT=20                              # max s to wait for wifid CONNECTED after a resume (~5 s measured)
+SLEEP_FALLBACK=600                        # bridge unreachable right after a wake: sleep this long and try again
+SLEEP_OVERRIDE=                           # rollout test only: a fixed sleep length in s (e.g. 120) instead of the bridge schedule; empty = schedule

@@ -55,8 +55,8 @@ import { useMediaPanel } from "@/lib/media-panel";
 import { loadPanelState, persistableScreen, savePanelState, type TabName } from "@/lib/panel-state";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import { useFullRefresh } from "@/lib/eink";
-import { BatteryBadge } from "@/components/battery-badge";
-import { useKindleBattery } from "@/lib/battery";
+import { BatteryBadge, SleepBadge } from "@/components/battery-badge";
+import { useKindleBattery, useKindleSleep } from "@/lib/battery";
 import { dateLocale, isRtl, makeT } from "@/lib/i18n";
 import { LangContext } from "@/lib/lang-context";
 import type { Key } from "@/lib/i18n";
@@ -153,6 +153,9 @@ function HomeControl() {
   const skipPhoto = useRef<() => void>(() => {});
   const [marking, setMarking] = useState(false);
   const battery = useKindleBattery();
+  const sleep = useKindleSleep();
+  // F1 / F4 on the saver ask for a new photo even inside the night window (no automatic rotation there).
+  const forceNextPhoto = useRef(false);
   // Tell the bridge where the photo is (x,y,w,h in CSS pixels) so it can dither only that region.
   const publishPhotoRegion = () => {
     const box = photoRef.current?.getBoundingClientRect();
@@ -218,9 +221,14 @@ function HomeControl() {
         : t("status.connected");
   const photo = useQuery({
     queryKey: ["screensaver"],
-    queryFn: () => getScreensaver(),
+    queryFn: () => {
+      const force = forceNextPhoto.current;
+      forceNextPhoto.current = false;
+      return getScreensaver({ data: { force } });
+    },
     enabled: screensaver,
-    refetchInterval: SAMPLE_REFRESH_MS,
+    // Rotation period = the Kindle's day wake interval (DAY_WAKE_MIN), so every photo gets one wake.
+    refetchInterval: (result.photoMinutes ?? SAMPLE_REFRESH_MS / 60_000) * 60_000,
     staleTime: 0,
     gcTime: 0,
   });
@@ -345,7 +353,17 @@ function HomeControl() {
   useFullRefresh(tab);
   useFullRefresh(modal ? `${modal.kind}:${modal.index}` : "");
   useFullRefresh(screensaver ? "saver" : "");
-  useFullRefresh(photo.dataUpdatedAt);
+  // A new picture flashes; the same picture served again (night window) does not.
+  useFullRefresh(photo.data?.assetId ?? photo.data?.image ?? "");
+  // Tell the bridge the screensaver is showing (<html data-eink-saver="1">): with no key for 5 min it
+  // then lets the Kindle sleep between scheduled wakes (bridge /schedule, docs/battery-saver-plan.md).
+  useEffect(() => {
+    if (screensaver) document.documentElement.dataset["einkSaver"] = "1";
+    else delete document.documentElement.dataset["einkSaver"];
+    return () => {
+      delete document.documentElement.dataset["einkSaver"];
+    };
+  }, [screensaver]);
   useEffect(() => {
     if (modalOpen) return;
     const target = opener.current;
@@ -421,6 +439,7 @@ function HomeControl() {
   const photoRefetch = photo.refetch;
   markPhoto.current = () => {
     if (!photoAssetId || marking) return;
+    forceNextPhoto.current = true;
     setMarking(true);
     void markScreensaverPhoto({ data: { id: photoAssetId } })
       .then((res) => {
@@ -431,7 +450,9 @@ function HomeControl() {
       .finally(() => setMarking(false));
   };
   skipPhoto.current = () => {
-    if (!marking && !photo.isFetching) void photoRefetch();
+    if (marking || photo.isFetching) return;
+    forceNextPhoto.current = true;
+    void photoRefetch();
   };
   // While a mark + next photo is in flight the bridge holds its post-key screenshot (data-eink-busy),
   // so the Kindle gets the new photo in the key's own redraw instead of the next poll.
@@ -735,6 +756,7 @@ function HomeControl() {
               alt={shot?.image ? t("photo.altImmich") : t("photo.altSample")}
             />
             {battery && <BatteryBadge battery={battery} variant="photo" />}
+            {sleep && <SleepBadge sleep={sleep} />}
             <div className="photo-caption">
               <section className="photo-block">
                 <h2>{t("photo.outdoor")}</h2>

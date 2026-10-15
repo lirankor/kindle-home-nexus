@@ -10,7 +10,7 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true \
 COPY package.json ./
 # sharp ships prebuilt linux-x64 binaries via npm optional deps
 RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
-COPY server.js ./
+COPY server.js schedule.js ./
 RUN useradd -m bridge && chown -R bridge:bridge /srv/bridge
 USER bridge
 EXPOSE 8790

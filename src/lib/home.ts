@@ -167,6 +167,8 @@ export type SnapshotResult = {
   error?: string;
   snapshot: Snapshot | null;
   lang: Lang;
+  /** Screensaver photo rotation in minutes (env DAY_WAKE_MIN = the Kindle's day wake interval). */
+  photoMinutes?: number;
 };
 
 export type Action =

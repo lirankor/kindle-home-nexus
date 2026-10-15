@@ -30,5 +30,24 @@ another statement (`( …; r=$?; exit $r ) 2>/dev/null`).
 Verified 2026-10-15: bridge `--force-recreate` → next frame 3 s later; bridge `docker pause` 220 s → a failed fetch every
 ~50 s, no restart (healthz unreachable), fresh frame 10 s after unpause; main loop `kill -STOP` → watchdog restart at +282 s.
 
+Battery saver (2026-10-15, `docs/battery-saver-plan.md`): at start the CPU governor is set to `CPU_GOVERNOR`
+(`ondemand`, idles at 160 MHz; `performance` is restored on stop), the battery is reported at most every
+`BATTERY_EVERY` s, every screen fetch sends `?etag=<md5 of the frame on the panel>` and an empty answer means
+"unchanged, draw nothing", and the poller takes its cadence from `/schedule` (5 s music, 60 s screensaver, else
+`POLL_SECONDS`). While the app shows the screensaver and no button was pressed for 5 min, `/schedule` says `sleep`
+with the seconds until the next scheduled wake (day: every 10 min on the :00/:10/… grid; night 23:00–07:00 local:
+on the hour, no photo change) — the client then fetches `/sleep` (the frame with the "sleeping · next HH:MM"
+badge), sets the RTC alarm on `/sys/class/rtc/rtc1` (pmic_rtc, the only one with `wakealarm`; alarm = its own
+`since_epoch` + secs, NOT the system epoch) and writes `mem` to `/sys/power/state`, which blocks until the resume.
+After the resume it waits for Wi-Fi (`WIFI_WAIT`), asks `/schedule` again and sleeps again — about 10 s awake per
+cycle. A button within `KEY_HOLD` s, a resume ≥5 s before the alarm (power slider), a refused alarm or a failed
+suspend keep it awake for `WAKE_HOLD` s; a bridge that cannot be reached after a wake means "draw nothing, sleep
+`SLEEP_FALLBACK` s, try again". `cron.sh` is sleep-aware: `/tmp/nexus.sleeping` (planned wake epoch) and
+`/tmp/nexus.last_wake` suspend its stale check (120 s grace); `dash kindle/tests/cron-test.sh` runs its decision table.
+**Kill switches:** `SLEEP=0` in `config` (+ restart), `touch /mnt/us/nexus/NOSLEEP` (live, checked before every
+suspend), `DISABLED` (no client at all), or `SLEEP_ENABLED=0` in the server `.env` + bridge recreate. A sleeping
+device is unreachable until it wakes: flick the power slider (it then stays awake 5 min) and `ssh kindle`.
+`SLEEP_OVERRIDE=120` = fixed 2-min cycles for a rollout test. `nexus.sh status` shows the sleep state and governor.
+
 Button map: 5-way = up/down/left/right/select, upper side buttons = prev tab,
 lower side buttons = next tab, Back = escape, Menu = menu, Home = home, keyboard = keyboard.
