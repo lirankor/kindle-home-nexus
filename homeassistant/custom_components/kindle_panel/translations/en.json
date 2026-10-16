@@ -4,12 +4,149 @@
       "user": {
         "title": "Kindle Panel",
         "description": "Which Music Assistant connection should the panel use for full play queues?",
-        "data": { "music_assistant_entry": "Music Assistant" }
+        "data": {
+          "music_assistant_entry": "Music Assistant"
+        }
       }
     },
     "abort": {
-      "no_music_assistant": "Set up the Music Assistant integration first.",
       "single_instance_allowed": "Kindle Panel is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Kindle Panel",
+        "menu_options": {
+          "general": "Language, tabs, sensors, names",
+          "lights": "Lights",
+          "vacuum": "Vacuum and rooms",
+          "power": "Power plugs",
+          "media": "Amplifier, TV and music",
+          "screensaver": "Screensaver photos",
+          "schedule": "Battery saver schedule"
+        }
+      },
+      "general": {
+        "title": "General",
+        "data": {
+          "language": "Language",
+          "tabs": "Tabs (in this order)",
+          "indoor_temperature": "Indoor temperature",
+          "indoor_humidity": "Indoor humidity",
+          "weather": "Weather",
+          "names_he": "Hebrew names"
+        },
+        "data_description": {
+          "names_he": "English name: Hebrew name, one per line (YAML), e.g. 'Main light: אור ראשי'. Names without an entry stay as they are."
+        }
+      },
+      "lights": {
+        "title": "Lights",
+        "data": {
+          "lights": "Lights (in screen order)",
+          "evening_light": "Evening scene light",
+          "evening_pct": "Evening brightness",
+          "warm_kelvin": "Warm white"
+        }
+      },
+      "vacuum": {
+        "title": "Vacuum",
+        "data": {
+          "entity_id": "Vacuum",
+          "battery_entity": "Battery sensor",
+          "rooms_script": "Clean selected rooms (script)",
+          "rooms": "Rooms (in screen order)"
+        }
+      },
+      "power": {
+        "title": "Power plugs",
+        "data": {
+          "plugs": "Plugs (in screen order)"
+        },
+        "data_description": {
+          "plugs": "energy_to_wh converts the energy sensor to Wh (1 for Wh, 1000 for kWh)."
+        }
+      },
+      "media": {
+        "title": "Amplifier, TV and music",
+        "data": {
+          "music_backend": "Music played by",
+          "amp_player": "Amplifier player",
+          "amp_volume": "Amplifier volume (dB number)",
+          "dlna_player": "Amplifier DLNA renderer",
+          "amp_plug": "Media plug",
+          "amp_plug_power": "Media plug power",
+          "tv": "TV",
+          "movie_on": "Movie mode on (script)",
+          "movie_off": "Movie mode off (script)",
+          "movie_active": "Movie mode active (boolean)",
+          "ynca_entry_id": "yamaha_ynca config entry id (optional)"
+        }
+      },
+      "screensaver": {
+        "title": "Screensaver",
+        "data": {
+          "sources": "Photo sources",
+          "mode": "Which photos",
+          "photo_minutes": "New photo every",
+          "idle_minutes": "Screensaver after (no key pressed)"
+        },
+        "data_description": {
+          "sources": "Any picture folder Home Assistant knows: Immich favourites, an Immich album, person or tag, local media, …",
+          "mode": "F1 on the panel keeps a photo (good on e-ink), F4 skips it for good. Skipped photos are never shown."
+        }
+      },
+      "schedule": {
+        "title": "Battery saver",
+        "data": {
+          "radio_duty": "Switch Wi-Fi off between updates",
+          "day_wake_min": "Update every (day)",
+          "night_start": "Night from",
+          "night_end": "Night until",
+          "night_wake_min": "Update every (night)",
+          "timezone": "Time zone"
+        }
+      }
+    }
+  },
+  "selector": {
+    "language": {
+      "options": {
+        "he": "עברית",
+        "en": "English"
+      }
+    },
+    "tab": {
+      "options": {
+        "lights": "Lights",
+        "vacuum": "Vacuum",
+        "power": "Power",
+        "media": "Media"
+      }
+    },
+    "music_backend": {
+      "options": {
+        "app": "The panel itself (DLNA queue)",
+        "ha": "Home Assistant + Music Assistant"
+      }
+    },
+    "photo_mode": {
+      "options": {
+        "curate": "Not judged yet first, then the kept ones",
+        "all_but_skipped": "Everything except skipped",
+        "kept_only": "Only kept photos"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "photos_kept": {
+        "name": "Kept photos"
+      },
+      "photos_skipped": {
+        "name": "Skipped photos"
+      }
     }
   },
   "services": {
@@ -17,18 +154,87 @@
       "name": "Get play queue",
       "description": "The whole play queue of a Music Assistant player (paged), with the current index.",
       "fields": {
-        "entity_id": { "name": "Player", "description": "A Music Assistant media player." },
-        "offset": { "name": "Offset", "description": "First queue index to return." },
-        "limit": { "name": "Limit", "description": "How many items to return (max 500)." }
+        "entity_id": {
+          "name": "Player",
+          "description": "A Music Assistant media player."
+        },
+        "offset": {
+          "name": "Offset",
+          "description": "First queue index to return."
+        },
+        "limit": {
+          "name": "Limit",
+          "description": "How many items to return (max 500)."
+        }
       }
     },
     "play_index": {
       "name": "Play queue item",
       "description": "Jump to item n (0-based) of the player's queue.",
       "fields": {
-        "entity_id": { "name": "Player", "description": "A Music Assistant media player." },
-        "index": { "name": "Index", "description": "0-based position in the queue." }
+        "entity_id": {
+          "name": "Player",
+          "description": "A Music Assistant media player."
+        },
+        "index": {
+          "name": "Index",
+          "description": "0-based position in the queue."
+        }
       }
+    },
+    "get_config": {
+      "name": "Get panel config",
+      "description": "The panel's configuration (used by the panel)."
+    },
+    "seed": {
+      "name": "Seed panel config",
+      "description": "Used by the panel on its first start: its setup and photo marks. Never overwrites a configuration edited in HA unless force is set.",
+      "fields": {
+        "config": {
+          "name": "Config",
+          "description": "Panel configuration."
+        },
+        "kept": {
+          "name": "Kept photos",
+          "description": "Photo ids marked keep."
+        },
+        "skipped": {
+          "name": "Skipped photos",
+          "description": "Photo ids marked skip."
+        },
+        "force": {
+          "name": "Force",
+          "description": "Overwrite the configuration."
+        }
+      }
+    },
+    "pick_photo": {
+      "name": "Pick a photo",
+      "description": "The next screensaver photo from the configured sources.",
+      "fields": {
+        "previous_id": {
+          "name": "Previous photo",
+          "description": "Avoid repeating this one."
+        }
+      }
+    },
+    "mark_photo": {
+      "name": "Mark a photo",
+      "description": "keep = good on e-ink, skip = never show again, clear = undo.",
+      "fields": {
+        "photo_id": {
+          "name": "Photo",
+          "description": "Photo id from pick_photo."
+        },
+        "verdict": {
+          "name": "Verdict",
+          "description": "keep, skip or clear."
+        }
+      }
+    },
+    "get_marks": {
+      "name": "Get photo marks",
+      "description": "All kept and skipped photo ids."
     }
   }
 }

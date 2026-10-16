@@ -1,13 +1,21 @@
 {
   "domain": "kindle_panel",
   "name": "Kindle Panel",
-  "codeowners": ["@lirankor"],
+  "codeowners": [
+    "@lirankor"
+  ],
   "config_flow": true,
-  "dependencies": ["music_assistant"],
   "documentation": "https://github.com/lirankor/kindle-home-nexus",
-  "integration_type": "service",
+  "integration_type": "device",
   "iot_class": "local_push",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.1.0"
+  "version": "0.2.0",
+  "dependencies": [
+    "media_source"
+  ],
+  "after_dependencies": [
+    "music_assistant",
+    "immich"
+  ]
 }

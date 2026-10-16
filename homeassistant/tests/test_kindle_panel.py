@@ -6,13 +6,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
-
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 DOMAIN = "kindle_panel"
 PLAYER = "media_player.ma_amp_dlna"
@@ -52,7 +51,9 @@ class FakeQueues:
 @pytest.fixture
 async def setup(hass: HomeAssistant):
     queues = FakeQueues()
-    mass = SimpleNamespace(player_queues=queues, get_media_item_image_url=lambda qi: f"http://ma/img/{qi.queue_item_id}")
+    mass = SimpleNamespace(
+        player_queues=queues, get_media_item_image_url=lambda qi: f"http://ma/img/{qi.queue_item_id}"
+    )
     ma = MockConfigEntry(domain="music_assistant", data={"url": "http://ma"}, state=ConfigEntryState.LOADED)
     ma.add_to_hass(hass)
     ma.runtime_data = SimpleNamespace(mass=mass)
@@ -96,7 +97,6 @@ async def test_rejects_non_ma_entities(hass: HomeAssistant, setup) -> None:
         )
 
 
-async def test_needs_music_assistant(hass: HomeAssistant) -> None:
-    with patch("homeassistant.components.music_assistant.async_setup", return_value=True):
-        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
-    assert result["type"] is FlowResultType.ABORT and result["reason"] == "no_music_assistant"
+async def test_works_without_music_assistant(hass: HomeAssistant) -> None:
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    assert result["type"] is FlowResultType.CREATE_ENTRY

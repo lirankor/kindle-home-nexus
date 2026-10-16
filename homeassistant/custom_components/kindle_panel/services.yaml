@@ -26,3 +26,36 @@ play_index:
       required: true
       selector:
         number: { min: 0, max: 100000, mode: box }
+get_config:
+seed:
+  fields:
+    config:
+      selector:
+        object:
+    kept:
+      selector:
+        object:
+    skipped:
+      selector:
+        object:
+    force:
+      default: false
+      selector:
+        boolean:
+pick_photo:
+  fields:
+    previous_id:
+      selector:
+        text:
+mark_photo:
+  fields:
+    photo_id:
+      required: true
+      selector:
+        text:
+    verdict:
+      required: true
+      selector:
+        select:
+          options: [keep, skip, clear]
+get_marks:

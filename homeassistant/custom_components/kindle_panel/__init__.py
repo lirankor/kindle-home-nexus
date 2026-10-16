@@ -1,23 +1,35 @@
-"""Kindle Panel: Home Assistant companion of the kindle-home-nexus e-ink panel.
+"""Kindle Panel: the Home Assistant side of the kindle-home-nexus e-ink panel.
 
-Gives the panel what Home Assistant's Music Assistant integration does not pass on, using the MA connection HA
-already has (no extra token anywhere): the whole play queue of an MA player and "play queue item n". The panel keeps
-talking only to Home Assistant; without this integration it falls back to the track list it sent itself.
+* The panel's whole configuration (tabs, entities, names, screensaver, schedule) is edited in the HA UI and read by
+  the panel with `kindle_panel.get_config`. On its first start the panel seeds it with what it shipped with
+  (`kindle_panel.seed`), including the photo marks it already collected.
+* Screensaver photos come from HA (Immich favourites through HA's Immich connection, or any media-browser folder);
+  the panel's F1 keep / F4 skip decisions are stored here (`pick_photo`, `mark_photo`).
+* Music Assistant queues the HA integration does not pass on: `get_queue` (the whole queue) and `play_index`.
+The panel only ever talks to Home Assistant.
 """
 
 from __future__ import annotations
 
+from collections import deque
+from dataclasses import dataclass, field
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.const import ATTR_ENTITY_ID, Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv, entity_registry as er
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from .const import CONF_MA_ENTRY, DOMAIN, MA_DOMAIN
+from .config import is_empty, normalize
+from .const import CONF_MA_ENTRY, DOMAIN, EVENT_CONFIG_UPDATED, MA_DOMAIN, OPT_CONFIG
+from .photos import MarkStore, Photo, PhotoLibrary, pick
+
+PLATFORMS = [Platform.SENSOR]
+SIGNAL_MARKS = f"{DOMAIN}_marks_updated"
 
 GET_QUEUE_SCHEMA = vol.Schema(
     {
@@ -27,19 +39,49 @@ GET_QUEUE_SCHEMA = vol.Schema(
     }
 )
 PLAY_INDEX_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_ENTITY_ID): cv.entity_id, vol.Required("index"): vol.All(vol.Coerce(int), vol.Range(min=0))}
+)
+SEED_SCHEMA = vol.Schema(
     {
-        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
-        vol.Required("index"): vol.All(vol.Coerce(int), vol.Range(min=0)),
+        vol.Optional("config"): dict,
+        vol.Optional("kept", default={}): vol.Any({cv.string: cv.string}, [cv.string]),
+        vol.Optional("skipped", default={}): vol.Any({cv.string: cv.string}, [cv.string]),
+        vol.Optional("force", default=False): bool,
     }
+)
+PICK_SCHEMA = vol.Schema({vol.Optional("previous_id"): vol.Any(None, cv.string)})
+MARK_SCHEMA = vol.Schema(
+    {vol.Required("photo_id"): cv.string, vol.Required("verdict"): vol.In(["keep", "skip", "clear"])}
 )
 
 
+@dataclass
+class PanelRuntime:
+    marks: MarkStore
+    library: PhotoLibrary
+    served: deque[str] = field(default_factory=lambda: deque(maxlen=32))
+    last: dict[str, Photo] = field(default_factory=dict)
+
+
+type KindlePanelConfigEntry = ConfigEntry[PanelRuntime]
+
+
+def panel_config(entry: ConfigEntry) -> dict[str, Any]:
+    return normalize(entry.options.get(OPT_CONFIG))
+
+
+def _as_dict(v: dict[str, str] | list[str]) -> dict[str, str]:
+    return v if isinstance(v, dict) else dict.fromkeys(v, "")
+
+
+# ---------------------------------------------------------------- Music Assistant queue
+
+
 def _mass_and_player(hass: HomeAssistant, entry: ConfigEntry, entity_id: str) -> tuple[Any, str]:
-    """The MA client and the MA player id behind a Music Assistant media_player entity."""
     reg = er.async_get(hass).async_get(entity_id)
     if reg is None or reg.platform != MA_DOMAIN:
         raise ServiceValidationError(f"{entity_id} is not a Music Assistant player")
-    ma_entry = hass.config_entries.async_get_entry(reg.config_entry_id or entry.data[CONF_MA_ENTRY])
+    ma_entry = hass.config_entries.async_get_entry(reg.config_entry_id or entry.data.get(CONF_MA_ENTRY) or "")
     if ma_entry is None or ma_entry.state is not ConfigEntryState.LOADED:
         raise ServiceValidationError("Music Assistant is not loaded")
     return ma_entry.runtime_data.mass, reg.unique_id
@@ -79,7 +121,15 @@ def _item_view(mass: Any, index: int, qi: Any) -> dict[str, Any]:
     }
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+# ---------------------------------------------------------------- setup
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) -> bool:
+    marks = MarkStore(hass)
+    await marks.async_load()
+    rt = PanelRuntime(marks=marks, library=PhotoLibrary(hass))
+    entry.runtime_data = rt
+
     async def get_queue(call: ServiceCall) -> ServiceResponse:
         mass, player_id = _mass_and_player(hass, entry, call.data[ATTR_ENTITY_ID])
         queue = await mass.player_queues.get_active_queue(player_id)
@@ -106,12 +156,82 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             raise ServiceValidationError(f"index {call.data['index']} is past the end of the queue ({queue.items})")
         await mass.player_queues.play_index(queue.queue_id, call.data["index"])
 
+    async def get_config(call: ServiceCall) -> ServiceResponse:
+        raw = entry.options.get(OPT_CONFIG)
+        return {"seeded": not is_empty(raw), "marks_seeded": rt.marks.seeded, "config": normalize(raw)}
+
+    async def seed(call: ServiceCall) -> ServiceResponse:
+        """The panel's first start: its shipped setup + its own photo marks. Never overwrites HA-side edits."""
+        result: dict[str, Any] = {"config": "kept"}
+        if "config" in call.data and (call.data["force"] or is_empty(entry.options.get(OPT_CONFIG))):
+            try:
+                cfg = normalize(call.data["config"])
+            except vol.Invalid as err:
+                raise ServiceValidationError(f"invalid panel config: {err}") from err
+            hass.config_entries.async_update_entry(entry, options={**entry.options, OPT_CONFIG: cfg})
+            result["config"] = "seeded"
+        added = rt.marks.merge(_as_dict(call.data["kept"]), _as_dict(call.data["skipped"]))
+        rt.marks.seeded = True
+        await rt.marks.async_save()
+        async_dispatcher_send(hass, SIGNAL_MARKS)
+        result.update(kept_added=added[0], skipped_added=added[1])
+        return result
+
+    async def pick_photo(call: ServiceCall) -> ServiceResponse:
+        cfg = panel_config(entry)["screensaver"]
+        sources = cfg["sources"]
+        if not sources:
+            return {"photo": None, "reason": "no photo sources configured"}
+        candidates = await rt.library.candidates(sources)
+        photo = pick(candidates, rt.marks, cfg["mode"], call.data.get("previous_id"))
+        if photo is None:
+            return {"photo": None, "reason": "no photos left (all skipped?)", "candidates": len(candidates)}
+        rt.served.append(photo.id)
+        rt.last[photo.id] = photo
+        return {
+            "photo": {
+                "id": photo.id,
+                "url": await rt.library.resolve(photo),
+                "title": photo.title,
+                "source": photo.source,
+                "kept": photo.id in rt.marks.kept,
+            },
+            "candidates": len(candidates),
+            "kept": len(rt.marks.kept),
+            "skipped": len(rt.marks.skipped),
+        }
+
+    async def mark_photo(call: ServiceCall) -> ServiceResponse:
+        pid = call.data["photo_id"]
+        if pid not in rt.served and pid not in rt.marks.kept and pid not in rt.marks.skipped:
+            raise ServiceValidationError("not a photo shown recently")
+        rt.marks.mark(pid, call.data["verdict"])
+        await rt.marks.async_save()
+        async_dispatcher_send(hass, SIGNAL_MARKS)
+        return {"kept": len(rt.marks.kept), "skipped": len(rt.marks.skipped)}
+
+    async def get_marks(call: ServiceCall) -> ServiceResponse:
+        return {"kept": dict(rt.marks.kept), "skipped": dict(rt.marks.skipped)}
+
     hass.services.async_register(DOMAIN, "get_queue", get_queue, GET_QUEUE_SCHEMA, SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "play_index", play_index, PLAY_INDEX_SCHEMA)
+    hass.services.async_register(DOMAIN, "get_config", get_config, None, SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "seed", seed, SEED_SCHEMA, SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, "pick_photo", pick_photo, PICK_SCHEMA, SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "mark_photo", mark_photo, MARK_SCHEMA, SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, "get_marks", get_marks, None, SupportsResponse.ONLY)
+
+    entry.async_on_unload(entry.add_update_listener(_options_updated))
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def _options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    # No reload: the panel re-reads the config (it polls and listens for this event).
+    hass.bus.async_fire(EVENT_CONFIG_UPDATED, {"entry_id": entry.entry_id})
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    hass.services.async_remove(DOMAIN, "get_queue")
-    hass.services.async_remove(DOMAIN, "play_index")
-    return True
+    for svc in ("get_queue", "play_index", "get_config", "seed", "pick_photo", "mark_photo", "get_marks"):
+        hass.services.async_remove(DOMAIN, svc)
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
