@@ -118,6 +118,16 @@ export function positionOf(name: string | null | undefined): RadioPosition | nul
   return null;
 }
 
+/** Jellyfin item ids are 32 hex characters; MA's own library ids (library://track/123) are not. */
+export const isJellyfinId = (v: string | null | undefined): v is string =>
+  typeof v === "string" && /^[0-9a-f]{32}$/i.test(v);
+/** Art for /media/img?item=…: a Jellyfin id when there is one, else MA's image proxy URL as an "ma:" token. */
+export function artToken(ids: (string | null | undefined)[], image: string | null | undefined) {
+  const jf = ids.find(isJellyfinId);
+  if (jf) return jf;
+  return image ? `ma:${Buffer.from(image, "utf8").toString("base64url")}` : null;
+}
+
 export const toMusicTrack = (t: HaTrack): MusicTrack => ({
   id: t.id ?? t.uri ?? t.title ?? "",
   title: t.title ?? "",
@@ -126,7 +136,7 @@ export const toMusicTrack = (t: HaTrack): MusicTrack => ({
   albumId: t.albumId,
   durationMs: t.durationMs ?? 0,
   container: null,
-  artItemId: t.albumId ?? t.id,
+  artItemId: artToken([t.albumId, t.id], t.artUrl),
 });
 
 export function queueFromHa(s: HaMusicState): QueueProgress | null {
@@ -239,6 +249,83 @@ export function withRadio(snap: MediaSnapshot, s: HaMusicState): MediaSnapshot {
   };
 }
 
+// ---- Full queue: the kindle_panel HA integration (MA's whole queue + play_index), else the list we sent ----
+export type PanelQueueItem = {
+  index: number;
+  id: string | null;
+  jellyfin_id?: string | null;
+  image?: string | null;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  album_id: string | null;
+  duration: number | null;
+};
+export type PanelQueue = {
+  queue_id: string | null;
+  name: string | null;
+  total: number;
+  current_index: number | null;
+  items: PanelQueueItem[];
+};
+export const panelItemTrack = (i: PanelQueueItem): MusicTrack => ({
+  id: i.jellyfin_id ?? i.id ?? String(i.index),
+  title: i.title ?? "",
+  artist: i.artist,
+  album: i.album,
+  albumId: i.album_id,
+  durationMs: (i.duration ?? 0) * 1000,
+  container: null,
+  artItemId: artToken([i.album_id, i.jellyfin_id], i.image),
+});
+/** The list as the panel shows it: from the full MA queue when kindle_panel answers, else from what we sent
+ *  (MA plays it in the order we sent, shuffle off, so its queue index equals our list index). */
+export function queueListFrom(
+  s: HaMusicState,
+  full: PanelQueue | null,
+  sent: { title: string; tracks: MusicTrack[] } | null,
+): QueueList | null {
+  const q = queueFromHa(s);
+  if (!q) return null;
+  if (full && full.items.length)
+    return {
+      title: full.name ?? q.title,
+      index: full.current_index ?? q.index,
+      status: q.status,
+      tracks: full.items.map(panelItemTrack),
+    };
+  // MA plays what we sent in our order (shuffle off) but reports its own library ids: match by position + title.
+  const norm = (t: string | null | undefined) => (t ?? "").trim().toLowerCase();
+  if (
+    sent &&
+    q.count === sent.tracks.length &&
+    norm(sent.tracks[q.index]?.title) === norm(q.track?.title)
+  )
+    return { title: sent.title, index: q.index, status: q.status, tracks: sent.tracks };
+  // Started elsewhere (voice, MA's UI) and no kindle_panel: the window MA reports.
+  const tracks = [q.track, ...(q.nextTracks ?? [])].filter((t): t is MusicTrack => t !== null);
+  return { title: q.title, index: 0, status: q.status, tracks };
+}
+
+let sentQueue: { title: string; tracks: MusicTrack[] } | null = null;
+/** kindle_panel missing (HA answers 400 for an unknown service): do not ask again for a minute. */
+let panelMissingUntil = 0;
+async function panelQueue(player: string): Promise<PanelQueue | null> {
+  if (Date.now() < panelMissingUntil) return null;
+  try {
+    const r = await ha<{ service_response?: PanelQueue }>(
+      "POST",
+      "/api/services/kindle_panel/get_queue?return_response",
+      { entity_id: player, offset: 0, limit: 500 },
+      15_000,
+    );
+    return r.service_response ?? null;
+  } catch {
+    panelMissingUntil = Date.now() + 60_000;
+    return null;
+  }
+}
+
 // ---- Runtime ----
 let lastState: { at: number; value: HaMusicState } | null = null;
 let powerStartedAt: number | null = null;
@@ -277,11 +364,26 @@ export async function getQueueProgressHa(): Promise<QueueProgress | null> {
 }
 export async function getQueueListHa(): Promise<QueueList | null> {
   const s = await readMusicState(1500);
-  const q = queueFromHa(s);
-  if (!q) return null;
-  // MA reports the current and the next item only; the playlist screen shows that window.
-  const tracks = [q.track, ...(q.nextTracks ?? [])].filter((t): t is MusicTrack => t !== null);
-  return { title: q.title, index: 0, status: q.status, tracks };
+  if (!s.queue) return null;
+  return queueListFrom(s, await panelQueue(s.player), sentQueue);
+}
+
+/** Playlist screen: play item `index` of the list it shows (= MA's queue index, see queueListFrom). */
+async function queueJumpHa(index: number) {
+  const s = await readMusicState(0);
+  try {
+    if (Date.now() >= panelMissingUntil) {
+      await service("kindle_panel", "play_index", { entity_id: s.player, index });
+      lastState = null;
+      return;
+    }
+  } catch {
+    panelMissingUntil = Date.now() + 60_000;
+  }
+  // No kindle_panel: step there from where MA is (exact when the list is the one we sent).
+  const cur = s.queue?.index ?? 0;
+  const delta = Math.max(-50, Math.min(50, index - cur));
+  for (let i = 0; i < Math.abs(delta); i++) await control(delta > 0 ? "next" : "previous");
 }
 
 type PlayAnswer = { ok: boolean; error?: string; status?: string };
@@ -300,6 +402,7 @@ export async function playSelectionHa(
   if (!r.ok) throw new HomeError(r.error ?? "Music Assistant refused");
   if (r.status === "powering_on") powerStartedAt = Date.now();
   lastState = null;
+  sentQueue = { title, tracks };
   // A just-started queue: show it at once (MA needs a moment to report it).
   return {
     title,
@@ -468,12 +571,9 @@ export async function performMediaActionHa(
       } else await control(op[a.op]);
       return;
     }
-    case "queue.jump": {
-      // MA's HA integration has no "play queue item n": step there (the panel only shows current + next).
-      const steps = Math.min(Math.max(a.index, 0), 10);
-      for (let i = 0; i < steps; i++) await control("next");
+    case "queue.jump":
+      await queueJumpHa(a.index);
       return;
-    }
     case "all_off":
       await control("stop").catch(() => undefined);
       await legacy(a);

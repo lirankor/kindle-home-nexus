@@ -1,0 +1,28 @@
+get_queue:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: music_assistant
+          domain: media_player
+    offset:
+      default: 0
+      selector:
+        number: { min: 0, max: 100000, mode: box }
+    limit:
+      default: 200
+      selector:
+        number: { min: 1, max: 500, mode: box }
+play_index:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: music_assistant
+          domain: media_player
+    index:
+      required: true
+      selector:
+        number: { min: 0, max: 100000, mode: box }

@@ -730,8 +730,22 @@ export const jellyfin = {
 // ---- Images: remote logo / art -> square PNG (grayscale for the e-ink panel, colour for HA), cached on disk ----
 const cacheDir = () => env("MEDIA_CACHE_DIR") || path.join(os.tmpdir(), "kindle-media-cache");
 const FETCH_UA = "kindle-home-nexus/1.0 (home server radio panel)";
+/** Music Assistant's image proxy on the home network (MUSIC_BACKEND=ha art for items without a Jellyfin id). */
+export function maImageAllowed(url: URL): boolean {
+  if (url.protocol !== "http:" || !url.pathname.startsWith("/imageproxy")) return false;
+  const h = url.hostname.toLowerCase();
+  return (
+    h === "localhost" ||
+    h === "host.docker.internal" ||
+    /^127\./.test(h) ||
+    /^10\./.test(h) ||
+    /^192\.168\./.test(h) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(h)
+  );
+}
 export function imageHostAllowed(url: URL): boolean {
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  if (maImageAllowed(url)) return true;
   const host = url.hostname.toLowerCase();
   const allowed = new Set<string>([YTUNER_HOST, ...CATALOG_LOGO_HOSTS.map((h) => h.toLowerCase())]);
   for (const v of [env("AMP_HOST"), env("JELLYFIN_URL"), ytunerBase()]) {
@@ -959,6 +973,16 @@ export async function imageFor(q: {
 }): Promise<Buffer | null> {
   const width = Math.max(16, Math.min(400, Math.round(q.width)));
   if (q.station) return stationArtPng(q.station, width, "grayscale");
+  if (q.item?.startsWith("ma:")) {
+    // "ma:" + base64url(MA image proxy URL), set by media-ha.server.ts; only MA's /imageproxy on the LAN is fetched
+    let url: URL;
+    try {
+      url = new URL(Buffer.from(q.item.slice(3), "base64url").toString("utf8"));
+    } catch {
+      return null;
+    }
+    return maImageAllowed(url) ? grayscalePng(url.toString(), width) : null;
+  }
   if (q.item) {
     if (!/^[0-9a-fA-F-]{8,40}$/.test(q.item) || !jellyfinConfigured()) return null;
     const key = `${q.item}@${width}`;

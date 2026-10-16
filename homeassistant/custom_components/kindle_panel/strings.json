@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kindle Panel",
+        "description": "Which Music Assistant connection should the panel use for full play queues?",
+        "data": { "music_assistant_entry": "Music Assistant" }
+      }
+    },
+    "abort": {
+      "no_music_assistant": "Set up the Music Assistant integration first.",
+      "single_instance_allowed": "Kindle Panel is already set up."
+    }
+  },
+  "services": {
+    "get_queue": {
+      "name": "Get play queue",
+      "description": "The whole play queue of a Music Assistant player (paged), with the current index.",
+      "fields": {
+        "entity_id": { "name": "Player", "description": "A Music Assistant media player." },
+        "offset": { "name": "Offset", "description": "First queue index to return." },
+        "limit": { "name": "Limit", "description": "How many items to return (max 500)." }
+      }
+    },
+    "play_index": {
+      "name": "Play queue item",
+      "description": "Jump to item n (0-based) of the player's queue.",
+      "fields": {
+        "entity_id": { "name": "Player", "description": "A Music Assistant media player." },
+        "index": { "name": "Index", "description": "0-based position in the queue." }
+      }
+    }
+  }
+}

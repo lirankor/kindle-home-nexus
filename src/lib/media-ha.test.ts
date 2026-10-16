@@ -18,11 +18,12 @@ import {
 import type { HaMusicState } from "./media-ha.server";
 import { buildMediaSnapshot } from "./media.server";
 
+const jf = (id: string) => id.padStart(32, "0"); // Jellyfin-style 32-hex ids
 const track = (title: string, id: string) => ({
   title,
-  id,
+  id: jf(id === "t1" ? "1" : "2"),
   uri: `jellyfin://track/${id}`,
-  albumId: `alb-${id}`,
+  albumId: jf(id === "t1" ? "a1" : "a2"),
   artist: "Eagles",
   album: "Hotel California",
   artUrl: null,
@@ -75,7 +76,7 @@ describe("pure mappings", () => {
     expect(q.index).toBe(2);
     expect(q.count).toBe(40);
     expect(q.track?.title).toBe("Hotel California");
-    expect(q.track?.artItemId).toBe("alb-t1");
+    expect(q.track?.artItemId).toBe(jf("a1"));
     expect(q.nextTracks?.[0]?.title).toBe("New Kid in Town");
     expect(q.stall).toBeNull();
     expect(queueFromHa(music({ queue: null }))).toBeNull();
@@ -118,7 +119,7 @@ describe("snapshot through the panel's own builder", () => {
     expect(snap.amp.volumeDb).toBe(-40);
     expect(snap.nowPlaying.kind).toBe("music");
     expect(snap.nowPlaying.title).toBe("Hotel California");
-    expect(snap.nowPlaying.artItemId).toBe("alb-t1");
+    expect(snap.nowPlaying.artItemId).toBe(jf("a1"));
   });
   it("shows MA radio over AirPlay as radio on the catalogue station", () => {
     const station = RADIO_LISTS[1]!.stations[0]!;
@@ -178,6 +179,9 @@ describe("HA calls", () => {
           };
         else if (path.startsWith("/api/services/script/music_control"))
           payload = { changed_states: [], service_response: { ok: true } };
+        else if (path === "/api/services/kindle_panel/play_index") payload = [];
+        else if (path.startsWith("/api/services/kindle_panel/get_queue"))
+          return new Response("{}", { status: 400 });
         else if (path.startsWith("/api/services/script/play_radio"))
           payload = { changed_states: [], service_response: { ok: true, status: "tuned" } };
         return new Response(JSON.stringify(payload), { status: 200 });
@@ -208,6 +212,11 @@ describe("HA calls", () => {
     await performMediaActionHa({ type: "tv", op: "turn_on" }, legacy);
     expect(legacy).toHaveBeenCalledOnce(); // TV / plug / movie keep their old path
   });
+  it("jumps with kindle_panel.play_index on the active MA player", async () => {
+    await performMediaActionHa({ type: "queue.jump", index: 12 }, vi.fn());
+    const call = calls.find((c) => c.path === "/api/services/kindle_panel/play_index")!;
+    expect(call.body).toEqual({ entity_id: "media_player.ma_amp_dlna", index: 12 });
+  });
   it("tunes a catalogue station by name through script.play_radio", async () => {
     const station = RADIO_LISTS[0]!.stations[2]!;
     const { tuneRadioHa } = await import("./media-ha.server");
@@ -220,5 +229,66 @@ describe("HA calls", () => {
     expect(snap.amp.on).toBe(true);
     expect(snap.queue?.track?.title).toBe("Hotel California");
     expect(snap.tv.state).toBe("off");
+  });
+});
+
+describe("full playlist (kindle_panel) with fallback to the list the panel sent", () => {
+  const sent = {
+    title: "80s",
+    // music() reports index 2 of 40, title "Hotel California"
+    tracks: Array.from(
+      { length: 40 },
+      (_, i) => ({ id: `s${i}`, title: i === 2 ? "Hotel California" : `Song ${i}` }) as MusicTrack,
+    ),
+  };
+  it("uses kindle_panel's whole queue when it answers", async () => {
+    const { queueListFrom } = await import("./media-ha.server");
+    const full = {
+      queue_id: "q",
+      name: "Eagles",
+      total: 40,
+      current_index: 2,
+      items: Array.from({ length: 40 }, (_, i) => ({
+        index: i,
+        id: `t${i}`,
+        title: `Song ${i}`,
+        artist: "Eagles",
+        album: null,
+        album_id: `alb${i}`,
+        image: `http://192.168.1.15:8095/imageproxy?path=${i}`,
+        duration: 200,
+      })),
+    };
+    const l = queueListFrom(music(), full, sent)!;
+    expect(l.tracks).toHaveLength(40);
+    expect(l.index).toBe(2);
+    expect(l.tracks[2]?.artItemId).toMatch(/^ma:/); // no Jellyfin ids in this fake: MA image token
+  });
+  it("falls back to the list the panel sent, positioned on MA's current track", async () => {
+    const { queueListFrom } = await import("./media-ha.server");
+    const l = queueListFrom(music(), null, sent)!;
+    expect(l.title).toBe("80s");
+    expect(l.index).toBe(2);
+    expect(l.tracks).toHaveLength(40);
+    expect(l.tracks[2]?.id).toBe("s2");
+  });
+  it("shows MA's current + next window for music started elsewhere", async () => {
+    const { queueListFrom } = await import("./media-ha.server");
+    const l = queueListFrom(music(), null, null)!;
+    expect(l.tracks.map((t) => t.title)).toEqual(["Hotel California", "New Kid in Town"]);
+  });
+});
+
+describe("art for items without a Jellyfin id", () => {
+  it("prefers Jellyfin ids, else an ma: token the image route accepts only for MA's LAN image proxy", async () => {
+    const { artToken } = await import("./media-ha.server");
+    const { maImageAllowed } = await import("./media.server");
+    expect(artToken(["123", "c".repeat(32)], "http://x/imageproxy")).toBe("c".repeat(32));
+    const t = artToken(["123"], "http://192.168.1.15:8095/imageproxy?path=abc")!;
+    expect(t.startsWith("ma:")).toBe(true);
+    const url = new URL(Buffer.from(t.slice(3), "base64url").toString("utf8"));
+    expect(maImageAllowed(url)).toBe(true);
+    expect(maImageAllowed(new URL("http://evil.example.com/imageproxy?path=x"))).toBe(false);
+    expect(maImageAllowed(new URL("http://192.168.1.15:8095/api/other"))).toBe(false);
   });
 });
