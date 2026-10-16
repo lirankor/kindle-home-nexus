@@ -127,7 +127,7 @@ async def test_pick_and_mark_from_a_local_folder(hass, panel) -> None:
         seen.add(r["photo"]["id"])
         assert r["photo"]["url"].startswith("/media/local/photos/")
     assert len(seen) == 3
-    a = sorted(seen)[0]
+    a = min(seen)
     await call(hass, "mark_photo", photo_id=a, verdict="skip")
     for _ in range(15):
         assert (await call(hass, "pick_photo"))["photo"]["id"] != a  # skipped: never again
@@ -168,8 +168,11 @@ async def test_immich_favourites_through_has_immich(hass, panel) -> None:
     assert r["photo"]["id"] == "p1"  # curate: not judged yet first
     assert r["photo"]["url"] == "/immich/imm1/p1/preview/image/jpeg"
     await call(hass, "mark_photo", photo_id="p1", verdict="keep")
-    ids = {(await call(hass, "pick_photo", previous_id=None))["photo"]["id"] for _ in range(10)}
-    assert ids == {"p1", "l1"}  # all judged: the kept ones
+    ids, prev = [], "p1"
+    for _ in range(4):  # the previous photo is never picked twice in a row while there is another
+        prev = (await call(hass, "pick_photo", previous_id=prev))["photo"]["id"]
+        ids.append(prev)
+    assert ids == ["l1", "p1", "l1", "p1"]  # all judged: the kept ones
 
 
 def test_pick_modes() -> None:
