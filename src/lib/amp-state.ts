@@ -57,17 +57,3 @@ export function deriveAmpPower(i: AmpPowerInput): AmpPowerVerdict {
   if (haKnows(i.haState)) return { on: haOn(i.haState), available: true, via: "ha", input: null };
   return { on: false, available: false, via: "unknown", input: null };
 }
-
-/**
- * Power-on with the plug already on: the amp's HTTP side is silent and tcp 80 closed means its LAN is
- * asleep in standby — only a plug cycle wakes it. Never while HA still sees the amp on (then the XML
- * API is merely stalling and waiting is right).
- */
-export function shouldCyclePlug(i: {
-  plugOn: boolean | null;
-  tcp80Open: boolean;
-  haState: string | null;
-}): boolean {
-  if (i.plugOn !== true || i.tcp80Open) return false;
-  return !(haKnows(i.haState) && haOn(i.haState));
-}

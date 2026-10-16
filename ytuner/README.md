@@ -9,7 +9,7 @@ own station list (`config/stations.yaml`), YTuner bookmarks ("Favourites") and t
 
 1. The amp has a manual network config with DNS = 192.168.1.15 (Pi-hole on pop-os).
 2. Pi-hole answers `*.vtuner.com` with 192.168.1.15 (`misc.dnsmasq_lines = ["address=/vtuner.com/192.168.1.15"]`).
-3. Caddy (host network, owns port 80) has an `http://*.vtuner.com` site that proxies to `127.0.0.1:8095`,
+3. Caddy (host network, owns port 80) has an `http://*.vtuner.com` site that proxies to `127.0.0.1:8098`,
    which is this container's port 80 (see `docker-compose.yml`). vTuner-era AVRs cannot do HTTPS.
 4. `ytuner.ini` sets `ActAsHost=radioyamaha.vtuner.com` so every URL handed back to the amp goes through the same path.
 
@@ -17,7 +17,7 @@ Caddy block (in `/srv/data/caddy/Caddyfile`):
 
 ```
 http://radioyamaha.vtuner.com, http://radioyamaha2.vtuner.com, http://*.vtuner.com {
-	reverse_proxy 127.0.0.1:8095
+	reverse_proxy 127.0.0.1:8098
 }
 ```
 

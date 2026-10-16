@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AMP_XML_GRACE_MS, deriveAmpPower, shouldCyclePlug } from "./amp-state";
+import { AMP_XML_GRACE_MS, deriveAmpPower } from "./amp-state";
 
 const now = 1_000_000;
 const on = { power: true, input: "SERVER" };
@@ -55,21 +55,5 @@ describe("deriveAmpPower", () => {
     expect(
       deriveAmpPower({ xml: null, cached: null, now, haState: "off", plugOn: null }),
     ).toMatchObject({ on: false, available: true, via: "ha" });
-  });
-});
-
-describe("shouldCyclePlug", () => {
-  it("plug on, tcp 80 closed, HA does not see the amp on: cycle", () => {
-    expect(shouldCyclePlug({ plugOn: true, tcp80Open: false, haState: "unavailable" })).toBe(true);
-    expect(shouldCyclePlug({ plugOn: true, tcp80Open: false, haState: "off" })).toBe(true);
-    expect(shouldCyclePlug({ plugOn: true, tcp80Open: false, haState: null })).toBe(true);
-  });
-  it("never when the plug is off (plain plug-on path), tcp 80 answers, or HA sees the amp on", () => {
-    expect(shouldCyclePlug({ plugOn: false, tcp80Open: false, haState: "unavailable" })).toBe(
-      false,
-    );
-    expect(shouldCyclePlug({ plugOn: null, tcp80Open: false, haState: "unavailable" })).toBe(false);
-    expect(shouldCyclePlug({ plugOn: true, tcp80Open: true, haState: "unavailable" })).toBe(false);
-    expect(shouldCyclePlug({ plugOn: true, tcp80Open: false, haState: "playing" })).toBe(false);
   });
 });

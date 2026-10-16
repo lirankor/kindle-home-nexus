@@ -57,12 +57,12 @@ services:
     shm_size: "512m"
 
   # YTuner: vTuner replacement for the amp's NET RADIO input (see ytuner/README.md).
-  # Reached via Caddy (host :80, Host *.vtuner.com) -> 127.0.0.1:8095; Pi-hole points *.vtuner.com at pop-os.
+  # Reached via Caddy (host :80, Host *.vtuner.com) -> 127.0.0.1:8098 (was :8095, now Music Assistant's port); Pi-hole points *.vtuner.com at pop-os.
   ytuner:
     build: ./ytuner
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8095:80"
+      - "127.0.0.1:8098:80"
     volumes:
       - ${KINDLE_DATA_DIR:-./data}/ytuner-cache:/app/cache
       - ${KINDLE_DATA_DIR:-./data}/ytuner-db:/app/db

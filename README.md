@@ -12,7 +12,7 @@ Started from a Lovable design mock, now developed locally in this repository (`g
 |---|---|---|
 | `src/` | the app — TanStack Start (React, Vite, Nitro node server on `:3000`). HA / Immich / Jellyfin / amp are reached **only** from server functions in `src/lib/`; the browser never sees a credential | container `app` |
 | `bridge/` | headless Chromium that keeps the app open and serves `/screen.png` (8-bit grayscale 600×800), `/key/<name>`, `/healthz` to the Kindle over plain HTTP on `:8790`; shares the app's network namespace | container `bridge` |
-| `ytuner/` | vTuner replacement so the amp's NET RADIO input works again (`:8095`, via Caddy for `*.vtuner.com`) | container `ytuner` |
+| `ytuner/` | vTuner replacement so the amp's NET RADIO input works again (`:8098`, via Caddy for `*.vtuner.com`) | container `ytuner` |
 | `relay/` | https → http stream pass-through for stations the amp cannot play directly (`:8792`) | container `relay` |
 | `kindle/` | the scripts that run **on the Kindle** (`nexus.sh`, `cron.sh`, config) — see `kindle/README.md` | the Kindle |
 | `docs/` | design reference, media rework notes, `HANDOFF.md` log, device notes (`notes/`), battery saver plan | — |
@@ -54,7 +54,7 @@ curl -o screen.png -H "X-Bridge-Token: $BRIDGE_TOKEN" http://127.0.0.1:8790/scre
 
 - Ports (see `docker-compose.yml`): bridge `192.168.1.15:8790` + `127.0.0.1:8790` (the Kindle polls
   `http://192.168.1.15:8790/<BRIDGE_TOKEN>/screen.png`), the app itself `127.0.0.1:8791` (voice API for Home Assistant),
-  ytuner `127.0.0.1:8095`, relay `192.168.1.15:8792`.
+  ytuner `127.0.0.1:8098`, relay `192.168.1.15:8792`.
 - The compose network has a fixed subnet (`10.90.90.0/24`) so the host firewall can let it reach Home Assistant:
   `sudo ufw allow from 10.90.90.0/24 to any port 8123 proto tcp`.
 - **Rebuilding only the app:** `docker compose up -d --build app` **then** `docker compose up -d --force-recreate --no-deps bridge`.

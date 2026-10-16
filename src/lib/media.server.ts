@@ -3,6 +3,7 @@
 // Env vars are read per request from process.env and never reach the browser. Nothing runs at import time;
 // without AMP_HOST / JELLYFIN_* the callers fall back to demo data (see media.functions.ts).
 import { createHash } from "node:crypto";
+import { haBackend, readMediaSnapshotHa } from "./media-ha.server";
 import { makeT, parseLang } from "@/lib/i18n";
 import type { Key } from "@/lib/i18n";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -28,7 +29,7 @@ import {
 import type { StallState } from "@/lib/queue-transport";
 import { classifyAmpError, describeProbe, sendWithRetries, waitUntilReady } from "@/lib/power-on";
 import type { AmpProbe } from "@/lib/power-on";
-import { AMP_XML_GRACE_MS, deriveAmpPower, shouldCyclePlug } from "@/lib/amp-state";
+import { AMP_XML_GRACE_MS, deriveAmpPower } from "@/lib/amp-state";
 import type { AmpPowerVerdict } from "@/lib/amp-state";
 import type { CoverParams, StationArtResult, StationArtSource } from "@/lib/station-art";
 import type { HaState } from "@/lib/home.server";
@@ -217,6 +218,8 @@ async function loadState(): Promise<Persisted> {
       lastSource: isAmpSource(raw.lastSource) ? raw.lastSource : null,
       radio: raw.radio ?? null,
     };
+    // MUSIC_BACKEND=ha: Music Assistant owns playback; the panel's own queue must never touch the amp.
+    if (p.queue && haBackend()) p.queue = { ...p.queue, status: "paused", startedAt: null };
     // A queue that was playing when the process died has lost its clock: keep it and re-sync with the amp.
     if (p.queue && p.queue.status === "playing") {
       p.queue = { ...p.queue, startedAt: null, nextPushed: false };
@@ -1069,7 +1072,6 @@ export const haMedia = {
 export const POWER_ON_POLL_MS = 5000;
 export const POWER_ON_TIMEOUT_MS = 4 * 60_000;
 /** Plug off for this long before on again when the amp's LAN is asleep (see runPowerOn). */
-export const PLUG_CYCLE_OFF_MS = 5000;
 
 /** Resolve true when host:port accepts a TCP connection (one attempt). */
 export const tcpOpen = (host: string, port: number, timeoutMs = 3000) =>
@@ -1156,23 +1158,7 @@ async function runPowerOn(target: AmpSource | null) {
       return;
     }
     const host = env("AMP_HOST");
-    // Plug already on but the amp silent with tcp 80 closed: its LAN is asleep in standby (the R-N500
-    // drops it ~15 min after standby, 2026-10-15) — plug(true) would be a no-op and tcp 80 never opens.
-    // Only a plug cycle wakes it; never while HA still sees the amp on (then the XML API merely stalls).
-    if (host && haConfigured()) {
-      const states = await fetchStates().catch(() => null);
-      const plug = states?.get(AMP.plug)?.state;
-      const cycle = shouldCyclePlug({
-        plugOn: plug === "on" ? true : plug === "off" ? false : null,
-        tcp80Open: await tcpOpen(host, 80),
-        haState: states?.get(AMP.player)?.state ?? null,
-      });
-      if (cycle) {
-        plog("plug on but the amp is silent (tcp 80 closed): cycling the plug");
-        await haMedia.plug(false);
-        await sleep(PLUG_CYCLE_OFF_MS);
-      }
-    }
+    // (No plug cycle: it existed for debugging a sleeping LAN and could cut the TV on the same strip.)
     await haMedia.plug(true);
     setPowerStep("wait");
     if (host) {
@@ -1398,6 +1384,7 @@ async function basicStatusCached(): Promise<{
 
 let lastVerdictKey = "";
 export async function readMediaSnapshot(): Promise<MediaSnapshot> {
+  if (haBackend()) return readMediaSnapshotHa(buildMediaSnapshot);
   const [states, persisted, xml] = await Promise.all([
     ampConfigured() ? fetchStates().catch(() => new Map<string, HaState>()) : fetchStates(),
     loadState(),
@@ -1943,7 +1930,9 @@ export async function readArtistAlbums(
 /** Queue title for a mix: its name in the panel's language (the id would show as "rock"). */
 const mixTitle = (id: string): string =>
   makeT(parseLang(process.env["UI_LANGUAGE"]))(`music.mix.${id}` as Key);
-async function tracksFor(sel: PlaySelection): Promise<{ title: string; tracks: MusicTrack[] }> {
+export async function tracksFor(
+  sel: PlaySelection,
+): Promise<{ title: string; tracks: MusicTrack[] }> {
   if (!jellyfinConfigured()) return { title: sel.id, tracks: demoTracks() };
   switch (sel.kind) {
     case "album": {
@@ -1990,15 +1979,25 @@ const didlFor = (t: QueueTrack) =>
     durationMs: t.durationMs,
   });
 
-async function ensureServerSource() {
+/** Never take the amp back from someone else: while movie mode holds it, or when an automatic push (advance,
+ *  replay, re-sync) finds another input, the queue stops instead of switching the input back. */
+async function ensureServerSource(userInitiated: boolean) {
   const status = await amp.basicStatus();
   if (!status.power) throw new MediaError("Amp is off");
   if (status.input === "SERVER") return;
+  if (haConfigured() && (await movieModeActive())) throw new MediaError("Movie mode is on");
+  if (!userInitiated) throw new MediaError(`Amp input changed to ${status.input ?? "?"}`);
   if (haConfigured()) await haMedia.selectSource("SERVER");
   else await amp.selectInput("SERVER");
 }
 
 /** HA's view of the player (yamaha_ynca): the second opinion when the amp's UPnP side is silent. */
+async function movieModeActive(): Promise<boolean> {
+  return ha<HaState>("GET", `/api/states/${AMP.movieActive}`)
+    .then((st) => st.state === "on")
+    .catch(() => false);
+}
+
 async function haPlayerState(): Promise<string | null> {
   if (!haConfigured()) return null;
   return ha<HaState>("GET", `/api/states/${AMP.player}`)
@@ -2029,13 +2028,14 @@ async function pushTrack(
   t: QueueTrack,
   next: QueueTrack | undefined,
   seekMs = 0,
+  userInitiated = false,
 ): Promise<boolean> {
   if (!ampConfigured()) return true;
   // Both sizes the panel asks for: 240 for the amp view (drawn at once on a skip), 160 for lists.
   void warmArt([t.artItemId, next?.artItemId], 240)
     .then(() => warmArt([t.artItemId, next?.artItemId], 160))
     .catch(() => undefined);
-  await ensureServerSource();
+  await ensureServerSource(userInitiated);
   const didl = didlFor(t);
   for (let attempt = 0; ; attempt++) {
     try {
@@ -2096,11 +2096,11 @@ const skips = new SkipCoalescer(
     if (!q || q.status !== "playing" || q.index !== i) return;
     let started: boolean;
     try {
-      started = await pushTrack(q.tracks[i]!, q.tracks[i + 1]);
+      started = await pushTrack(q.tracks[i]!, q.tracks[i + 1], 0, true);
     } catch (e) {
       qlog(`skip to ${trackName(q, i)} failed (${mediaErrorMessage(e)}): one retry`);
       await sleep(1500);
-      started = await pushTrack(q.tracks[i]!, q.tracks[i + 1]);
+      started = await pushTrack(q.tracks[i]!, q.tracks[i + 1], 0, true);
     }
     resetStall();
     await markPushed(q.id, i, started);
@@ -2229,7 +2229,9 @@ export async function startQueue(
     stall: null,
   };
   skips.cancel();
-  const started = await transport.run(() => pushTrack(playable[index]!, playable[index + 1]));
+  const started = await transport.run(() =>
+    pushTrack(playable[index]!, playable[index + 1], 0, true),
+  );
   q.startedAt = started ? Date.now() : null;
   resetStall();
   if (!started) primeStall();
@@ -2323,7 +2325,7 @@ async function resumeQueue(q: QueueState): Promise<QueueProgress | null> {
         qlog(
           `resume: renderer ${upnp ?? "silent"} while we show ${trackName(cur, cur.index)} playing: replaying from 0`,
         );
-        const started = await pushTrack(cur.tracks[cur.index]!, cur.tracks[cur.index + 1]);
+        const started = await pushTrack(cur.tracks[cur.index]!, cur.tracks[cur.index + 1], 0, true);
         resetStall();
         return setQueue({
           ...cur,
@@ -2339,6 +2341,7 @@ async function resumeQueue(q: QueueState): Promise<QueueProgress | null> {
           base.tracks[base.index]!,
           base.tracks[base.index + 1],
           base.offsetMs,
+          true,
         );
         resetStall();
         return setQueue({

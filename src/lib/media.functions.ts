@@ -43,7 +43,19 @@ import {
   startPowerOn,
   tuneRadio,
   getQueueList,
+  tracksFor,
 } from "./media.server";
+import {
+  getQueueListHa,
+  getQueueProgressHa,
+  haBackend,
+  performMediaActionHa,
+  playSelectionHa,
+  powerOnStatusHa,
+  readRadioListsHa,
+  startPowerOnHa,
+  tuneRadioHa,
+} from "./media-ha.server";
 
 const sourceSchema = z.enum(AMP_SOURCES);
 /** Jellyfin ids (32 hex) and the demo / mix ids: no slashes, dots or query characters, since the id
@@ -79,7 +91,7 @@ const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("all_off") }),
 ]);
 
-const flags = () => ({ amp: ampConfigured(), jellyfin: jellyfinConfigured() });
+const flags = () => ({ amp: ampConfigured() || haBackend(), jellyfin: jellyfinConfigured() });
 /** Actions that only need the amp's own HTTP APIs or our queue, not Home Assistant. */
 const needsHa = (a: MediaAction) =>
   ![
@@ -112,13 +124,14 @@ export const runMediaAction = createServerFn({ method: "POST" })
     const action = data as MediaAction;
     if (!haConfigured() && needsHa(action)) return { ok: false, error: "HA not configured" };
     try {
-      await performMediaAction(action);
+      if (haBackend()) await performMediaActionHa(action, performMediaAction);
+      else await performMediaAction(action);
     } catch (e) {
       return { ok: false, error: mediaErrorMessage(e) };
     }
     if (!haConfigured()) return { ok: true, snapshot: demoMediaSnapshot() };
     // Let HA publish the new state; queue commands are our own state and need no wait.
-    if (action.type !== "queue" && action.type !== "queue.jump")
+    if (haBackend() || (action.type !== "queue" && action.type !== "queue.jump"))
       await new Promise((r) => setTimeout(r, 400));
     let snapshot: MediaSnapshot | null = null;
     try {
@@ -132,7 +145,7 @@ export const runMediaAction = createServerFn({ method: "POST" })
 export const getRadioLists = createServerFn({ method: "GET" }).handler(
   async (): Promise<RadioListsResult> => {
     if (!ampConfigured() && !haConfigured()) return demoRadioLists();
-    return readRadioLists();
+    return haBackend() ? readRadioListsHa() : readRadioLists();
   },
 );
 
@@ -141,7 +154,12 @@ export const tuneRadioStation = createServerFn({ method: "POST" })
   .validator(z.object({ list: z.enum(RADIO_LIST_IDS), index: z.number().int().min(0) }))
   .handler(async ({ data }): Promise<TuneResult> => {
     try {
-      return { ok: true, current: await tuneRadio(data.list, data.index) };
+      return {
+        ok: true,
+        current: haBackend()
+          ? await tuneRadioHa(data.list, data.index)
+          : await tuneRadio(data.list, data.index),
+      };
     } catch (e) {
       return { ok: false, error: mediaErrorMessage(e) };
     }
@@ -199,18 +217,23 @@ export const playMusic = createServerFn({ method: "POST" })
   .validator(z.object({ kind: z.enum(["album", "artist", "track", "mix"]), id: itemIdSchema }))
   .handler(async ({ data }): Promise<PlayResult> => {
     try {
-      return { ok: true, queue: await playSelection(data) };
+      return {
+        ok: true,
+        queue: haBackend() ? await playSelectionHa(data, tracksFor) : await playSelection(data),
+      };
     } catch (e) {
       return { ok: false, error: mediaErrorMessage(e) };
     }
   });
 
 export const getQueueState = createServerFn({ method: "GET" }).handler(
-  async (): Promise<QueueProgress | null> => getQueueProgress(),
+  async (): Promise<QueueProgress | null> =>
+    haBackend() ? getQueueProgressHa().catch(() => null) : getQueueProgress(),
 );
 /** The playlist screen: every queued track plus the current index. */
 export const getQueueTracks = createServerFn({ method: "GET" }).handler(
-  async (): Promise<QueueList | null> => getQueueList(),
+  async (): Promise<QueueList | null> =>
+    haBackend() ? getQueueListHa().catch(() => null) : getQueueList(),
 );
 
 export type PowerOnResult = { ok: boolean; error?: string; status: PowerOnStatus | null };
@@ -219,12 +242,15 @@ export const startAmpPowerOn = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<PowerOnResult> => {
     if (!haConfigured()) return { ok: false, error: "HA not configured", status: null };
     try {
-      return { ok: true, status: await startPowerOn(data.source) };
+      return {
+        ok: true,
+        status: haBackend() ? await startPowerOnHa() : await startPowerOn(data.source),
+      };
     } catch (e) {
       return { ok: false, error: mediaErrorMessage(e), status: powerOnStatus() };
     }
   });
 
 export const getPowerOnStatus = createServerFn({ method: "GET" }).handler(
-  async (): Promise<PowerOnStatus | null> => powerOnStatus(),
+  async (): Promise<PowerOnStatus | null> => (haBackend() ? powerOnStatusHa() : powerOnStatus()),
 );
