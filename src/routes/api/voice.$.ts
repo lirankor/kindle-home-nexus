@@ -14,6 +14,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { haConfigured, service } from "@/lib/home.server";
+import { haBackend } from "@/lib/media-ha.server";
 import { AMP, MIX_IDS, RADIO_LISTS, findStation } from "@/lib/media";
 import type { AmpSource, MediaAction, MediaSnapshot, QueueProgress } from "@/lib/media";
 import {
@@ -610,6 +611,13 @@ export const Route = createFileRoute("/api/voice/$")({
       POST: async ({ request }) => {
         if (!env("VOICE_TOKEN")) return fail("voice API disabled (VOICE_TOKEN unset)", 503);
         if (!authorized(request)) return fail("unauthorized", 401);
+        // MUSIC_BACKEND=ha: Music Assistant owns playback and HA's scripts are the way in. The panel's own queue and
+        // direct amp control must stay idle, so the write half of this API is closed (search/list/state stay open).
+        if (haBackend())
+          return fail(
+            "music is played through Home Assistant (MUSIC_BACKEND=ha): use script.play_music etc.",
+            409,
+          );
         const body = await readBody(request);
         switch (sub(request)) {
           case "play":
