@@ -37,3 +37,7 @@ bridge/node_modules
 
 # Runtime state (default KINDLE_DATA_DIR, see docker-compose.yml)
 /data/
+
+# Python (homeassistant/ companion integration)
+__pycache__/
+*.pyc
