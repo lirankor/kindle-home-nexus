@@ -53,7 +53,10 @@ GET_QUEUE_SCHEMA = vol.Schema(
     }
 )
 PLAY_INDEX_SCHEMA = vol.Schema(
-    {vol.Required(ATTR_ENTITY_ID): cv.entity_id, vol.Required("index"): vol.All(vol.Coerce(int), vol.Range(min=0))}
+    {
+        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+        vol.Required("index"): vol.All(vol.Coerce(int), vol.Range(min=0)),
+    }
 )
 SEED_SCHEMA = vol.Schema(
     {
@@ -150,7 +153,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
         mass, player_id = _mass_and_player(hass, entry, call.data[ATTR_ENTITY_ID])
         queue = await mass.player_queues.get_active_queue(player_id)
         if queue is None:
-            return {"queue_id": None, "name": None, "total": 0, "current_index": None, "offset": 0, "items": []}
+            return {
+                "queue_id": None,
+                "name": None,
+                "total": 0,
+                "current_index": None,
+                "offset": 0,
+                "items": [],
+            }
         offset, limit = call.data["offset"], call.data["limit"]
         items = await mass.player_queues.get_queue_items(queue.queue_id, limit=limit, offset=offset)
         return {
@@ -174,7 +184,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
 
     async def get_config(call: ServiceCall) -> ServiceResponse:
         raw = entry.options.get(OPT_CONFIG)
-        return {"seeded": bool(entry.options.get(OPT_SEEDED)), "marks_seeded": rt.marks.seeded, "config": normalize(raw)}
+        return {
+            "seeded": bool(entry.options.get(OPT_SEEDED)),
+            "marks_seeded": rt.marks.seeded,
+            "config": normalize(raw),
+        }
 
     async def seed(call: ServiceCall) -> ServiceResponse:
         """The panel's first start: its shipped setup + its own photo marks. Never overwrites HA-side edits:
@@ -191,14 +205,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
             for page in kept_pages:
                 for key in PAGE_KEYS[page]:
                     cfg[key] = current[key]
-            hass.config_entries.async_update_entry(
-                entry, options={**entry.options, OPT_CONFIG: cfg, OPT_SEEDED: True}
-            )
+            hass.config_entries.async_update_entry(entry, options={**entry.options, OPT_CONFIG: cfg, OPT_SEEDED: True})
             result["config"] = "seeded"
             if kept_pages:
                 result["kept_pages"] = kept_pages
         if "kept" in call.data or "skipped" in call.data:
-            added = rt.marks.merge(_as_dict(call.data.get("kept", {})), _as_dict(call.data.get("skipped", {})))
+            added = rt.marks.merge(
+                _as_dict(call.data.get("kept", {})),
+                _as_dict(call.data.get("skipped", {})),
+            )
             rt.marks.seeded = True
             await rt.marks.async_save()
             async_dispatcher_send(hass, SIGNAL_MARKS)
@@ -261,6 +276,14 @@ async def _options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    for svc in ("get_queue", "play_index", "get_config", "seed", "pick_photo", "mark_photo", "get_marks"):
+    for svc in (
+        "get_queue",
+        "play_index",
+        "get_config",
+        "seed",
+        "pick_photo",
+        "mark_photo",
+        "get_marks",
+    ):
         hass.services.async_remove(DOMAIN, svc)
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

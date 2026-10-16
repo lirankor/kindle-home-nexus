@@ -16,6 +16,8 @@ from homeassistant.helpers import selector as sel
 
 from .config import normalize
 from .const import (
+    CARD_ICONS,
+    CARD_TYPES,
     CONF_MA_ENTRY,
     DOMAIN,
     LANGUAGES,
@@ -24,6 +26,7 @@ from .const import (
     MUSIC_BACKENDS,
     OPT_CONFIG,
     OPT_EDITED,
+    PHOTO_FALLBACKS,
     PHOTO_MODES,
     ROOM_ICONS,
     SOURCE_IMMICH_FAVORITES,
@@ -70,7 +73,13 @@ def _select(options: list[str], key: str, multiple: bool = False) -> sel.SelectS
 
 def _num(lo: float, hi: float, step: float = 1, unit: str | None = None) -> sel.NumberSelector:
     return sel.NumberSelector(
-        sel.NumberSelectorConfig(min=lo, max=hi, step=step, unit_of_measurement=unit, mode=sel.NumberSelectorMode.BOX)
+        sel.NumberSelectorConfig(
+            min=lo,
+            max=hi,
+            step=step,
+            unit_of_measurement=unit,
+            mode=sel.NumberSelectorMode.BOX,
+        )
     )
 
 
@@ -91,7 +100,10 @@ def _source_key(src: dict[str, Any]) -> str:
 
 def _source_from_key(key: str, title: str | None) -> dict[str, Any]:
     if key == SOURCE_IMMICH_FAVORITES:
-        return {"type": SOURCE_IMMICH_FAVORITES, "title": title or "Immich · Favourites"}
+        return {
+            "type": SOURCE_IMMICH_FAVORITES,
+            "title": title or "Immich · Favourites",
+        }
     return {"type": SOURCE_MEDIA, "id": key.split(":", 1)[1], "title": title or key}
 
 
@@ -145,7 +157,15 @@ class KindlePanelOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return self.async_show_menu(
             step_id="init",
-            menu_options=["general", "lights", "vacuum", "power", "media", "screensaver", "schedule"],
+            menu_options=[
+                "general",
+                "lights",
+                "vacuum",
+                "power",
+                "media",
+                "screensaver",
+                "schedule",
+            ],
         )
 
     async def async_step_general(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -190,7 +210,10 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 {
                     _opt("lights", c["lights"]): _list(
                         {
-                            "entity_id": {"required": True, "selector": {"entity": {"domain": "light"}}},
+                            "entity_id": {
+                                "required": True,
+                                "selector": {"entity": {"domain": "light"}},
+                            },
                             "name": {"required": True, "selector": {"text": {}}},
                             "room": {"selector": {"text": {}}},
                             "icon": {"selector": {"select": {"options": LIGHT_ICONS}}},
@@ -250,11 +273,22 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 {
                     _opt("plugs", c["plugs"]): _list(
                         {
-                            "entity_id": {"required": True, "selector": {"entity": {"domain": "switch"}}},
+                            "entity_id": {
+                                "required": True,
+                                "selector": {"entity": {"domain": "switch"}},
+                            },
                             "name": {"required": True, "selector": {"text": {}}},
                             "power_entity": {"selector": {"entity": {"domain": "sensor"}}},
                             "energy_entity": {"selector": {"entity": {"domain": "sensor"}}},
-                            "energy_to_wh": {"selector": {"number": {"min": 0.001, "max": 1000000, "mode": "box"}}},
+                            "energy_to_wh": {
+                                "selector": {
+                                    "number": {
+                                        "min": 0.001,
+                                        "max": 1000000,
+                                        "mode": "box",
+                                    }
+                                }
+                            },
                         },
                         "name",
                     )
@@ -265,7 +299,10 @@ class KindlePanelOptionsFlow(OptionsFlow):
     async def async_step_media(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         c = self.cfg
         if user_input is not None:
-            c["media"] = {"music_backend": user_input["music_backend"], **{k: user_input.get(k) for k in MEDIA_KEYS}}
+            c["media"] = {
+                "music_backend": user_input["music_backend"],
+                **{k: user_input.get(k) for k in MEDIA_KEYS},
+            }
             if (done := self._save("media")) is not None:
                 return done
         m = c["media"]
@@ -303,6 +340,12 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 "photo_minutes": int(user_input["photo_minutes"]),
                 "mode": user_input["mode"],
                 "sources": [_source_from_key(k, found.get(k)) for k in user_input.get("sources") or []],
+                "cards": [
+                    {k: v for k, v in card.items() if v not in (None, "")} for card in user_input.get("cards") or []
+                ],
+                "fallback": user_input["fallback"],
+                "unsplash_query": (user_input.get("unsplash_query") or "").strip() or s["unsplash_query"],
+                "unsplash_key": (user_input.get("unsplash_key") or "").strip() or None,
             }
             if (done := self._save("screensaver")) is not None:
                 return done
@@ -319,6 +362,28 @@ class KindlePanelOptionsFlow(OptionsFlow):
                     vol.Required("mode", default=s["mode"]): _select(PHOTO_MODES, "photo_mode"),
                     vol.Required("photo_minutes", default=s["photo_minutes"]): _num(1, 240, 1, "min"),
                     vol.Required("idle_minutes", default=s["idle_minutes"]): _num(1, 120, 1, "min"),
+                    _opt("cards", s["cards"]): _list(
+                        {
+                            "type": {
+                                "required": True,
+                                "selector": {
+                                    "select": {
+                                        "options": CARD_TYPES,
+                                        "translation_key": "card_type",
+                                    }
+                                },
+                            },
+                            "entity_id": {"selector": {"entity": {}}},
+                            "label": {"selector": {"text": {}}},
+                            "icon": {"selector": {"select": {"options": CARD_ICONS}}},
+                        },
+                        "type",
+                    ),
+                    vol.Required("fallback", default=s["fallback"]): _select(PHOTO_FALLBACKS, "photo_fallback"),
+                    vol.Optional("unsplash_query", default=s["unsplash_query"]): sel.TextSelector(),
+                    _opt("unsplash_key", s.get("unsplash_key")): sel.TextSelector(
+                        sel.TextSelectorConfig(type=sel.TextSelectorType.PASSWORD)
+                    ),
                 }
             ),
         )

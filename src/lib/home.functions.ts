@@ -14,6 +14,7 @@ import {
   randomFavorite,
   readSnapshot,
 } from "./home.server";
+import { onlinePhoto } from "./unsplash.server";
 import { NoHaPhoto, haMarkPhoto, haPickPhoto, haPhotosActive } from "./photo-ha.server";
 
 /** Shape only; whether the entity is one of the configured ones is checked in the handler (the configuration
@@ -113,13 +114,16 @@ export type ScreensaverResult = {
   marked?: number;
   sample: boolean;
   note?: string;
+  /** Photographer of an Unsplash fallback photo (credited on the screen). */
+  credit?: string;
   result: SnapshotResult;
 };
 
 // The photo shown last, kept so the night window (NIGHT_START–NIGHT_END local, see night-window.ts)
 // can serve the same picture again: no photo rotation at night while the Kindle sleeps. An explicit
 // F1 (mark) / F4 (skip) on the saver passes `force` and always gets a new one.
-let lastPhoto: { image: string; assetId: string; marked: number } | null = null;
+let lastPhoto: { image: string; assetId: string | null; marked: number; credit?: string } | null =
+  null;
 
 export const getScreensaver = createServerFn({ method: "GET" })
   .validator((input: unknown) => {
@@ -134,7 +138,7 @@ export const getScreensaver = createServerFn({ method: "GET" })
     const readings = snapshotResult();
     const cfg = await ensurePanelConfig();
     const viaHa = haPhotosActive(cfg);
-    if (!viaHa && !immichConfigured()) return { image: null, sample: true, result: await readings };
+    const saver = cfg.config.screensaver;
     const night =
       cfg.source === "ha"
         ? nightWindowFromEnv({
@@ -143,9 +147,22 @@ export const getScreensaver = createServerFn({ method: "GET" })
             SLEEP_TZ: cfg.config.schedule.timezone,
           })
         : nightWindowFromEnv();
-    try {
-      if (!data.force && lastPhoto && isNight(new Date(), night))
+    if (!data.force && lastPhoto && isNight(new Date(), night))
+      return { ...lastPhoto, sample: false, result: await readings };
+    // No picture library gives a photo: black-and-white art from Unsplash, else the bundled sample.
+    const fallback = async (note?: string): Promise<ScreensaverResult> => {
+      const online =
+        saver.fallback === "unsplash"
+          ? await onlinePhoto({ key: saver.unsplash_key, query: saver.unsplash_query })
+          : null;
+      if (online) {
+        lastPhoto = { image: online.image, assetId: null, marked: 0, credit: online.credit };
         return { ...lastPhoto, sample: false, result: await readings };
+      }
+      return { image: null, sample: true, ...(note ? { note } : {}), result: await readings };
+    };
+    if (!viaHa && !immichConfigured()) return fallback();
+    try {
       const pickHa = () =>
         haPickPhoto(lastPhoto?.assetId ?? null).catch((e: unknown) => {
           // HA has no candidates at all (e.g. HA's Immich entry not added yet, or not loaded): the panel's own
@@ -169,12 +186,7 @@ export const getScreensaver = createServerFn({ method: "GET" })
       };
     } catch (e) {
       console.error("Screensaver photo failed:", e);
-      return {
-        image: null,
-        sample: true,
-        note: viaHa ? "No photo from Home Assistant" : "Immich unreachable",
-        result: await readings,
-      };
+      return fallback(viaHa ? "No photo from Home Assistant" : "Immich unreachable");
     }
   });
 

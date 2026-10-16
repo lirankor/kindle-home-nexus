@@ -41,6 +41,9 @@ import {
   Wind,
   CalendarDays,
   Snowflake,
+  Gauge,
+  Zap,
+  Leaf,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -69,6 +72,7 @@ import {
   localName,
   PLUGS,
   ROOMS,
+  SAVER_CARDS,
   SHADES,
   SHADE_NAMES,
   actionLabel,
@@ -132,6 +136,18 @@ const ROOM_ICONS: Record<string, IconComponent> = {
   bed: Bed,
   sofa: Sofa,
   room: Home,
+};
+const CARD_ICONS: Record<string, IconComponent> = {
+  thermometer: Thermometer,
+  droplets: Droplets,
+  gauge: Gauge,
+  zap: Zap,
+  plug: Plug,
+  wind: Wind,
+  sun: Sun,
+  leaf: Leaf,
+  home: Home,
+  battery: Battery,
 };
 /** The configuration that came with the snapshot, applied to the shared constants before anything renders. */
 let appliedPanel = "";
@@ -798,52 +814,94 @@ function HomeControl() {
               src={shot?.image ?? screensaverPhoto}
               width={600}
               height={800}
-              alt={shot?.image ? t("photo.altImmich") : t("photo.altSample")}
+              alt={
+                shot?.credit
+                  ? t("photo.altUnsplash")
+                  : shot?.image
+                    ? t("photo.altImmich")
+                    : t("photo.altSample")
+              }
             />
             {battery && <BatteryBadge battery={battery} variant="photo" />}
-            <div className="photo-caption">
-              <section className="photo-block">
-                <h2>{t("photo.outdoor")}</h2>
-                <SIcon size={38} strokeWidth={1.5} />
-                <strong className="climate-reading">
-                  <Ltr>
-                    {readings.weather.temp === null ? "—" : `${fmt(readings.weather.temp)}°`}
-                  </Ltr>
-                </strong>
-                <span>{conditionLabel(readings.weather.condition, lang)}</span>
-              </section>
-              <section className="photo-block">
-                <h2>{t("photo.indoor")}</h2>
-                <Thermometer size={34} strokeWidth={1.5} />
-                <strong className="climate-reading">
-                  <Ltr>{readings.indoor.temp === null ? "—" : `${fmt(readings.indoor.temp)}°`}</Ltr>
-                </strong>
-                <span className="humidity-reading">
-                  <Droplets size={22} />
-                  {readings.indoor.humidity === null
-                    ? "—"
-                    : `${Math.round(readings.indoor.humidity)}%`}
-                </span>
-              </section>
-              <section className="photo-block calendar-block" aria-label={dateLabel}>
-                <span className="calendar-month">{calendar.month}</span>
-                <CalendarDays size={26} strokeWidth={1.25} />
-                <strong className="calendar-day">{calendar.day}</strong>
-                <span className="calendar-weekday">{calendar.weekday}</span>
-              </section>
+            <div
+              className="photo-caption"
+              style={
+                SAVER_CARDS.length === 3
+                  ? undefined
+                  : {
+                      gridTemplateColumns: `repeat(${Math.max(1, SAVER_CARDS.length)}, minmax(0, 1fr))`,
+                    }
+              }
+            >
+              {SAVER_CARDS.map((card, i) => {
+                if (card.type === "outdoor")
+                  return (
+                    <section className="photo-block" key={i}>
+                      <h2>{t("photo.outdoor")}</h2>
+                      <SIcon size={38} strokeWidth={1.5} />
+                      <strong className="climate-reading">
+                        <Ltr>
+                          {readings.weather.temp === null ? "—" : `${fmt(readings.weather.temp)}°`}
+                        </Ltr>
+                      </strong>
+                      <span>{conditionLabel(readings.weather.condition, lang)}</span>
+                    </section>
+                  );
+                if (card.type === "indoor")
+                  return (
+                    <section className="photo-block" key={i}>
+                      <h2>{t("photo.indoor")}</h2>
+                      <Thermometer size={34} strokeWidth={1.5} />
+                      <strong className="climate-reading">
+                        <Ltr>
+                          {readings.indoor.temp === null ? "—" : `${fmt(readings.indoor.temp)}°`}
+                        </Ltr>
+                      </strong>
+                      <span className="humidity-reading">
+                        <Droplets size={22} />
+                        {readings.indoor.humidity === null
+                          ? "—"
+                          : `${Math.round(readings.indoor.humidity)}%`}
+                      </span>
+                    </section>
+                  );
+                if (card.type === "calendar")
+                  return (
+                    <section className="photo-block calendar-block" aria-label={dateLabel} key={i}>
+                      <span className="calendar-month">{calendar.month}</span>
+                      <CalendarDays size={26} strokeWidth={1.25} />
+                      <strong className="calendar-day">{calendar.day}</strong>
+                      <span className="calendar-weekday">{calendar.weekday}</span>
+                    </section>
+                  );
+                // Any Home Assistant entity: its state with its unit.
+                const Icon = CARD_ICONS[card.icon ?? ""] ?? Gauge;
+                const r = card.entity_id ? readings.cards?.[card.entity_id] : undefined;
+                return (
+                  <section className="photo-block" key={i}>
+                    <h2>{localName(lang, card.label || card.entity_id || "")}</h2>
+                    <Icon size={34} strokeWidth={1.5} />
+                    <strong className="climate-reading">
+                      <Ltr>{r?.value == null ? "—" : `${r.value}${r.unit ?? ""}`}</Ltr>
+                    </strong>
+                  </section>
+                );
+              })}
               <small className="photo-demo">
-                {shot?.image
-                  ? [
-                      t("photo.immich"),
-                      t("photo.markHint"),
-                      t("photo.skipHint"),
-                      shot.marked ? t("photo.marked", { n: String(shot.marked) }) : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")
-                  : !configured
-                    ? t("photo.demo", { note: sampleNote })
-                    : sampleNote}
+                {shot?.image && shot.credit
+                  ? [t("photo.unsplash", { name: shot.credit }), t("photo.skipHint")].join(" · ")
+                  : shot?.image
+                    ? [
+                        t("photo.immich"),
+                        t("photo.markHint"),
+                        t("photo.skipHint"),
+                        shot.marked ? t("photo.marked", { n: String(shot.marked) }) : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")
+                    : !configured
+                      ? t("photo.demo", { note: sampleNote })
+                      : sampleNote}
               </small>
             </div>
           </div>

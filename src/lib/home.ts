@@ -73,6 +73,14 @@ export type MediaOp = (typeof MEDIA_OPS)[number];
 
 export const SCRIPTS = { movie: "", movieOff: "", roomsStart: "", movieActive: "" };
 export const SENSORS = { indoorTemp: "", indoorHumidity: "", weather: "" };
+/** The screensaver's cards (panel config: screensaver.cards), in order; at most 3. */
+export type CardConfig = {
+  type: string;
+  entity_id?: string | null;
+  label?: string | null;
+  icon?: string | null;
+};
+export const SAVER_CARDS: CardConfig[] = [];
 /** The Evening scene (panel config: evening). */
 export const EVENING = { entity: "", pct: 40, kelvin: 2200 };
 
@@ -112,6 +120,7 @@ export function applyHomeConfig(c: {
     weather?: string | null;
   };
   evening?: { entity_id?: string | null; brightness_pct: number; warm_kelvin: number };
+  screensaver?: { cards?: CardConfig[] };
 }) {
   NAME_OVERRIDES.en = { ...(c.names.en ?? {}) };
   NAME_OVERRIDES.he = { ...(c.names.he ?? {}) };
@@ -157,6 +166,8 @@ export function applyHomeConfig(c: {
     SENSORS.indoorHumidity = c.sensors.indoor_humidity ?? "";
     SENSORS.weather = c.sensors.weather ?? "";
   }
+  if (c.screensaver?.cards)
+    SAVER_CARDS.splice(0, SAVER_CARDS.length, ...c.screensaver.cards.slice(0, 3));
   if (c.evening) {
     EVENING.entity = c.evening.entity_id ?? LIGHTS[0]?.id ?? "";
     EVENING.pct = c.evening.brightness_pct;
@@ -184,6 +195,8 @@ export type Snapshot = {
   media: MediaState[];
   weather: { condition: string | null; temp: number | null };
   indoor: { temp: number | null; humidity: number | null };
+  /** Readings for the screensaver's sensor cards, by entity id. */
+  cards?: Record<string, { value: string | null; unit: string | null }>;
 };
 export type SnapshotResult = {
   configured: boolean;

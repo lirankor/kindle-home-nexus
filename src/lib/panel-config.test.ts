@@ -150,6 +150,48 @@ describe("panel config from Home Assistant", () => {
   });
 });
 
+describe("screensaver cards", () => {
+  it("default to outdoor, indoor, calendar; sensor cards read their entity", async () => {
+    const { buildSnapshot } = await import("./home.server");
+    const { applyHomeConfig, SAVER_CARDS } = await import("./home");
+    expect(SAVER_CARDS.map((c) => c.type)).toEqual(["outdoor", "indoor", "calendar"]);
+    expect(buildSnapshot(new Map()).cards).toBeUndefined();
+    const c = structuredClone(DEFAULT_CONFIG);
+    c.screensaver.cards = [
+      { type: "sensor", entity_id: "sensor.tv_power", label: "TV", icon: "zap" },
+    ];
+    applyHomeConfig(c);
+    const states = new Map([
+      [
+        "sensor.tv_power",
+        { entity_id: "sensor.tv_power", state: "112.46", attributes: { unit_of_measurement: "W" } },
+      ],
+    ]);
+    expect(buildSnapshot(states).cards).toEqual({
+      "sensor.tv_power": { value: "112.5", unit: "W" },
+    });
+    applyHomeConfig(DEFAULT_CONFIG);
+  });
+
+  it("drops unknown cards, sensor cards without an entity, and more than three", () => {
+    const m = mergePanelConfig({
+      ...DEFAULT_CONFIG,
+      screensaver: {
+        ...DEFAULT_CONFIG.screensaver,
+        cards: [
+          { type: "calendar" },
+          { type: "sensor" },
+          { type: "bogus" as "calendar" },
+          { type: "outdoor" },
+          { type: "indoor" },
+          { type: "calendar" },
+        ],
+      },
+    });
+    expect(m.screensaver.cards.map((c) => c.type)).toEqual(["calendar", "outdoor", "indoor"]);
+  });
+});
+
 describe("mergePanelConfig", () => {
   it("keeps only known tabs and fills missing parts", () => {
     const c = mergePanelConfig({ tabs: ["media", "bogus" as never], lights: [] });

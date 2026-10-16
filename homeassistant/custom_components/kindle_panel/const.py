@@ -25,9 +25,36 @@ EVENT_CONFIG_UPDATED = f"{DOMAIN}_config_updated"
 TABS = ["lights", "vacuum", "power", "media"]
 LANGUAGES = ["he", "en"]
 LIGHT_ICONS = ["lamp_ceiling", "spot", "strip", "lamp", "bulb"]
-ROOM_ICONS = ["shower", "baby", "door", "utensils", "home", "bath", "bed", "sofa", "room"]
+ROOM_ICONS = [
+    "shower",
+    "baby",
+    "door",
+    "utensils",
+    "home",
+    "bath",
+    "bed",
+    "sofa",
+    "room",
+]
 PHOTO_MODES = ["curate", "all_but_skipped", "kept_only"]
 MUSIC_BACKENDS = ["app", "ha"]
+CARD_TYPES = ["outdoor", "indoor", "calendar", "sensor"]
+CARD_ICONS = [
+    "thermometer",
+    "droplets",
+    "gauge",
+    "zap",
+    "plug",
+    "wind",
+    "sun",
+    "leaf",
+    "home",
+    "battery",
+]
+DEFAULT_CARDS = [{"type": "outdoor"}, {"type": "indoor"}, {"type": "calendar"}]
+MAX_CARDS = 3  # the panel is 600 px wide
+PHOTO_FALLBACKS = ["unsplash", "sample"]
+DEFAULT_UNSPLASH_QUERY = "black and white art"
 
 SOURCE_IMMICH_FAVORITES = "immich_favorites"
 SOURCE_MEDIA = "media_source"

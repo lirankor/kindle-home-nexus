@@ -80,11 +80,37 @@ The screensaver uses the app's own Immich connection, as before, in two cases:
 F1/F4 marks still go to HA in the second case, keyed by the same Immich asset ids. Photos are fetched with the HA
 token only from HA itself. A source that resolves to another host gets no credentials.
 
+### When no photos are connected: black-and-white art from Unsplash
+
+When none of the sources above gives a photo, the screensaver shows a black-and-white photo from Unsplash, credited on
+the screen ("Photo: <name> · Unsplash"). That covers no library set up, HA's Immich not added yet, Immich
+unreachable, or everything skipped.
+- **With an Unsplash access key** (free at unsplash.com/developers; HA → Kindle Panel → Configure → Screensaver, or
+  `UNSPLASH_ACCESS_KEY` in the app env): photos for the search on that page, default "black and white art", portrait.
+  They are fetched in batches of 20, well inside a demo key's 50 requests an hour. The key stays on the server and
+  is never sent to the browser.
+- **Without a key:** random grayscale Unsplash photos through Lorem Picsum (picsum.photos). They are not picked by
+  subject.
+- **Offline or rate-limited:** the bundled sample photo, with a 5-minute pause before trying again.
+- Setting "When no photos are connected" to *the built-in sample photo* turns this off.
+- F4 shows the next photo. F1 does nothing on these photos, since they aren't yours to curate.
+
+### Screensaver cards
+
+Screensaver page → **Cards**: up to 3, in order. Card types:
+- **Outdoor:** the weather entity.
+- **Indoor:** temperature and humidity sensors (General page).
+- **Calendar**.
+- **Sensor:** any entity's state with its unit, a label (translated through the names list) and an icon. The icons
+  are thermometer, droplets, gauge, zap, plug, wind, sun, leaf, home and battery.
+
+The default is Outdoor, Indoor, Calendar, as before. Fewer cards share the width.
+
 ### Verified
 
-- `kindle_panel`: 16 pytest tests (`homeassistant/tests`).
-- App: 176 vitest tests.
+- `kindle_panel`: 17 pytest tests (`homeassistant/tests`).
+- App: 182 vitest tests.
 - A second independent review: 1 blocker and 6 important findings, all fixed with regression tests.
 - Screenshot regression: every tab at 600×800 in demo mode, in Hebrew and in English, is pixel-identical between
-  `main` and this branch. The check uses puppeteer-core with the preinstalled Chromium and runs pixelmatch with
+  `main` and this branch. With the default cards and no network, the screensaver is identical too. The check uses puppeteer-core with the preinstalled Chromium and runs pixelmatch with
   threshold 0.

@@ -90,11 +90,19 @@
           "sources": "Photo sources",
           "mode": "Which photos",
           "photo_minutes": "New photo every",
-          "idle_minutes": "Screensaver after (no key pressed)"
+          "idle_minutes": "Screensaver after (no key pressed)",
+          "cards": "Cards on the photo (up to 3, in this order)",
+          "fallback": "When no photos are connected",
+          "unsplash_query": "Unsplash search",
+          "unsplash_key": "Unsplash access key (optional)"
         },
         "data_description": {
           "sources": "Any picture folder Home Assistant knows: Immich favourites, an Immich album, person or tag, local media, …",
-          "mode": "F1 on the panel keeps a photo (good on e-ink), F4 skips it for good. Skipped photos are never shown."
+          "mode": "F1 on the panel keeps a photo (good on e-ink), F4 skips it for good. Skipped photos are never shown.",
+          "cards": "Outdoor (weather), Indoor (temperature + humidity), Calendar, or Sensor: any entity, with a label and an icon.",
+          "fallback": "Black-and-white photos from Unsplash, or the built-in sample photo. Used while no photo source has a photo.",
+          "unsplash_query": "What the Unsplash photos show (needs an access key).",
+          "unsplash_key": "Free at unsplash.com/developers. With a key the photos match the search; without one they are random black-and-white Unsplash photos (via Lorem Picsum)."
         }
       },
       "schedule": {
@@ -139,6 +147,20 @@
         "curate": "Not judged yet first, then the kept ones",
         "all_but_skipped": "Everything except skipped",
         "kept_only": "Only kept photos"
+      }
+    },
+    "card_type": {
+      "options": {
+        "outdoor": "Outdoor (weather)",
+        "indoor": "Indoor (temperature, humidity)",
+        "calendar": "Calendar",
+        "sensor": "Sensor"
+      }
+    },
+    "photo_fallback": {
+      "options": {
+        "unsplash": "Black-and-white photos from Unsplash",
+        "sample": "The built-in sample photo"
       }
     }
   },

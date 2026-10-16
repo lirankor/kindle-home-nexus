@@ -21,12 +21,32 @@ HOUSE = {
     "language": "he",
     "tabs": ["lights", "vacuum", "power", "media"],
     "names": {"he": {"Main light": "אור ראשי"}},
-    "lights": [{"entity_id": "light.main_light", "name": "Main light", "room": "Living room", "icon": "lamp_ceiling"}],
+    "lights": [
+        {
+            "entity_id": "light.main_light",
+            "name": "Main light",
+            "room": "Living room",
+            "icon": "lamp_ceiling",
+        }
+    ],
     "vacuum": {
         "entity_id": "vacuum.robo",
-        "rooms": [{"entity_id": "input_boolean.robo_grid_1", "name": "Shower", "icon": "shower"}],
+        "rooms": [
+            {
+                "entity_id": "input_boolean.robo_grid_1",
+                "name": "Shower",
+                "icon": "shower",
+            }
+        ],
     },
-    "plugs": [{"entity_id": "switch.tv_plug", "name": "TV Plug", "power_entity": "sensor.tv_power", "energy_to_wh": 1}],
+    "plugs": [
+        {
+            "entity_id": "switch.tv_plug",
+            "name": "TV Plug",
+            "power_entity": "sensor.tv_power",
+            "energy_to_wh": 1,
+        }
+    ],
     "screensaver": {"sources": [{"type": "immich_favorites"}], "mode": "curate"},
 }
 
@@ -55,7 +75,13 @@ async def test_fresh_panel_asks_to_be_seeded(hass, panel) -> None:
 
 
 async def test_seed_preserves_household_and_marks(hass, panel) -> None:
-    r = await call(hass, "seed", config=HOUSE, kept={"asset1": "2026-10-01T00:00:00Z"}, skipped=["asset2"])
+    r = await call(
+        hass,
+        "seed",
+        config=HOUSE,
+        kept={"asset1": "2026-10-01T00:00:00Z"},
+        skipped=["asset2"],
+    )
     assert r == {"config": "seeded", "kept_added": 1, "skipped_added": 1}
     got = await call(hass, "get_config")
     assert got["seeded"] and got["config"]["lights"][0]["name"] == "Main light"
@@ -145,11 +171,27 @@ async def test_options_pages_edit_the_config(hass, panel) -> None:
     flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "lights"})
     assert flow["step_id"] == "lights"
     lights = [
-        {"entity_id": "light.main_light", "name": "Main light", "room": "Living room", "icon": "lamp_ceiling"},
-        {"entity_id": "light.spots", "name": "Spot light", "room": "Living room", "icon": "spot"},
+        {
+            "entity_id": "light.main_light",
+            "name": "Main light",
+            "room": "Living room",
+            "icon": "lamp_ceiling",
+        },
+        {
+            "entity_id": "light.spots",
+            "name": "Spot light",
+            "room": "Living room",
+            "icon": "spot",
+        },
     ]
     res = await hass.config_entries.options.async_configure(
-        flow["flow_id"], {"lights": lights, "evening_light": "light.main_light", "evening_pct": 40, "warm_kelvin": 2200}
+        flow["flow_id"],
+        {
+            "lights": lights,
+            "evening_light": "light.main_light",
+            "evening_pct": 40,
+            "warm_kelvin": 2200,
+        },
     )
     assert res["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
@@ -165,7 +207,13 @@ async def test_screensaver_page_offers_media_folders(hass, panel) -> None:
     options = flow["data_schema"].schema["sources"].config["options"]
     folder = next(o for o in options if "local" in o["value"])
     res = await hass.config_entries.options.async_configure(
-        flow["flow_id"], {"sources": [folder["value"]], "mode": "curate", "photo_minutes": 10, "idle_minutes": 5}
+        flow["flow_id"],
+        {
+            "sources": [folder["value"]],
+            "mode": "curate",
+            "photo_minutes": 10,
+            "idle_minutes": 5,
+        },
     )
     assert res["type"] is FlowResultType.CREATE_ENTRY
     src = (await call(hass, "get_config"))["config"]["screensaver"]["sources"]
@@ -178,7 +226,14 @@ async def test_pick_and_mark_from_a_local_folder(hass, panel) -> None:
         "seed",
         config={
             **HOUSE,
-            "screensaver": {"sources": [{"type": "media_source", "id": "media-source://media_source/local/photos"}]},
+            "screensaver": {
+                "sources": [
+                    {
+                        "type": "media_source",
+                        "id": "media-source://media_source/local/photos",
+                    }
+                ]
+            },
         },
     )
     seen = set()
@@ -243,6 +298,36 @@ def test_pick_modes() -> None:
     rnd = random.Random(1)
     assert {pick(photos, m, "curate", None, rnd).id for _ in range(20)} == {"u"}
     assert {pick(photos, m, "kept_only", None, rnd).id for _ in range(20)} == {"k"}
-    assert {pick(photos, m, "all_but_skipped", None, rnd).id for _ in range(30)} == {"k", "u"}
+    assert {pick(photos, m, "all_but_skipped", None, rnd).id for _ in range(30)} == {
+        "k",
+        "u",
+    }
     m.skipped = {"k": "", "s": "", "u": ""}
     assert pick(photos, m, "curate", None, rnd) is None
+
+
+async def test_screensaver_cards_and_unsplash_fallback(hass, panel) -> None:
+    await call(hass, "seed", config=HOUSE)
+    cfg = (await call(hass, "get_config"))["config"]["screensaver"]
+    assert [c["type"] for c in cfg["cards"]] == ["outdoor", "indoor", "calendar"]  # as the panel always showed
+    assert cfg["fallback"] == "unsplash" and cfg["unsplash_query"] == "black and white art"
+
+    async def save(**extra):
+        flow = await hass.config_entries.options.async_init(panel.entry_id)
+        flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "screensaver"})
+        data = {"sources": [], "mode": "curate", "photo_minutes": 10, "idle_minutes": 5, "fallback": "unsplash"}
+        return await hass.config_entries.options.async_configure(flow["flow_id"], {**data, **extra})
+
+    cards = [
+        {"type": "calendar"},
+        {"type": "sensor", "entity_id": "sensor.tv_power", "label": "TV", "icon": "zap"},
+    ]
+    res = await save(cards=cards, unsplash_query="bauhaus architecture", unsplash_key=" abc123 ")
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    s = (await call(hass, "get_config"))["config"]["screensaver"]
+    assert s["cards"] == cards and s["unsplash_query"] == "bauhaus architecture" and s["unsplash_key"] == "abc123"
+
+    res = await save(cards=[{"type": "sensor", "label": "no entity"}])  # a sensor card needs an entity
+    assert res["type"] is FlowResultType.FORM and res["errors"] == {"base": "invalid_config"}
+    res = await save(cards=[{"type": "calendar"}] * 4)  # the panel fits three
+    assert res["type"] is FlowResultType.FORM and res["errors"] == {"base": "invalid_config"}

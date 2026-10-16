@@ -7,6 +7,7 @@ import {
   PLUGS,
   ROOMS,
   SCRIPTS,
+  SAVER_CARDS,
   SENSORS,
   VACUUM,
   COLOR_MODES,
@@ -27,6 +28,7 @@ type HaAttrs = {
   volume_level?: unknown;
   source?: unknown;
   temperature?: unknown;
+  unit_of_measurement?: unknown;
 };
 export type HaState = { entity_id: string; state: string; attributes: HaAttrs };
 export class HomeError extends Error {
@@ -140,7 +142,24 @@ export function buildSnapshot(states: Map<string, HaState>): Snapshot {
       temp: num(states.get(SENSORS.indoorTemp)),
       humidity: num(states.get(SENSORS.indoorHumidity)),
     },
+    ...(SAVER_CARDS.some((c) => c.type === "sensor") ? { cards: cardReadings(states) } : {}),
   };
+}
+
+function cardReadings(states: Map<string, HaState>) {
+  const out: Record<string, { value: string | null; unit: string | null }> = {};
+  for (const c of SAVER_CARDS) {
+    if (c.type !== "sensor" || !c.entity_id) continue;
+    const s = states.get(c.entity_id);
+    const bad = !s || s.state === "unavailable" || s.state === "unknown";
+    const n = bad ? NaN : Number(s.state);
+    const unit = s?.attributes.unit_of_measurement;
+    out[c.entity_id] = {
+      value: bad ? null : Number.isFinite(n) ? String(Math.round(n * 10) / 10) : s.state,
+      unit: typeof unit === "string" ? unit : null,
+    };
+  }
+  return out;
 }
 
 export async function readSnapshot(): Promise<Snapshot> {

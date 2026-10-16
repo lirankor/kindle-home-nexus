@@ -15,9 +15,15 @@ import voluptuous as vol
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
+    CARD_ICONS,
+    CARD_TYPES,
+    DEFAULT_CARDS,
+    DEFAULT_UNSPLASH_QUERY,
     LANGUAGES,
     LIGHT_ICONS,
+    MAX_CARDS,
     MUSIC_BACKENDS,
+    PHOTO_FALLBACKS,
     PHOTO_MODES,
     ROOM_ICONS,
     SOURCE_IMMICH_FAVORITES,
@@ -64,9 +70,32 @@ PLUG = vol.Schema(
         vol.Optional("energy_to_wh", default=1): vol.Coerce(float),
     }
 )
+
+
+def _card(v: Any) -> dict[str, Any]:
+    card = CARD_BASE(v)
+    if card["type"] == "sensor" and not card.get("entity_id"):
+        raise vol.Invalid("a sensor card needs an entity")
+    return card
+
+
+CARD_BASE = vol.Schema(
+    {
+        vol.Required("type"): vol.In(CARD_TYPES),
+        vol.Optional("entity_id"): _opt_entity,
+        vol.Optional("label"): vol.Any(None, str),
+        vol.Optional("icon"): vol.Any(None, vol.In(CARD_ICONS)),
+    }
+)
 SOURCE = vol.Any(
     vol.Schema({vol.Required("type"): SOURCE_IMMICH_FAVORITES, vol.Optional("title"): str}),
-    vol.Schema({vol.Required("type"): SOURCE_MEDIA, vol.Required("id"): cv.string, vol.Optional("title"): str}),
+    vol.Schema(
+        {
+            vol.Required("type"): SOURCE_MEDIA,
+            vol.Required("id"): cv.string,
+            vol.Optional("title"): str,
+        }
+    ),
 )
 
 CONFIG_SCHEMA = vol.Schema(
@@ -120,6 +149,12 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional("photo_minutes", default=10): vol.All(vol.Coerce(int), vol.Range(1, 240)),
                 vol.Optional("mode", default="curate"): vol.In(PHOTO_MODES),
                 vol.Optional("sources", default=[]): [SOURCE],
+                vol.Optional("cards", default=lambda: [dict(c) for c in DEFAULT_CARDS]): vol.All(
+                    [_card], vol.Length(max=MAX_CARDS)
+                ),
+                vol.Optional("fallback", default="unsplash"): vol.In(PHOTO_FALLBACKS),
+                vol.Optional("unsplash_query", default=DEFAULT_UNSPLASH_QUERY): vol.All(str, vol.Length(max=200)),
+                vol.Optional("unsplash_key"): vol.Any(None, vol.All(str, vol.Length(max=200))),
             }
         ),
         vol.Optional("schedule", default={}): vol.Schema(
@@ -140,4 +175,3 @@ CONFIG_SCHEMA = vol.Schema(
 def normalize(config: dict[str, Any] | None) -> dict[str, Any]:
     """Validated config with every default filled in (raises vol.Invalid)."""
     return CONFIG_SCHEMA(copy.deepcopy(config or {}))
-

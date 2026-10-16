@@ -32,6 +32,26 @@ export type PanelPlug = {
   energy_entity?: string | null;
   energy_to_wh: number;
 };
+export const CARD_TYPES = ["outdoor", "indoor", "calendar", "sensor"] as const;
+export const CARD_ICON_NAMES = [
+  "thermometer",
+  "droplets",
+  "gauge",
+  "zap",
+  "plug",
+  "wind",
+  "sun",
+  "leaf",
+  "home",
+  "battery",
+] as const;
+/** A card on the screensaver (at most 3, in this order). `sensor` shows any HA entity's state with its unit. */
+export type SaverCard = {
+  type: (typeof CARD_TYPES)[number];
+  entity_id?: string | null;
+  label?: string | null;
+  icon?: string | null;
+};
 export type PhotoSource =
   | { type: "immich_favorites"; title?: string }
   | { type: "media_source"; id: string; title?: string };
@@ -73,6 +93,12 @@ export type PanelConfig = {
     photo_minutes: number;
     mode: "curate" | "all_but_skipped" | "kept_only";
     sources: PhotoSource[];
+    cards: SaverCard[];
+    /** When no picture library gives a photo: black-and-white art from Unsplash, or the bundled sample photo. */
+    fallback: "unsplash" | "sample";
+    unsplash_query: string;
+    /** Unsplash API access key (server only, never sent to the browser). Empty: Lorem Picsum's grayscale Unsplash photos. */
+    unsplash_key?: string | null;
   };
   schedule: {
     radio_duty: boolean;
@@ -199,6 +225,9 @@ export const DEFAULT_CONFIG: PanelConfig = {
     photo_minutes: 10,
     mode: "curate",
     sources: [{ type: "immich_favorites", title: "Immich · Favourites" }],
+    cards: [{ type: "outdoor" }, { type: "indoor" }, { type: "calendar" }],
+    fallback: "unsplash",
+    unsplash_query: "black and white art",
   },
   schedule: {
     radio_duty: true,
@@ -213,8 +242,8 @@ export const DEFAULT_CONFIG: PanelConfig = {
 /** What the browser needs (no service/script ids beyond what it already shows). */
 export type PanelView = Pick<
   PanelConfig,
-  "language" | "tabs" | "names" | "lights" | "vacuum" | "plugs" | "screensaver"
-> & { source: "ha" | "default" };
+  "language" | "tabs" | "names" | "lights" | "vacuum" | "plugs"
+> & { source: "ha" | "default"; screensaver: Omit<PanelConfig["screensaver"], "unsplash_key"> };
 
 export const panelView = (c: PanelConfig, source: "ha" | "default"): PanelView => ({
   language: c.language,
@@ -223,7 +252,7 @@ export const panelView = (c: PanelConfig, source: "ha" | "default"): PanelView =
   lights: c.lights,
   vacuum: { rooms: c.vacuum.rooms },
   plugs: c.plugs,
-  screensaver: c.screensaver,
+  screensaver: (({ unsplash_key: _secret, ...rest }) => rest)(c.screensaver),
   source,
 });
 
@@ -245,7 +274,15 @@ export function mergePanelConfig(raw: Partial<PanelConfig> | null | undefined): 
     plugs: (raw.plugs ?? []).map((p) => ({ ...p, energy_to_wh: p.energy_to_wh ?? 1 })),
     media: { music_backend: "app", ...(raw.media ?? {}) },
     sensors: { ...(raw.sensors ?? {}) },
-    screensaver: { ...d.screensaver, sources: [], ...(raw.screensaver ?? {}) },
+    screensaver: {
+      ...d.screensaver,
+      sources: [],
+      ...(raw.screensaver ?? {}),
+      cards: (raw.screensaver?.cards ?? d.screensaver.cards)
+        .filter((x) => (CARD_TYPES as readonly string[]).includes(x.type))
+        .filter((x) => x.type !== "sensor" || !!x.entity_id)
+        .slice(0, 3),
+    },
     schedule: { ...d.schedule, ...(raw.schedule ?? {}) },
   };
 }
