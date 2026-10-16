@@ -11,8 +11,7 @@ The panel only ever talks to Home Assistant.
 
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import voluptuous as vol
@@ -29,9 +28,19 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from .config import is_empty, normalize
-from .const import CONF_MA_ENTRY, DOMAIN, EVENT_CONFIG_UPDATED, MA_DOMAIN, OPT_CONFIG
-from .photos import MarkStore, Photo, PhotoLibrary, pick
+from .config import normalize
+from .const import (
+    CONF_MA_ENTRY,
+    DOMAIN,
+    EVENT_CONFIG_UPDATED,
+    IMMICH_DOMAIN,
+    MA_DOMAIN,
+    OPT_CONFIG,
+    OPT_EDITED,
+    OPT_SEEDED,
+    PAGE_KEYS,
+)
+from .photos import MarkStore, PhotoLibrary, pick
 
 PLATFORMS = [Platform.SENSOR]
 SIGNAL_MARKS = f"{DOMAIN}_marks_updated"
@@ -49,14 +58,18 @@ PLAY_INDEX_SCHEMA = vol.Schema(
 SEED_SCHEMA = vol.Schema(
     {
         vol.Optional("config"): dict,
-        vol.Optional("kept", default={}): vol.Any({cv.string: cv.string}, [cv.string]),
-        vol.Optional("skipped", default={}): vol.Any({cv.string: cv.string}, [cv.string]),
+        # Only when given are the panel's own marks taken as handed over (marks_seeded).
+        vol.Optional("kept"): vol.Any({cv.string: cv.string}, [cv.string]),
+        vol.Optional("skipped"): vol.Any({cv.string: cv.string}, [cv.string]),
         vol.Optional("force", default=False): bool,
     }
 )
 PICK_SCHEMA = vol.Schema({vol.Optional("previous_id"): vol.Any(None, cv.string)})
 MARK_SCHEMA = vol.Schema(
-    {vol.Required("photo_id"): cv.string, vol.Required("verdict"): vol.In(["keep", "skip", "clear"])}
+    {
+        vol.Required("photo_id"): vol.All(cv.string, vol.Length(min=1, max=512)),
+        vol.Required("verdict"): vol.In(["keep", "skip", "clear"]),
+    }
 )
 
 
@@ -64,8 +77,6 @@ MARK_SCHEMA = vol.Schema(
 class PanelRuntime:
     marks: MarkStore
     library: PhotoLibrary
-    served: deque[str] = field(default_factory=lambda: deque(maxlen=32))
-    last: dict[str, Photo] = field(default_factory=dict)
 
 
 type KindlePanelConfigEntry = ConfigEntry[PanelRuntime]
@@ -163,23 +174,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
 
     async def get_config(call: ServiceCall) -> ServiceResponse:
         raw = entry.options.get(OPT_CONFIG)
-        return {"seeded": not is_empty(raw), "marks_seeded": rt.marks.seeded, "config": normalize(raw)}
+        return {"seeded": bool(entry.options.get(OPT_SEEDED)), "marks_seeded": rt.marks.seeded, "config": normalize(raw)}
 
     async def seed(call: ServiceCall) -> ServiceResponse:
-        """The panel's first start: its shipped setup + its own photo marks. Never overwrites HA-side edits."""
+        """The panel's first start: its shipped setup + its own photo marks. Never overwrites HA-side edits:
+        it seeds once, and pages already saved in the HA UI keep what was saved there (unless `force`)."""
         result: dict[str, Any] = {"config": "kept"}
-        if "config" in call.data and (call.data["force"] or is_empty(entry.options.get(OPT_CONFIG))):
+        force = call.data["force"]
+        if "config" in call.data and (force or not entry.options.get(OPT_SEEDED)):
             try:
                 cfg = normalize(call.data["config"])
             except vol.Invalid as err:
                 raise ServiceValidationError(f"invalid panel config: {err}") from err
-            hass.config_entries.async_update_entry(entry, options={**entry.options, OPT_CONFIG: cfg})
+            current = normalize(entry.options.get(OPT_CONFIG))
+            kept_pages = [] if force else [p for p in entry.options.get(OPT_EDITED, []) if p in PAGE_KEYS]
+            for page in kept_pages:
+                for key in PAGE_KEYS[page]:
+                    cfg[key] = current[key]
+            hass.config_entries.async_update_entry(
+                entry, options={**entry.options, OPT_CONFIG: cfg, OPT_SEEDED: True}
+            )
             result["config"] = "seeded"
-        added = rt.marks.merge(_as_dict(call.data["kept"]), _as_dict(call.data["skipped"]))
-        rt.marks.seeded = True
-        await rt.marks.async_save()
-        async_dispatcher_send(hass, SIGNAL_MARKS)
-        result.update(kept_added=added[0], skipped_added=added[1])
+            if kept_pages:
+                result["kept_pages"] = kept_pages
+        if "kept" in call.data or "skipped" in call.data:
+            added = rt.marks.merge(_as_dict(call.data.get("kept", {})), _as_dict(call.data.get("skipped", {})))
+            rt.marks.seeded = True
+            await rt.marks.async_save()
+            async_dispatcher_send(hass, SIGNAL_MARKS)
+            result.update(kept_added=added[0], skipped_added=added[1])
         return result
 
     async def pick_photo(call: ServiceCall) -> ServiceResponse:
@@ -190,9 +213,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
         candidates = await rt.library.candidates(sources)
         photo = pick(candidates, rt.marks, cfg["mode"], call.data.get("previous_id"))
         if photo is None:
-            return {"photo": None, "reason": "no photos left (all skipped?)", "candidates": len(candidates)}
-        rt.served.append(photo.id)
-        rt.last[photo.id] = photo
+            reason = "no photos left (all skipped?)" if candidates else "the photo sources have no photos"
+            if not candidates and not hass.config_entries.async_loaded_entries(IMMICH_DOMAIN):
+                reason = "Immich is not set up (or not loaded) in Home Assistant"
+            return {"photo": None, "reason": reason, "candidates": len(candidates)}
         return {
             "photo": {
                 "id": photo.id,
@@ -207,9 +231,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
         }
 
     async def mark_photo(call: ServiceCall) -> ServiceResponse:
+        # Any id is accepted: the photo may have been picked before an HA restart (the panel keeps one all night) or
+        # come from the panel's own Immich fallback; an id that matches no photo is never picked anyway.
         pid = call.data["photo_id"]
-        if pid not in rt.served and pid not in rt.marks.kept and pid not in rt.marks.skipped:
-            raise ServiceValidationError("not a photo shown recently")
         rt.marks.mark(pid, call.data["verdict"])
         await rt.marks.async_save()
         async_dispatcher_send(hass, SIGNAL_MARKS)
@@ -232,7 +256,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
 
 
 async def _options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    # No reload: the panel re-reads the config (it polls and listens for this event).
+    # No reload: the panel re-reads the config within 30 s; the event is for automations.
     hass.bus.async_fire(EVENT_CONFIG_UPDATED, {"entry_id": entry.entry_id})
 
 

@@ -238,7 +238,9 @@ describe("Panel idle behaviour and persistence", () => {
 
     press("F1");
     await waitFor(() =>
-      expect(mocks.markScreensaverPhoto).toHaveBeenCalledWith({ data: { id: "photo-1", verdict: "keep" } }),
+      expect(mocks.markScreensaverPhoto).toHaveBeenCalledWith({
+        data: { id: "photo-1", verdict: "keep" },
+      }),
     );
     await waitFor(() =>
       expect(document.querySelector(".photo-demo")?.textContent).toContain("3 סומנו"),

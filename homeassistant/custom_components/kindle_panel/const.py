@@ -7,6 +7,18 @@ IMMICH_DOMAIN = "immich"
 
 # entry.options["config"] holds the panel configuration (see config.py); the panel reads it with get_config.
 OPT_CONFIG = "config"
+OPT_SEEDED = "seeded"  # the panel handed over its setup (or someone forced it); never seeded twice
+OPT_EDITED = "edited"  # options pages saved in the HA UI; a (late) seed never overwrites those
+# options page -> the config keys it owns
+PAGE_KEYS = {
+    "general": ("language", "tabs", "sensors", "names"),
+    "lights": ("lights", "evening"),
+    "vacuum": ("vacuum",),
+    "power": ("plugs",),
+    "media": ("media",),
+    "screensaver": ("screensaver",),
+    "schedule": ("schedule",),
+}
 
 EVENT_CONFIG_UPDATED = f"{DOMAIN}_config_updated"
 

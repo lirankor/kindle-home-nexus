@@ -170,7 +170,11 @@ const MODAL_IDLE_MS = 30 * 1000;
 let screensaverIdleMs = 5 * 60 * 1000;
 
 function HomeControl() {
-  const [tab, setTab] = useState<TabName>("Lights");
+  const [chosenTab, setTab] = useState<TabName>("Lights");
+  // A tab the panel config does not show (or a remembered one that was removed) falls back to the first one.
+  const tab: TabName = tabs.some((x) => x.name === chosenTab)
+    ? chosenTab
+    : (tabs[0]?.name ?? "Lights");
   const [scene, setScene] = useState("");
   const [locating, setLocating] = useState(false);
   const [screensaver, setScreensaver] = useState(false);
@@ -487,9 +491,12 @@ function HomeControl() {
   skipPhoto.current = () => {
     if (marking || photo.isFetching) return;
     forceNextPhoto.current = true;
-    // F4 = skip for good (stored in Home Assistant with the kindle_panel integration), then the next photo.
-    if (photoAssetId) void markScreensaverPhoto({ data: { id: photoAssetId, verdict: "skip" } });
-    void photoRefetch();
+    // F4 = skip for good (stored in Home Assistant with the kindle_panel integration), then the next photo
+    // (asked once the skip is stored, so HA never hands the skipped one back).
+    const skipped = photoAssetId
+      ? markScreensaverPhoto({ data: { id: photoAssetId, verdict: "skip" } }).catch(() => undefined)
+      : Promise.resolve();
+    void skipped.then(() => photoRefetch());
   };
   // While a mark + next photo is in flight the bridge holds its post-key screenshot (data-eink-busy),
   // so the Kindle gets the new photo in the key's own redraw instead of the next poll.

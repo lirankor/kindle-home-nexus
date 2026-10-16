@@ -14,7 +14,7 @@ import {
   randomFavorite,
   readSnapshot,
 } from "./home.server";
-import { haMarkPhoto, haPickPhoto, haPhotosActive } from "./photo-ha.server";
+import { NoHaPhoto, haMarkPhoto, haPickPhoto, haPhotosActive } from "./photo-ha.server";
 
 /** Shape only; whether the entity is one of the configured ones is checked in the handler (the configuration
  *  comes from Home Assistant and can change at runtime). */
@@ -146,10 +146,19 @@ export const getScreensaver = createServerFn({ method: "GET" })
     try {
       if (!data.force && lastPhoto && isNight(new Date(), night))
         return { ...lastPhoto, sample: false, result: await readings };
-      const [photo, result] = await Promise.all([
-        viaHa ? haPickPhoto(lastPhoto?.assetId ?? null) : randomFavorite(),
-        readings,
-      ]);
+      const pickHa = () =>
+        haPickPhoto(lastPhoto?.assetId ?? null).catch((e: unknown) => {
+          // HA has no candidates at all (e.g. HA's Immich entry not added yet, or not loaded): the panel's own
+          // Immich connection, as before. "Everything skipped" (candidates > 0) is respected, no fallback.
+          if (e instanceof NoHaPhoto && e.candidates === 0 && immichConfigured()) {
+            console.warn(
+              `[screensaver] Home Assistant has no photos (${e.message}); using Immich directly`,
+            );
+            return randomFavorite();
+          }
+          throw e;
+        });
+      const [photo, result] = await Promise.all([viaHa ? pickHa() : randomFavorite(), readings]);
       lastPhoto = { image: photo.image, assetId: photo.assetId, marked: photo.marked };
       return {
         image: photo.image,

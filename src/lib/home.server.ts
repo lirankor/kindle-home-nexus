@@ -29,7 +29,14 @@ type HaAttrs = {
   temperature?: unknown;
 };
 export type HaState = { entity_id: string; state: string; attributes: HaAttrs };
-export class HomeError extends Error {}
+export class HomeError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+  }
+}
 
 const env = (name: string) => (process.env[name] ?? "").trim().replace(/\/+$/, "");
 export const haConfigured = () => env("HA_TOKEN") !== "";
@@ -53,7 +60,7 @@ export async function ha<T>(
     throw new HomeError("HA unreachable");
   }
   if (res.status === 401 || res.status === 403) throw new HomeError("HA rejected token");
-  if (!res.ok) throw new HomeError(`HA error ${res.status}`);
+  if (!res.ok) throw new HomeError(`HA error ${res.status}`, res.status);
   return (await res.json()) as T;
 }
 

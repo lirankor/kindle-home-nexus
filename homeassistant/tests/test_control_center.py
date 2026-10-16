@@ -71,6 +71,66 @@ async def test_seed_preserves_household_and_marks(hass, panel) -> None:
     assert hass.states.get("sensor.kindle_panel_skipped_photos").state == "1"
 
 
+async def test_seed_without_marks_keeps_asking_for_them(hass, panel) -> None:
+    # the panel could not read its marks file (state dir not mounted): config seeded, marks still wanted
+    r = await call(hass, "seed", config=HOUSE)
+    assert r == {"config": "seeded"}
+    got = await call(hass, "get_config")
+    assert got["seeded"] is True and got["marks_seeded"] is False
+    r = await call(hass, "seed", kept={"asset1": "2026-10-01T00:00:00Z"})
+    assert r == {"config": "kept", "kept_added": 1, "skipped_added": 0}
+    assert (await call(hass, "get_config"))["marks_seeded"] is True
+
+
+async def test_page_saved_before_the_first_seed_survives_it(hass, panel) -> None:
+    # The owner opens Configure before the panel ever connected and saves only the schedule page.
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "schedule"})
+    sched = {
+        "radio_duty": False,
+        "day_wake_min": 15,
+        "night_start": "23:00:00",
+        "night_end": "06:30:00",
+        "night_wake_min": 120,
+        "timezone": "Europe/Berlin",
+    }
+    res = await hass.config_entries.options.async_configure(flow["flow_id"], sched)
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert (await call(hass, "get_config"))["seeded"] is False  # still waiting for the panel's setup
+    r = await call(hass, "seed", config=HOUSE, kept=[])
+    assert r["config"] == "seeded" and r["kept_pages"] == ["schedule"]
+    cfg = (await call(hass, "get_config"))["config"]
+    assert cfg["lights"][0]["name"] == "Main light"  # the panel's setup arrived
+    assert cfg["schedule"]["night_start"] == "23:00" and cfg["schedule"]["radio_duty"] is False  # the edit stayed
+
+
+async def test_invalid_input_shows_the_page_again(hass, panel) -> None:
+    await call(hass, "seed", config=HOUSE)
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "schedule"})
+    res = await hass.config_entries.options.async_configure(
+        flow["flow_id"],
+        {
+            "radio_duty": True,
+            "day_wake_min": 10,
+            "night_start": "00:00:00",
+            "night_end": "06:00:00",
+            "night_wake_min": 120,
+            "timezone": "Mars/Olympus",
+        },
+    )
+    assert res["type"] is FlowResultType.FORM and res["errors"] == {"base": "invalid_config"}
+    assert "time zone" in res["description_placeholders"]["error"].lower()
+    assert (await call(hass, "get_config"))["config"]["schedule"]["timezone"] == "Europe/Berlin"  # nothing stored
+
+
+async def test_no_immich_in_ha_says_so(hass, panel) -> None:
+    await call(hass, "seed", config=HOUSE)  # screensaver source: Immich favourites, but no Immich entry in HA
+    r = await call(hass, "pick_photo")
+    assert r["photo"] is None and r["candidates"] == 0 and "Immich" in r["reason"]
+
+
 async def test_seed_rejects_garbage(hass, panel) -> None:
     with pytest.raises(ServiceValidationError):
         await call(hass, "seed", config={"lights": [{"entity_id": "not an entity"}]})
@@ -131,8 +191,9 @@ async def test_pick_and_mark_from_a_local_folder(hass, panel) -> None:
     await call(hass, "mark_photo", photo_id=a, verdict="skip")
     for _ in range(15):
         assert (await call(hass, "pick_photo"))["photo"]["id"] != a  # skipped: never again
-    with pytest.raises(ServiceValidationError):
-        await call(hass, "mark_photo", photo_id="never-shown", verdict="keep")
+    # F1 after an HA restart (nothing "served" in memory any more) or on a photo from the panel's own Immich fallback
+    r = await call(hass, "mark_photo", photo_id="picked-before-restart", verdict="keep")
+    assert r == {"kept": 1, "skipped": 1}
 
 
 async def test_immich_favourites_through_has_immich(hass, panel) -> None:

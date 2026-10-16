@@ -4,9 +4,20 @@
 import { HomeError, ha } from "./home.server";
 import { cropToScreen } from "./photo.server";
 
+/** HA answered, but had no photo to give (no sources yet, Immich not loaded in HA, everything skipped). */
+export class NoHaPhoto extends HomeError {
+  constructor(
+    message: string,
+    readonly candidates: number,
+  ) {
+    super(message);
+  }
+}
+
 type PickAnswer = {
   photo: { id: string; url: string; title: string; source: string; kept: boolean } | null;
   reason?: string;
+  candidates?: number;
   kept?: number;
 };
 
@@ -31,12 +42,30 @@ async function call<T>(service: string, data: Record<string, unknown>): Promise<
   return r.service_response;
 }
 
+/** An HA-relative path, or an absolute http(s) URL; anything else is refused. */
+export function photoUrl(raw: string): string {
+  if (raw.startsWith("/") && !raw.startsWith("//")) return `${base()}${raw}`;
+  const u = new URL(raw); // throws on garbage
+  if (u.protocol !== "http:" && u.protocol !== "https:")
+    throw new HomeError(`photo URL scheme ${u.protocol}`);
+  return u.toString();
+}
+
+export const sameOrigin = (url: string) => new URL(url).origin === new URL(base()).origin;
+
 export async function haPickPhoto(previous: string | null) {
   const r = await call<PickAnswer>("pick_photo", previous ? { previous_id: previous } : {});
-  if (!r.photo) throw new HomeError(r.reason ?? "no photo");
-  const url = /^https?:\/\//.test(r.photo.url) ? r.photo.url : `${base()}${r.photo.url}`;
+  if (!r.photo) throw new NoHaPhoto(r.reason ?? "no photo", r.candidates ?? 0);
+  const url = photoUrl(r.photo.url);
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${(process.env["HA_TOKEN"] ?? "").trim()}` },
+    // The HA token only ever goes to HA itself; a source that resolves to another host gets no credentials.
+    // (and no redirect is followed with it).
+    ...(sameOrigin(url)
+      ? {
+          headers: { Authorization: `Bearer ${(process.env["HA_TOKEN"] ?? "").trim()}` },
+          redirect: "error" as const,
+        }
+      : {}),
     signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) throw new HomeError(`photo ${res.status}`);

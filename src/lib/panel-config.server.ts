@@ -7,7 +7,9 @@ import { parseLang } from "./i18n";
 import { applyMediaConfig } from "./media";
 import { DEFAULT_CONFIG, mergePanelConfig, panelView } from "./panel-config";
 import type { PanelConfig, PanelView } from "./panel-config";
-import { loadMarks } from "./photo.server";
+import { access, readFile } from "node:fs/promises";
+import path from "node:path";
+import { loadMarks, marksFile } from "./photo.server";
 
 const TTL_MS = 30_000;
 const MISSING_RETRY_MS = 60_000;
@@ -15,7 +17,9 @@ const MISSING_RETRY_MS = 60_000;
 type Loaded = { config: PanelConfig; source: "ha" | "default"; at: number };
 let current: Loaded | null = null;
 let missingUntil = 0;
+let missingStrikes = 0; // consecutive "kindle_panel not there" answers (HA answers 400 for an unknown service)
 let inflight: Promise<Loaded> | null = null;
+let marksWarned = false;
 
 const env = (name: string) => (process.env[name] ?? "").trim();
 const envInt = (name: string, fallback: number) => {
@@ -30,7 +34,8 @@ export function defaultFromEnv(): PanelConfig {
   c.language = parseLang(env("UI_LANGUAGE"));
   c.media.music_backend = env("MUSIC_BACKEND").toLowerCase() === "ha" ? "ha" : "app";
   c.schedule = {
-    radio_duty: env("RADIO_DUTY_ENABLED") !== "0",
+    // RADIO_DUTY_ENABLED, or the older SLEEP_ENABLED the bridge also honours
+    radio_duty: (env("RADIO_DUTY_ENABLED") || env("SLEEP_ENABLED")) !== "0",
     day_wake_min: envInt("DAY_WAKE_MIN", c.schedule.day_wake_min),
     night_start: hhmm(env("NIGHT_START"), c.schedule.night_start),
     night_end: hhmm(env("NIGHT_END"), c.schedule.night_end),
@@ -55,33 +60,73 @@ async function call<T>(service: string, data: Record<string, unknown> = {}): Pro
   return r.service_response;
 }
 
-/** The marks this panel collected before HA held them (F1 = keep). */
-async function localMarks(): Promise<Record<string, string>> {
-  const m = await loadMarks().catch(() => ({ marked: [] as { id: string; at: string }[] }));
+/** The marks this panel collected before HA held them (F1 = keep). null when they cannot be read (state dir not
+ *  mounted, unreadable file): then the marks are not handed over yet, and HA keeps asking for them. */
+async function localMarks(): Promise<Record<string, string> | null> {
+  const file = marksFile();
+  try {
+    await access(path.dirname(file));
+  } catch {
+    return null;
+  }
+  try {
+    await access(file);
+  } catch {
+    return {}; // the state dir is there, nothing was ever marked
+  }
+  const raw = await readFile(file, "utf8").catch(() => null);
+  if (raw === null) return null;
+  try {
+    JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const m = await loadMarks(file);
   return Object.fromEntries(m.marked.map((x) => [x.id, x.at]));
 }
 
+/** While HA is unreachable the last config from HA stays (an HA restart must not flip the screen to the defaults);
+ *  defaults only when nothing was ever loaded, or when kindle_panel is really gone (rollback). */
+const keepLast = (): Loaded | null => (current ? { ...current, at: Date.now() } : null);
+
 async function load(): Promise<Loaded> {
   const fallback = (): Loaded => ({ config: defaultFromEnv(), source: "default", at: Date.now() });
-  if (!haConfigured() || Date.now() < missingUntil) return fallback();
+  if (!haConfigured()) return fallback();
+  if (Date.now() < missingUntil) return keepLast() ?? fallback();
   let got: GetConfig;
   try {
     got = await call<GetConfig>("get_config");
-  } catch {
-    missingUntil = Date.now() + MISSING_RETRY_MS; // kindle_panel not installed (HA answers 400) or HA down
-    return current ?? fallback();
+    missingStrikes = 0;
+  } catch (e) {
+    missingUntil = Date.now() + MISSING_RETRY_MS;
+    const missing = e instanceof HomeError && e.status === 400;
+    // Twice in a row (≥ 1 min apart) "no such service": the integration was removed, back to defaults + env.
+    if (missing && ++missingStrikes >= 2) return fallback();
+    return keepLast() ?? fallback();
   }
   if (!got.seeded || !got.marks_seeded) {
     // First start against HA: hand over what this panel has, so nothing on the screen changes.
-    const seed: Record<string, unknown> = { kept: await localMarks() };
+    const seed: Record<string, unknown> = {};
     if (!got.seeded) seed["config"] = defaultFromEnv();
-    try {
-      const r = await call<Record<string, unknown>>("seed", seed);
-      console.log("[panel] seeded Home Assistant:", JSON.stringify(r));
-      got = await call<GetConfig>("get_config");
-    } catch (e) {
-      console.warn("[panel] seeding Home Assistant failed:", e);
-      return current ?? fallback();
+    if (!got.marks_seeded) {
+      const kept = await localMarks();
+      if (kept) seed["kept"] = kept;
+      else if (!marksWarned) {
+        marksWarned = true;
+        console.warn(
+          `[panel] photo marks not readable (${marksFile()}); not handed to Home Assistant yet`,
+        );
+      }
+    }
+    if (Object.keys(seed).length) {
+      try {
+        const r = await call<Record<string, unknown>>("seed", seed);
+        console.log("[panel] seeded Home Assistant:", JSON.stringify(r));
+        got = await call<GetConfig>("get_config");
+      } catch (e) {
+        console.warn("[panel] seeding Home Assistant failed:", e);
+        return keepLast() ?? fallback();
+      }
     }
   }
   return { config: mergePanelConfig(got.config), source: "ha", at: Date.now() };
@@ -111,6 +156,7 @@ export async function ensurePanelConfig(): Promise<Loaded> {
 export function invalidatePanelConfig() {
   if (current) current.at = 0;
   missingUntil = 0;
+  missingStrikes = 0;
 }
 
 export const panelViewNow = (): PanelView =>

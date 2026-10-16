@@ -108,6 +108,9 @@
           "timezone": "Time zone"
         }
       }
+    },
+    "error": {
+      "invalid_config": "Not saved, the value is not valid: {error}"
     }
   },
   "selector": {

@@ -23,6 +23,7 @@ from .const import (
     MA_DOMAIN,
     MUSIC_BACKENDS,
     OPT_CONFIG,
+    OPT_EDITED,
     PHOTO_MODES,
     ROOM_ICONS,
     SOURCE_IMMICH_FAVORITES,
@@ -113,6 +114,8 @@ class KindlePanelOptionsFlow(OptionsFlow):
 
     def __init__(self) -> None:
         self._cfg: dict[str, Any] | None = None
+        self._found: dict[str, str] | None = None  # photo sources, listed once per visit
+        self._error: str | None = None
 
     @property
     def cfg(self) -> dict[str, Any]:
@@ -120,8 +123,24 @@ class KindlePanelOptionsFlow(OptionsFlow):
             self._cfg = normalize(self.config_entry.options.get(OPT_CONFIG))
         return self._cfg
 
-    def _save(self) -> ConfigFlowResult:
-        return self.async_create_entry(data={**self.config_entry.options, OPT_CONFIG: normalize(self.cfg)})
+    def _save(self, page: str) -> ConfigFlowResult | None:
+        """Store the config; on invalid input None (the page is shown again with the error and what was typed)."""
+        try:
+            cfg = normalize(self.cfg)
+        except vol.Invalid as err:
+            self._error = str(err)
+            return None
+        self._error = None
+        edited = sorted({*self.config_entry.options.get(OPT_EDITED, []), page})
+        return self.async_create_entry(data={**self.config_entry.options, OPT_CONFIG: cfg, OPT_EDITED: edited})
+
+    def _form(self, step_id: str, schema: vol.Schema) -> ConfigFlowResult:
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=schema,
+            errors={"base": "invalid_config"} if self._error else None,
+            description_placeholders={"error": self._error or ""},
+        )
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return self.async_show_menu(
@@ -136,11 +155,12 @@ class KindlePanelOptionsFlow(OptionsFlow):
             c["tabs"] = user_input["tabs"]
             c["sensors"] = {k: user_input.get(k) for k in ("indoor_temperature", "indoor_humidity", "weather")}
             c["names"] = {**c.get("names", {}), "he": user_input.get("names_he") or {}}
-            return self._save()
+            if (done := self._save("general")) is not None:
+                return done
         s = c["sensors"]
-        return self.async_show_form(
-            step_id="general",
-            data_schema=vol.Schema(
+        return self._form(
+            "general",
+            vol.Schema(
                 {
                     vol.Required("language", default=c["language"]): _select(LANGUAGES, "language"),
                     vol.Required("tabs", default=c["tabs"]): _select(TABS, "tab", multiple=True),
@@ -161,11 +181,12 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 "brightness_pct": int(user_input.get("evening_pct", 40)),
                 "warm_kelvin": int(user_input.get("warm_kelvin", 2200)),
             }
-            return self._save()
+            if (done := self._save("lights")) is not None:
+                return done
         ev = c["evening"]
-        return self.async_show_form(
-            step_id="lights",
-            data_schema=vol.Schema(
+        return self._form(
+            "lights",
+            vol.Schema(
                 {
                     _opt("lights", c["lights"]): _list(
                         {
@@ -192,11 +213,12 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 "rooms_script": user_input.get("rooms_script"),
                 "rooms": user_input.get("rooms") or [],
             }
-            return self._save()
+            if (done := self._save("vacuum")) is not None:
+                return done
         v = c["vacuum"]
-        return self.async_show_form(
-            step_id="vacuum",
-            data_schema=vol.Schema(
+        return self._form(
+            "vacuum",
+            vol.Schema(
                 {
                     _opt("entity_id", v.get("entity_id")): _entity("vacuum"),
                     _opt("battery_entity", v.get("battery_entity")): _entity("sensor"),
@@ -220,10 +242,11 @@ class KindlePanelOptionsFlow(OptionsFlow):
         c = self.cfg
         if user_input is not None:
             c["plugs"] = user_input.get("plugs") or []
-            return self._save()
-        return self.async_show_form(
-            step_id="power",
-            data_schema=vol.Schema(
+            if (done := self._save("power")) is not None:
+                return done
+        return self._form(
+            "power",
+            vol.Schema(
                 {
                     _opt("plugs", c["plugs"]): _list(
                         {
@@ -243,11 +266,12 @@ class KindlePanelOptionsFlow(OptionsFlow):
         c = self.cfg
         if user_input is not None:
             c["media"] = {"music_backend": user_input["music_backend"], **{k: user_input.get(k) for k in MEDIA_KEYS}}
-            return self._save()
+            if (done := self._save("media")) is not None:
+                return done
         m = c["media"]
-        return self.async_show_form(
-            step_id="media",
-            data_schema=vol.Schema(
+        return self._form(
+            "media",
+            vol.Schema(
                 {
                     vol.Required("music_backend", default=m["music_backend"]): _select(MUSIC_BACKENDS, "music_backend"),
                     _opt("amp_player", m.get("amp_player")): _entity("media_player"),
@@ -267,7 +291,9 @@ class KindlePanelOptionsFlow(OptionsFlow):
     async def async_step_screensaver(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         c = self.cfg
         s = c["screensaver"]
-        found = await discover_sources(self.hass)
+        if self._found is None:
+            self._found = await discover_sources(self.hass)
+        found = dict(self._found)
         current = [_source_key(x) for x in s["sources"]]
         for src, key in zip(s["sources"], current, strict=True):  # configured sources stay selectable
             found.setdefault(key, src.get("title") or key)
@@ -278,10 +304,11 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 "mode": user_input["mode"],
                 "sources": [_source_from_key(k, found.get(k)) for k in user_input.get("sources") or []],
             }
-            return self._save()
-        return self.async_show_form(
-            step_id="screensaver",
-            data_schema=vol.Schema(
+            if (done := self._save("screensaver")) is not None:
+                return done
+        return self._form(
+            "screensaver",
+            vol.Schema(
                 {
                     vol.Optional("sources", default=current): sel.SelectSelector(
                         sel.SelectSelectorConfig(
@@ -307,11 +334,12 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 "night_wake_min": int(user_input["night_wake_min"]),
                 "timezone": user_input["timezone"],
             }
-            return self._save()
+            if (done := self._save("schedule")) is not None:
+                return done
         sc = c["schedule"]
-        return self.async_show_form(
-            step_id="schedule",
-            data_schema=vol.Schema(
+        return self._form(
+            "schedule",
+            vol.Schema(
                 {
                     vol.Required("radio_duty", default=sc["radio_duty"]): sel.BooleanSelector(),
                     vol.Required("day_wake_min", default=sc["day_wake_min"]): _num(1, 120, 1, "min"),

@@ -141,8 +141,3 @@ def normalize(config: dict[str, Any] | None) -> dict[str, Any]:
     """Validated config with every default filled in (raises vol.Invalid)."""
     return CONFIG_SCHEMA(copy.deepcopy(config or {}))
 
-
-def is_empty(config: dict[str, Any] | None) -> bool:
-    """Nothing configured yet (the panel will seed it)."""
-    c = config or {}
-    return not (c.get("lights") or c.get("plugs") or (c.get("vacuum") or {}).get("entity_id") or c.get("media"))

@@ -28,29 +28,38 @@ const ALIVE_STALE_MS = Number(env("ALIVE_STALE_MS", 45000));
 // radio up (server-side kill switch; the old name SLEEP_ENABLED still works), SAVER_POLL_S is the
 // fallback poll cadence on the screensaver, KEEP_AWAKE_MS how long a key press on the panel keeps the
 // radio up (= the app's own 5 min screensaver idle time).
-let RADIO_DUTY_ENABLED = env("RADIO_DUTY_ENABLED", env("SLEEP_ENABLED", "1")) !== "0";
+const ENV_RADIO_DUTY = env("RADIO_DUTY_ENABLED", env("SLEEP_ENABLED", "1")) !== "0";
+let RADIO_DUTY_ENABLED = ENV_RADIO_DUTY;
 const SAVER_POLL_S = Number(env("SAVER_POLL_S", 60));
 const KEEP_AWAKE_MS = Number(env("KEEP_AWAKE_MS", 5 * 60 * 1000));
-let schedule = readScheduleConfig(process.env);
+const ENV_SCHEDULE = readScheduleConfig(process.env);
+let schedule = ENV_SCHEDULE;
 // The panel config in Home Assistant (kindle_panel) owns the battery-saver schedule when it is set up there; the app
 // answers it on /api/voice/panel-schedule. Re-read every minute; the env above stays the fallback.
 async function refreshScheduleFromPanel() {
   try {
-    const res = await fetch(new URL("api/voice/panel-schedule", APP_URL), { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(new URL("api/voice/panel-schedule", APP_URL), {
+      signal: AbortSignal.timeout(5000),
+    });
     if (!res.ok) return;
     const body = await res.json();
-    if (body?.source !== "ha" || !body.schedule) return;
-    const s = body.schedule;
-    const next = readScheduleConfig({
-      DAY_WAKE_MIN: String(s.day_wake_min),
-      NIGHT_START: s.night_start,
-      NIGHT_END: s.night_end,
-      NIGHT_WAKE_MIN: String(s.night_wake_min),
-      SLEEP_TZ: s.timezone,
-    });
-    const duty = s.radio_duty !== false;
+    const fromHa = body?.source === "ha" && body.schedule;
+    const s = fromHa ? body.schedule : null;
+    // Not (or no longer) set up in HA, e.g. after a rollback: back to the env schedule.
+    const next = s
+      ? readScheduleConfig({
+          DAY_WAKE_MIN: String(s.day_wake_min),
+          NIGHT_START: s.night_start,
+          NIGHT_END: s.night_end,
+          NIGHT_WAKE_MIN: String(s.night_wake_min),
+          SLEEP_TZ: s.timezone,
+        })
+      : ENV_SCHEDULE;
+    const duty = s ? s.radio_duty !== false : ENV_RADIO_DUTY;
     if (JSON.stringify(next) !== JSON.stringify(schedule) || duty !== RADIO_DUTY_ENABLED)
-      console.log(`[schedule] from Home Assistant: ${JSON.stringify({ ...next, radioDuty: duty })}`);
+      console.log(
+        `[schedule] from ${s ? "Home Assistant" : "env"}: ${JSON.stringify({ ...next, radioDuty: duty })}`,
+      );
     schedule = next;
     RADIO_DUTY_ENABLED = duty;
   } catch {

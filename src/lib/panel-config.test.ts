@@ -11,6 +11,7 @@ describe("panel config from Home Assistant", () => {
   let haConfig: Record<string, unknown> | null = null;
   let marksSeeded = false;
   let panelInstalled = true;
+  let haDown = false;
 
   beforeEach(async () => {
     vi.resetModules();
@@ -18,6 +19,7 @@ describe("panel config from Home Assistant", () => {
     haConfig = null;
     marksSeeded = false;
     panelInstalled = true;
+    haDown = false;
     const dir = await mkdtemp(path.join(os.tmpdir(), "panel-"));
     await writeFile(
       path.join(dir, "kindle-photo-marks.json"),
@@ -33,6 +35,7 @@ describe("panel config from Home Assistant", () => {
         const p = url.replace("http://ha.test", "");
         const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
         calls.push({ path: p, body });
+        if (haDown) throw new TypeError("fetch failed");
         if (!panelInstalled) return new Response("{}", { status: 400 });
         if (p.startsWith("/api/services/kindle_panel/get_config"))
           return Response.json({
@@ -44,14 +47,62 @@ describe("panel config from Home Assistant", () => {
           });
         if (p.startsWith("/api/services/kindle_panel/seed")) {
           if (body["config"]) haConfig = body["config"] as Record<string, unknown>;
-          marksSeeded = true;
+          if ("kept" in body) marksSeeded = true;
           return Response.json({ service_response: { config: "seeded", kept_added: 1 } });
         }
         return new Response("{}", { status: 404 });
       }),
     );
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  const onlyLight = () => {
+    haConfig = {
+      ...DEFAULT_CONFIG,
+      lights: [{ entity_id: "light.only", name: "Only", room: "Hall", icon: "bulb" }],
+    };
+    marksSeeded = true;
+  };
+
+  it("keeps the HA config while HA is unreachable (an HA restart does not flip the screen)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onlyLight();
+    const { ensurePanelConfig } = await import("./panel-config.server");
+    const { LIGHTS } = await import("./home");
+    await ensurePanelConfig();
+    haDown = true;
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(45_000);
+      const l = await ensurePanelConfig();
+      expect(l.source).toBe("ha");
+      expect(LIGHTS.map((x) => x.id)).toEqual(["light.only"]);
+    }
+  });
+
+  it("goes back to the built-in setup once kindle_panel is really gone (rollback)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onlyLight();
+    const { ensurePanelConfig } = await import("./panel-config.server");
+    await ensurePanelConfig();
+    panelInstalled = false;
+    vi.advanceTimersByTime(31_000);
+    expect((await ensurePanelConfig()).source).toBe("ha"); // one "no such service" may be HA starting up
+    vi.advanceTimersByTime(61_000);
+    expect((await ensurePanelConfig()).source).toBe("default");
+  });
+
+  it("does not hand over the marks while the marks file cannot be read", async () => {
+    process.env["MEDIA_STATE_DIR"] = path.join(os.tmpdir(), "not-mounted-" + Date.now());
+    const { ensurePanelConfig } = await import("./panel-config.server");
+    await ensurePanelConfig();
+    const seed = calls.find((c) => c.path.startsWith("/api/services/kindle_panel/seed"))!;
+    expect(seed.body["config"]).toBeDefined();
+    expect("kept" in seed.body).toBe(false);
+    expect(marksSeeded).toBe(false); // HA keeps asking on the next start
+  });
 
   it("seeds HA with the household setup and the photo marks on the first start", async () => {
     const { ensurePanelConfig } = await import("./panel-config.server");

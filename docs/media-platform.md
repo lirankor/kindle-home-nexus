@@ -36,9 +36,12 @@ opens a menu:
 | Screensaver | idle minutes, minutes per photo, mode, photo sources |
 | Schedule | radio duty, wake intervals by day and night, night window, time zone |
 
-The app reads it with `kindle_panel.get_config` (cached for 30 s; refreshed immediately when the options change). The
-bridge refreshes its wake schedule every 60 s from `/api/voice/panel-schedule`. Without the integration everything
-runs on `DEFAULT_CONFIG` (`src/lib/panel-config.ts`) plus the env, exactly as before.
+The app reads it with `kindle_panel.get_config` (cached for 30 s, so a change shows within 30 s). The bridge
+refreshes its wake schedule every 60 s from `/api/voice/panel-schedule`. Without the integration everything runs on
+`DEFAULT_CONFIG` (`src/lib/panel-config.ts`) plus the env, exactly as before.
+- While HA is unreachable, e.g. during a restart, the panel keeps the last config it got from HA.
+- It goes back to the defaults only when HA answers twice, a minute apart, that kindle_panel is gone (rollback).
+- The bridge then also returns to its env schedule.
 
 ### Seeding: nothing changes on the first start
 
@@ -46,7 +49,12 @@ On its first start against an HA with `kindle_panel`, the app seeds:
 - the config it was running with (`DEFAULT_CONFIG` + env: `UI_LANGUAGE`, `MUSIC_BACKEND`, the schedule variables);
 - every photo marked with F1 so far, as kept.
 
-Seeding never overwrites what was already edited in HA unless it is forced, and HA's existing keep/skip decisions win.
+Seeding happens once, and never overwrites what was already edited in HA unless it is forced:
+- A page saved in the HA UI before the panel first connected keeps what was saved there. The other pages get the
+  panel's setup.
+- HA's existing keep/skip decisions win.
+- If the marks file can't be read (state dir not mounted), the marks are not handed over yet. The config is seeded,
+  and HA keeps asking for the marks on every start.
 You can check it under the Kindle Panel device: the kept and skipped photo sensors show the counts.
 
 ### Screensaver photos from any HA picture library
@@ -65,12 +73,18 @@ Modes:
 - `all_but_skipped`: every photo except the skipped ones.
 - `kept_only`: only kept photos.
 
-When `kindle_panel` is missing, the screensaver uses the app's own Immich connection, as before.
+The screensaver uses the app's own Immich connection, as before, in two cases:
+- `kindle_panel` is missing;
+- HA has no photos at all, e.g. HA's Immich integration is not added or not loaded yet.
+
+F1/F4 marks still go to HA in the second case, keyed by the same Immich asset ids. Photos are fetched with the HA
+token only from HA itself. A source that resolves to another host gets no credentials.
 
 ### Verified
 
-- `kindle_panel`: 12 pytest tests (`homeassistant/tests`).
-- App: 170 vitest tests.
+- `kindle_panel`: 16 pytest tests (`homeassistant/tests`).
+- App: 176 vitest tests.
+- A second independent review: 1 blocker and 6 important findings, all fixed with regression tests.
 - Screenshot regression: every tab at 600×800 in demo mode, in Hebrew and in English, is pixel-identical between
   `main` and this branch. The check uses puppeteer-core with the preinstalled Chromium and runs pixelmatch with
   threshold 0.
