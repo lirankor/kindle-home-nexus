@@ -2,8 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { parseLang } from "@/lib/i18n";
 import { isNight, nightWindowFromEnv, photoMinutesFromEnv } from "@/lib/night-window";
-import { LIGHT_IDS, MEDIA_IDS, MEDIA_OPS, ROOM_IDS, SWITCH_IDS } from "@/lib/home";
+import { LIGHTS, MEDIA, MEDIA_OPS, PLUGS, ROOMS } from "@/lib/home";
 import type { Action, ActionResult, Snapshot, SnapshotResult } from "@/lib/home";
+import { ensurePanelConfig, panelViewNow } from "@/lib/panel-config.server";
 import {
   errorMessage,
   haConfigured,
@@ -13,43 +14,69 @@ import {
   randomFavorite,
   readSnapshot,
 } from "./home.server";
+import { haMarkPhoto, haPickPhoto, haPhotosActive } from "./photo-ha.server";
+
+/** Shape only; whether the entity is one of the configured ones is checked in the handler (the configuration
+ *  comes from Home Assistant and can change at runtime). */
+const entityId = z.string().regex(/^[a-z_]+\.[a-z0-9_]+$/);
+/** The configured entity an action targets, or null when the action is not entity-specific. */
+function actionEntityKnown(a: Action): boolean {
+  switch (a.type) {
+    case "light.toggle":
+    case "light.brightness":
+    case "light.kelvin":
+    case "light.color":
+      return LIGHTS.some((l) => l.id === a.entity);
+    case "room.toggle":
+      return ROOMS.some((r) => r.id === a.entity);
+    case "switch.toggle":
+      return PLUGS.some((p) => p.id === a.entity);
+    case "media":
+      return MEDIA.some((m) => m.id === a.entity);
+    default:
+      return true;
+  }
+}
 
 const actionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("light.toggle"), entity: z.enum(LIGHT_IDS) }),
+  z.object({ type: z.literal("light.toggle"), entity: entityId }),
   z.object({
     type: z.literal("light.brightness"),
-    entity: z.enum(LIGHT_IDS),
+    entity: entityId,
     pct: z.number().int().min(1).max(100),
   }),
   z.object({
     type: z.literal("light.kelvin"),
-    entity: z.enum(LIGHT_IDS),
+    entity: entityId,
     kelvin: z.number().int().min(1500).max(9000),
   }),
   z.object({
     type: z.literal("light.color"),
-    entity: z.enum(LIGHT_IDS),
+    entity: entityId,
     color: z.enum(["White", "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Pink"]),
   }),
   z.object({ type: z.literal("lights.off") }),
   z.object({ type: z.literal("scene"), name: z.enum(["Bright", "Evening", "Movie"]) }),
   z.object({ type: z.literal("movie.end") }),
   z.object({ type: z.literal("vacuum"), op: z.enum(["start", "pause", "dock", "locate"]) }),
-  z.object({ type: z.literal("room.toggle"), entity: z.enum(ROOM_IDS) }),
+  z.object({ type: z.literal("room.toggle"), entity: entityId }),
   z.object({ type: z.literal("rooms.clear") }),
-  z.object({ type: z.literal("switch.toggle"), entity: z.enum(SWITCH_IDS) }),
-  z.object({ type: z.literal("media"), entity: z.enum(MEDIA_IDS), op: z.enum(MEDIA_OPS) }),
+  z.object({ type: z.literal("switch.toggle"), entity: entityId }),
+  z.object({ type: z.literal("media"), entity: entityId, op: z.enum(MEDIA_OPS) }),
 ]);
 
 async function snapshotResult(): Promise<SnapshotResult> {
   // Read per request so UI_LANGUAGE can change without a rebuild.
-  const lang = parseLang(process.env["UI_LANGUAGE"]);
-  const photoMinutes = photoMinutesFromEnv();
-  if (!haConfigured()) return { configured: false, snapshot: null, lang, photoMinutes };
+  const cfg = await ensurePanelConfig();
+  const lang = cfg.source === "ha" ? cfg.config.language : parseLang(process.env["UI_LANGUAGE"]);
+  const photoMinutes =
+    cfg.source === "ha" ? cfg.config.screensaver.photo_minutes : photoMinutesFromEnv();
+  const panel = panelViewNow();
+  if (!haConfigured()) return { configured: false, snapshot: null, lang, photoMinutes, panel };
   try {
-    return { configured: true, snapshot: await readSnapshot(), lang, photoMinutes };
+    return { configured: true, snapshot: await readSnapshot(), lang, photoMinutes, panel };
   } catch (e) {
-    return { configured: true, error: errorMessage(e), snapshot: null, lang, photoMinutes };
+    return { configured: true, error: errorMessage(e), snapshot: null, lang, photoMinutes, panel };
   }
 }
 
@@ -61,6 +88,8 @@ export const runAction = createServerFn({ method: "POST" })
   .validator(actionSchema)
   .handler(async ({ data }): Promise<ActionResult> => {
     if (!haConfigured()) return { ok: false, error: "HA not configured" };
+    await ensurePanelConfig();
+    if (!actionEntityKnown(data as Action)) return { ok: false, error: "Unknown entity" };
     try {
       await performAction(data as Action);
     } catch (e) {
@@ -103,11 +132,24 @@ export const getScreensaver = createServerFn({ method: "GET" })
   })
   .handler(async ({ data }): Promise<ScreensaverResult> => {
     const readings = snapshotResult();
-    if (!immichConfigured()) return { image: null, sample: true, result: await readings };
+    const cfg = await ensurePanelConfig();
+    const viaHa = haPhotosActive(cfg);
+    if (!viaHa && !immichConfigured()) return { image: null, sample: true, result: await readings };
+    const night =
+      cfg.source === "ha"
+        ? nightWindowFromEnv({
+            NIGHT_START: cfg.config.schedule.night_start,
+            NIGHT_END: cfg.config.schedule.night_end,
+            SLEEP_TZ: cfg.config.schedule.timezone,
+          })
+        : nightWindowFromEnv();
     try {
-      if (!data.force && lastPhoto && isNight(new Date(), nightWindowFromEnv()))
+      if (!data.force && lastPhoto && isNight(new Date(), night))
         return { ...lastPhoto, sample: false, result: await readings };
-      const [photo, result] = await Promise.all([randomFavorite(), readings]);
+      const [photo, result] = await Promise.all([
+        viaHa ? haPickPhoto(lastPhoto?.assetId ?? null) : randomFavorite(),
+        readings,
+      ]);
       lastPhoto = { image: photo.image, assetId: photo.assetId, marked: photo.marked };
       return {
         image: photo.image,
@@ -117,16 +159,32 @@ export const getScreensaver = createServerFn({ method: "GET" })
         result,
       };
     } catch (e) {
-      console.error("Immich screensaver failed:", e);
-      return { image: null, sample: true, note: "Immich unreachable", result: await readings };
+      console.error("Screensaver photo failed:", e);
+      return {
+        image: null,
+        sample: true,
+        note: viaHa ? "No photo from Home Assistant" : "Immich unreachable",
+        result: await readings,
+      };
     }
   });
 
-/** F1 on the screensaver: mark the shown favourite as good on e-ink. It is never shown again. */
+/** F1 on the screensaver: keep (looks good on e-ink); F4: skip for good. With the kindle_panel integration both are
+ *  stored in Home Assistant; without it F1 goes to the local marks file as before and F4 only moves on. */
 export const markScreensaverPhoto = createServerFn({ method: "POST" })
-  .validator(z.object({ id: z.string().regex(/^[A-Za-z0-9-]{1,64}$/) }))
+  .validator(
+    z.object({
+      id: z.string().min(1).max(512),
+      verdict: z.enum(["keep", "skip"]).default("keep"),
+    }),
+  )
   .handler(async ({ data }): Promise<{ ok: boolean; marked: number; error?: string }> => {
     try {
+      const cfg = await ensurePanelConfig();
+      if (haPhotosActive(cfg))
+        return { ok: true, marked: await haMarkPhoto(data.id, data.verdict) };
+      if (data.verdict === "skip") return { ok: true, marked: 0 };
+      if (!/^[A-Za-z0-9-]{1,64}$/.test(data.id)) return { ok: false, marked: 0, error: "bad id" };
       return { ok: true, marked: await markFavorite(data.id) };
     } catch (e) {
       return { ok: false, marked: 0, error: errorMessage(e) };

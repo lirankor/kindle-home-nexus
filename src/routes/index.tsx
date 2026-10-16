@@ -53,6 +53,7 @@ import { LightModal, PickerModal, PlugModal, pickerValues } from "@/components/l
 import { MediaCards, MediaModal } from "@/components/media-screens";
 import { useMediaPanel } from "@/lib/media-panel";
 import { loadPanelState, persistableScreen, savePanelState, type TabName } from "@/lib/panel-state";
+import type { PanelView, TabId } from "@/lib/panel-config";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import { useFullRefresh } from "@/lib/eink";
 import { BatteryBadge } from "@/components/battery-badge";
@@ -64,6 +65,7 @@ import screensaverPhoto from "@/assets/screensaver-preview.jpg";
 import {
   COLORS,
   LIGHTS,
+  applyHomeConfig,
   localName,
   PLUGS,
   ROOMS,
@@ -101,14 +103,47 @@ export const Route = createFileRoute("/")({
   component: HomeControl,
 });
 
-const tabs: { name: "Lights" | "Vacuum" | "Power" | "Media"; icon: typeof Lightbulb }[] = [
-  { name: "Lights", icon: Lightbulb },
-  { name: "Vacuum", icon: Bot },
-  { name: "Power", icon: Plug },
-  { name: "Media", icon: Music2 },
-];
-const lightIcons = [LampCeiling, SpotLightIcon, LampCeiling, StripLightIcon];
-const roomIcons = [ShowerHead, Baby, DoorOpen, Utensils, Home, Bath, Bed, Sofa];
+type TabEntry = { name: "Lights" | "Vacuum" | "Power" | "Media"; icon: typeof Lightbulb };
+const ALL_TABS: Record<TabId, TabEntry> = {
+  lights: { name: "Lights", icon: Lightbulb },
+  vacuum: { name: "Vacuum", icon: Bot },
+  power: { name: "Power", icon: Plug },
+  media: { name: "Media", icon: Music2 },
+};
+/** Tabs in the configured order (panel config: tabs); rewritten in place when a new config arrives. */
+const tabs: TabEntry[] = (["lights", "vacuum", "power", "media"] as TabId[]).map(
+  (id) => ALL_TABS[id],
+);
+type IconComponent = (props: { size?: number; strokeWidth?: number }) => ReactNode;
+const LIGHT_ICONS: Record<string, IconComponent> = {
+  lamp_ceiling: LampCeiling,
+  spot: SpotLightIcon,
+  strip: StripLightIcon,
+  lamp: LampCeiling,
+  bulb: Lightbulb,
+};
+const ROOM_ICONS: Record<string, IconComponent> = {
+  shower: ShowerHead,
+  baby: Baby,
+  door: DoorOpen,
+  utensils: Utensils,
+  home: Home,
+  bath: Bath,
+  bed: Bed,
+  sofa: Sofa,
+  room: Home,
+};
+/** The configuration that came with the snapshot, applied to the shared constants before anything renders. */
+let appliedPanel = "";
+function applyPanel(panel: PanelView | undefined) {
+  if (!panel) return;
+  const key = JSON.stringify(panel);
+  if (key === appliedPanel) return;
+  appliedPanel = key;
+  applyHomeConfig(panel);
+  tabs.splice(0, tabs.length, ...panel.tabs.map((id) => ALL_TABS[id]));
+  screensaverIdleMs = panel.screensaver.idle_minutes * 60 * 1000;
+}
 const weatherIcons: Record<string, typeof Sun> = {
   sunny: Sun,
   "clear-night": Moon,
@@ -132,7 +167,7 @@ const Ltr = ({ children }: { children: ReactNode }) => <bdi dir="ltr">{children}
 const fmt = (value: number | null, digits = 1) => (value === null ? "—" : value.toFixed(digits));
 const SAMPLE_REFRESH_MS = 10 * 60 * 1000;
 const MODAL_IDLE_MS = 30 * 1000;
-const SCREENSAVER_IDLE_MS = 5 * 60 * 1000;
+let screensaverIdleMs = 5 * 60 * 1000;
 
 function HomeControl() {
   const [tab, setTab] = useState<TabName>("Lights");
@@ -177,6 +212,7 @@ function HomeControl() {
     refetchIntervalInBackground: true,
   });
   const result = query.data;
+  applyPanel(result.panel);
   const lang = result.lang;
   const t = makeT(lang);
   const rtl = isRtl(lang);
@@ -309,7 +345,7 @@ function HomeControl() {
     const reset = () => {
       clearTimeout(timer);
       if (keepAwake) return;
-      const left = SCREENSAVER_IDLE_MS - (Date.now() - lastKeyAt.current);
+      const left = screensaverIdleMs - (Date.now() - lastKeyAt.current);
       timer = setTimeout(() => setScreensaver(true), Math.max(0, left));
     };
     const wake = (event: Event) => {
@@ -440,7 +476,7 @@ function HomeControl() {
     if (!photoAssetId || marking) return;
     forceNextPhoto.current = true;
     setMarking(true);
-    void markScreensaverPhoto({ data: { id: photoAssetId } })
+    void markScreensaverPhoto({ data: { id: photoAssetId, verdict: "keep" } })
       .then((res) => {
         if (!res.ok) console.error("mark photo failed:", res.error);
         // Marked photos leave the pool, so the next pick is a different, unjudged favourite.
@@ -451,6 +487,8 @@ function HomeControl() {
   skipPhoto.current = () => {
     if (marking || photo.isFetching) return;
     forceNextPhoto.current = true;
+    // F4 = skip for good (stored in Home Assistant with the kindle_panel integration), then the next photo.
+    if (photoAssetId) void markScreensaverPhoto({ data: { id: photoAssetId, verdict: "skip" } });
     void photoRefetch();
   };
   // While a mark + next photo is in flight the bridge holds its post-key screenshot (data-eink-busy),
@@ -707,7 +745,8 @@ function HomeControl() {
     event.preventDefault();
     if (event.key === "PageUp" || event.key === "PageDown") {
       const index = tabs.findIndex((item) => item.name === tab);
-      setTab(tabs[(index + (event.key === "PageDown" ? 1 : 3)) % 4]?.name ?? "Lights");
+      const n = tabs.length;
+      setTab(tabs[(index + (event.key === "PageDown" ? 1 : n - 1) + n) % n]?.name ?? "Lights");
       return;
     }
     const controls = Array.from(
@@ -835,7 +874,10 @@ function HomeControl() {
                   <div>
                     <h1>{t("lights.title")}</h1>
                     <p>
-                      {t("lights.count", { n: data.lights.filter((light) => light.on).length })}
+                      {t("lights.count", {
+                        n: data.lights.filter((light) => light.on).length,
+                        total: data.lights.length,
+                      })}
                     </p>
                   </div>
                   <Button
@@ -851,8 +893,8 @@ function HomeControl() {
                 <div className="light-card-grid">
                   {data.lights.map((light, index) => {
                     const meta = LIGHTS[index];
-                    const Icon = lightIcons[index];
-                    if (!meta || !Icon) return null;
+                    if (!meta) return null;
+                    const Icon = LIGHT_ICONS[meta.icon] ?? Lightbulb;
                     const name = localName(lang, meta.name);
                     return (
                       <Button
@@ -909,7 +951,7 @@ function HomeControl() {
                       <div className="subheading">{t("vacuum.roomsLabel")}</div>
                       <div className="room-grid">
                         {ROOMS.map(({ name, id }, index) => {
-                          const Icon = roomIcons[index];
+                          const Icon = ROOM_ICONS[ROOMS[index]?.icon ?? "room"] ?? Home;
                           if (!Icon) return null;
                           return (
                             <Button
@@ -944,7 +986,10 @@ function HomeControl() {
                         <div>
                           <h1>{t("power.title")}</h1>
                           <p>
-                            {t("power.count", { n: data.plugs.filter((plug) => plug.on).length })}
+                            {t("power.count", {
+                              n: data.plugs.filter((plug) => plug.on).length,
+                              total: data.plugs.length,
+                            })}
                           </p>
                         </div>
                         <Plug size={25} />

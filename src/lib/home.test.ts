@@ -4,7 +4,7 @@ import { LIGHTS, ROOMS, applyOptimistic, demoSnapshot, nearestColor, nearestShad
 describe("applyOptimistic", () => {
   it("toggles a light without mutating the input", () => {
     const before = demoSnapshot();
-    const after = applyOptimistic(before, { type: "light.toggle", entity: LIGHTS[1].id });
+    const after = applyOptimistic(before, { type: "light.toggle", entity: LIGHTS[1]!.id });
     expect(after.lights[1]?.on).toBe(true);
     expect(before.lights[1]?.on).toBe(false);
   });
@@ -14,7 +14,7 @@ describe("applyOptimistic", () => {
     expect(s.lights[0]?.level).toBe(40);
   });
   it("toggles and clears rooms", () => {
-    const picked = applyOptimistic(demoSnapshot(), { type: "room.toggle", entity: ROOMS[2].id });
+    const picked = applyOptimistic(demoSnapshot(), { type: "room.toggle", entity: ROOMS[2]!.id });
     expect(picked.rooms[2]).toBe(true);
     expect(applyOptimistic(picked, { type: "rooms.clear" }).rooms.some(Boolean)).toBe(false);
   });

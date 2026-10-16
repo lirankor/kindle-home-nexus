@@ -4,6 +4,7 @@
 // chosen tracks to HA's script.music_play_items; everything it shows about playback comes from script.music_state.
 // The scripts live in homeserver-cloud: stacks/homeassistant/.../packages_media_platform/music_platform.yaml.
 import { HomeError, fetchStates, ha, service } from "./home.server";
+import { panelConfigNow } from "./panel-config.server";
 import type { HaState } from "./home.server";
 import { AMP, FAVOURITES_LIST_ID, RADIO_LISTS, isAmpSource } from "./media";
 import type {
@@ -25,8 +26,12 @@ import type {
 export const BRIDGE = "media_player.r_n500";
 export const MA_PLAYERS = ["media_player.ma_amp_dlna", "media_player.ma_amp_airplay"] as const;
 
-export const musicBackend = (): "ha" | "app" =>
-  (process.env["MUSIC_BACKEND"] ?? "").trim().toLowerCase() === "ha" ? "ha" : "app";
+/** Panel config (HA) when it is managed there, else the MUSIC_BACKEND env as before. */
+export const musicBackend = (): "ha" | "app" => {
+  const cfg = panelConfigNow();
+  if (cfg?.source === "ha") return cfg.config.media.music_backend;
+  return (process.env["MUSIC_BACKEND"] ?? "").trim().toLowerCase() === "ha" ? "ha" : "app";
+};
 export const haBackend = () => musicBackend() === "ha";
 
 // ---- script.music_state contract ----

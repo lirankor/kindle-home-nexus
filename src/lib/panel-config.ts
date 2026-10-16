@@ -1,0 +1,251 @@
+// The panel's configuration (client + server, no secrets): what it shows and how it behaves. Edited in Home
+// Assistant (the kindle_panel integration's options) and read from there; DEFAULT_CONFIG is this household's
+// setup as it was hard-coded before, which the panel seeds into HA on its first start, so nothing on the screen
+// changes when the configuration moves to HA.
+//
+// applyPanelConfig() writes a config into the shared module constants (LIGHTS, ROOMS, PLUGS, AMP, …) in place, so
+// the rest of the code keeps reading them as before. The server applies what HA answers; the browser applies the
+// copy that comes with every snapshot.
+import type { Lang } from "./i18n";
+
+export const TAB_IDS = ["lights", "vacuum", "power", "media"] as const;
+export type TabId = (typeof TAB_IDS)[number];
+export const LIGHT_ICON_NAMES = ["lamp_ceiling", "spot", "strip", "lamp", "bulb"] as const;
+export const ROOM_ICON_NAMES = [
+  "shower",
+  "baby",
+  "door",
+  "utensils",
+  "home",
+  "bath",
+  "bed",
+  "sofa",
+  "room",
+] as const;
+
+export type PanelLight = { entity_id: string; name: string; room: string; icon: string };
+export type PanelRoom = { entity_id: string; name: string; icon: string };
+export type PanelPlug = {
+  entity_id: string;
+  name: string;
+  power_entity?: string | null;
+  energy_entity?: string | null;
+  energy_to_wh: number;
+};
+export type PhotoSource =
+  | { type: "immich_favorites"; title?: string }
+  | { type: "media_source"; id: string; title?: string };
+
+export type PanelConfig = {
+  version: number;
+  language: Lang;
+  tabs: TabId[];
+  names: Partial<Record<Lang, Record<string, string>>>;
+  lights: PanelLight[];
+  evening: { entity_id?: string | null; brightness_pct: number; warm_kelvin: number };
+  vacuum: {
+    entity_id?: string | null;
+    battery_entity?: string | null;
+    rooms_script?: string | null;
+    rooms: PanelRoom[];
+  };
+  plugs: PanelPlug[];
+  media: {
+    music_backend: "app" | "ha";
+    amp_player?: string | null;
+    amp_volume?: string | null;
+    dlna_player?: string | null;
+    amp_plug?: string | null;
+    amp_plug_power?: string | null;
+    tv?: string | null;
+    movie_on?: string | null;
+    movie_off?: string | null;
+    movie_active?: string | null;
+    ynca_entry_id?: string | null;
+  };
+  sensors: {
+    indoor_temperature?: string | null;
+    indoor_humidity?: string | null;
+    weather?: string | null;
+  };
+  screensaver: {
+    idle_minutes: number;
+    photo_minutes: number;
+    mode: "curate" | "all_but_skipped" | "kept_only";
+    sources: PhotoSource[];
+  };
+  schedule: {
+    radio_duty: boolean;
+    day_wake_min: number;
+    night_start: string;
+    night_end: string;
+    night_wake_min: number;
+    timezone: string;
+  };
+};
+
+const TV_PLUG = "smart_switch_23081678814571510d0548e1e9d69992";
+const WORKSTATION = "smart_switch_23081667767888510d0548e1e9d69812";
+const BOILER = "smart_switch_23091502032711510d0248e1e9dac29d";
+
+/** This household, exactly as the panel had it hard-coded (seeded into HA on the first start). */
+export const DEFAULT_CONFIG: PanelConfig = {
+  version: 1,
+  language: "he",
+  tabs: ["lights", "vacuum", "power", "media"],
+  names: {
+    en: {},
+    he: {
+      "Main light": "אור ראשי",
+      "Spot light": "ספוטים",
+      "Dining table": "שולחן אוכל",
+      "Cabinet strips": "פסי ארון",
+      "Living room": "סלון",
+      "Dining room": "פינת אוכל",
+      Shower: "מקלחת",
+      "Kids room": "חדר ילדים",
+      Corridor: "מסדרון",
+      Kitchen: "מטבח",
+      Hall: "כניסה",
+      Bathroom: "אמבטיה",
+      Bedroom: "חדר שינה",
+      "TV Plug": "שקע טלוויזיה",
+      Workstation: "עמדת עבודה",
+      "Kitchen boiler": "דוד מטבח",
+      "Sony TV": "טלוויזיה",
+      "Yamaha R-N500": "מגבר ימאהה",
+    },
+  },
+  lights: [
+    {
+      entity_id: "light.main_light",
+      name: "Main light",
+      room: "Living room",
+      icon: "lamp_ceiling",
+    },
+    { entity_id: "light.spots", name: "Spot light", room: "Living room", icon: "spot" },
+    {
+      entity_id: "light.dining_table",
+      name: "Dining table",
+      room: "Dining room",
+      icon: "lamp_ceiling",
+    },
+    {
+      entity_id: "light.cabinet_strips",
+      name: "Cabinet strips",
+      room: "Dining room",
+      icon: "strip",
+    },
+  ],
+  evening: { entity_id: "light.main_light", brightness_pct: 40, warm_kelvin: 2200 },
+  vacuum: {
+    entity_id: "vacuum.roborock_qrevo_edge_series",
+    battery_entity: "sensor.roborock_qrevo_edge_series_battery",
+    rooms_script: "script.robo_grid_start",
+    rooms: [
+      { entity_id: "input_boolean.robo_grid_1", name: "Shower", icon: "shower" },
+      { entity_id: "input_boolean.robo_grid_2", name: "Kids room", icon: "baby" },
+      { entity_id: "input_boolean.robo_grid_3", name: "Corridor", icon: "door" },
+      { entity_id: "input_boolean.robo_grid_7", name: "Kitchen", icon: "utensils" },
+      { entity_id: "input_boolean.robo_grid_6", name: "Hall", icon: "home" },
+      { entity_id: "input_boolean.robo_grid_5", name: "Bathroom", icon: "bath" },
+      { entity_id: "input_boolean.robo_grid_4", name: "Bedroom", icon: "bed" },
+      { entity_id: "input_boolean.robo_grid_8", name: "Living room", icon: "sofa" },
+    ],
+  },
+  plugs: [
+    {
+      entity_id: `switch.${TV_PLUG}_outlet`,
+      name: "TV Plug",
+      power_entity: `sensor.${TV_PLUG}_power`,
+      energy_entity: `sensor.${TV_PLUG}_energy`,
+      energy_to_wh: 1,
+    },
+    {
+      entity_id: `switch.${WORKSTATION}_outlet`,
+      name: "Workstation",
+      power_entity: `sensor.${WORKSTATION}_power`,
+      energy_entity: `sensor.${WORKSTATION}_energy`,
+      energy_to_wh: 1,
+    },
+    {
+      entity_id: `switch.${BOILER}_outlet`,
+      name: "Kitchen boiler",
+      power_entity: `sensor.${BOILER}_power`,
+      energy_entity: "sensor.kitchen_boiler_energy_calc",
+      energy_to_wh: 1000,
+    },
+  ],
+  media: {
+    music_backend: "app",
+    amp_player: "media_player.r_n500_main",
+    amp_volume: "number.r_n500_main_volume_db",
+    dlna_player: "media_player.yamaha_r_n500",
+    amp_plug: `switch.${TV_PLUG}_outlet`,
+    amp_plug_power: `sensor.${TV_PLUG}_power`,
+    tv: "media_player.bravia_xr_65x90k",
+    movie_on: "script.movie_mode",
+    movie_off: "script.movie_mode_off",
+    movie_active: "input_boolean.movie_mode_active",
+    ynca_entry_id: "01M0ZMQXMTWAAW7BXTBCXD1YZR",
+  },
+  sensors: {
+    indoor_temperature: "sensor.ikea_of_sweden_vindstyrka_temperature",
+    indoor_humidity: "sensor.ikea_of_sweden_vindstyrka_humidity",
+    weather: "weather.forecast_home",
+  },
+  screensaver: {
+    idle_minutes: 5,
+    photo_minutes: 10,
+    mode: "curate",
+    sources: [{ type: "immich_favorites", title: "Immich · Favourites" }],
+  },
+  schedule: {
+    radio_duty: true,
+    day_wake_min: 10,
+    night_start: "00:00",
+    night_end: "06:00",
+    night_wake_min: 120,
+    timezone: "Europe/Berlin",
+  },
+};
+
+/** What the browser needs (no service/script ids beyond what it already shows). */
+export type PanelView = Pick<
+  PanelConfig,
+  "language" | "tabs" | "names" | "lights" | "vacuum" | "plugs" | "screensaver"
+> & { source: "ha" | "default" };
+
+export const panelView = (c: PanelConfig, source: "ha" | "default"): PanelView => ({
+  language: c.language,
+  tabs: c.tabs,
+  names: c.names,
+  lights: c.lights,
+  vacuum: { rooms: c.vacuum.rooms },
+  plugs: c.plugs,
+  screensaver: c.screensaver,
+  source,
+});
+
+/** A config from HA, missing parts filled from the defaults' shape (HA normalises it already; this guards old ones). */
+export function mergePanelConfig(raw: Partial<PanelConfig> | null | undefined): PanelConfig {
+  const d = DEFAULT_CONFIG;
+  if (!raw) return structuredClone(d);
+  const tabs = (raw.tabs ?? d.tabs).filter((t): t is TabId =>
+    (TAB_IDS as readonly string[]).includes(t),
+  );
+  return {
+    version: raw.version ?? 1,
+    language: raw.language === "en" || raw.language === "he" ? raw.language : d.language,
+    tabs: tabs.length ? tabs : [...d.tabs],
+    names: raw.names ?? {},
+    lights: raw.lights ?? [],
+    evening: { ...d.evening, entity_id: null, ...(raw.evening ?? {}) },
+    vacuum: { rooms: [], ...(raw.vacuum ?? {}) },
+    plugs: (raw.plugs ?? []).map((p) => ({ ...p, energy_to_wh: p.energy_to_wh ?? 1 })),
+    media: { music_backend: "app", ...(raw.media ?? {}) },
+    sensors: { ...(raw.sensors ?? {}) },
+    screensaver: { ...d.screensaver, sources: [], ...(raw.screensaver ?? {}) },
+    schedule: { ...d.schedule, ...(raw.schedule ?? {}) },
+  };
+}

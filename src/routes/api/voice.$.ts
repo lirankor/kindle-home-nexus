@@ -15,6 +15,7 @@ import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { haConfigured, service } from "@/lib/home.server";
 import { haBackend } from "@/lib/media-ha.server";
+import { ensurePanelConfig } from "@/lib/panel-config.server";
 import { AMP, MIX_IDS, RADIO_LISTS, findStation } from "@/lib/media";
 import type { AmpSource, MediaAction, MediaSnapshot, QueueProgress } from "@/lib/media";
 import {
@@ -595,6 +596,12 @@ export const Route = createFileRoute("/api/voice/$")({
         // Art is token-less on purpose: HA's template image entity cannot send headers, the port is loopback-only and
         // the route only ever serves a catalog station's own logo.
         if (sub(request) === "art") return art(new URL(request.url).searchParams);
+        // The bridge (same network namespace) reads the battery-saver schedule from the panel config; token-less
+        // like art: the app port is loopback-only and this is four numbers and a time zone.
+        if (sub(request) === "panel-schedule") {
+          const cfg = await ensurePanelConfig();
+          return json({ source: cfg.source, schedule: cfg.config.schedule });
+        }
         if (!env("VOICE_TOKEN")) return fail("voice API disabled (VOICE_TOKEN unset)", 503);
         if (!authorized(request)) return fail("unauthorized", 401);
         switch (sub(request)) {

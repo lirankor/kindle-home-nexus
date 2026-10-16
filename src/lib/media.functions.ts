@@ -27,6 +27,7 @@ import type {
   QueueList,
 } from "@/lib/media";
 import { haConfigured } from "./home.server";
+import { ensurePanelConfig } from "./panel-config.server";
 import {
   ampConfigured,
   getQueueProgress,
@@ -104,7 +105,8 @@ const needsHa = (a: MediaAction) =>
   ].includes(a.type);
 
 async function snapshotResult(): Promise<MediaSnapshotResult> {
-  const lang = parseLang(process.env["UI_LANGUAGE"]);
+  const cfg = await ensurePanelConfig();
+  const lang = cfg.source === "ha" ? cfg.config.language : parseLang(process.env["UI_LANGUAGE"]);
   if (!haConfigured())
     return { configured: false, ...flags(), snapshot: demoMediaSnapshot(), lang };
   try {
@@ -122,6 +124,7 @@ export const runMediaAction = createServerFn({ method: "POST" })
   .validator(actionSchema)
   .handler(async ({ data }): Promise<MediaActionResult> => {
     const action = data as MediaAction;
+    await ensurePanelConfig();
     if (!haConfigured() && needsHa(action)) return { ok: false, error: "HA not configured" };
     try {
       if (haBackend()) await performMediaActionHa(action, performMediaAction);

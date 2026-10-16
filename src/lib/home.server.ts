@@ -1,8 +1,8 @@
 // Server-only: talks to Home Assistant and Immich. Env vars are read at request
 // time from process.env and never reach the browser.
 import {
+  EVENING,
   LIGHTS,
-  LIGHT_IDS,
   MEDIA,
   PLUGS,
   ROOMS,
@@ -117,10 +117,10 @@ export function buildSnapshot(states: Map<string, HaState>): Snapshot {
     },
     rooms: ROOMS.map((r) => states.get(r.id)?.state === "on"),
     plugs: PLUGS.map((p) => {
-      const e = num(states.get(p.energy));
+      const e = p.energy ? num(states.get(p.energy)) : null;
       return {
         on: states.get(p.id)?.state === "on",
-        power: num(states.get(p.power)),
+        power: p.power ? num(states.get(p.power)) : null,
         energyWh: e === null ? null : e * p.energyToWh,
       };
     }),
@@ -160,14 +160,21 @@ export async function performAction(a: Action): Promise<void> {
       });
       break;
     case "lights.off":
-      await service("light", "turn_off", { entity_id: LIGHT_IDS });
+      await service("light", "turn_off", { entity_id: LIGHTS.map((l) => l.id) });
       break;
     case "scene":
       if (a.name === "Bright")
-        await service("light", "turn_on", { entity_id: LIGHT_IDS, brightness_pct: 100 });
+        await service("light", "turn_on", {
+          entity_id: LIGHTS.map((l) => l.id),
+          brightness_pct: 100,
+        });
       else if (a.name === "Evening") {
-        await service("light", "turn_on", { entity_id: LIGHTS[0].id, brightness_pct: 40 });
-        await service("light", "turn_off", { entity_id: LIGHT_IDS.slice(1) });
+        // The evening light (panel config, default: the first light) dimmed, every other light off.
+        const keep = EVENING.entity || LIGHTS[0]?.id;
+        if (keep)
+          await service("light", "turn_on", { entity_id: keep, brightness_pct: EVENING.pct });
+        const rest = LIGHTS.map((l) => l.id).filter((id) => id !== keep);
+        if (rest.length) await service("light", "turn_off", { entity_id: rest });
       } else await service("script", "turn_on", { entity_id: SCRIPTS.movie }); // turn_on: do not wait for the script to finish
       break;
     case "movie.end":

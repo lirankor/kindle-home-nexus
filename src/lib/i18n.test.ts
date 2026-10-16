@@ -17,8 +17,8 @@ describe("i18n", () => {
   });
 
   it("fills placeholders", () => {
-    expect(makeT("en")("lights.count", { n: 2 })).toBe("2 of 4 lights on");
-    expect(makeT("he")("lights.count", { n: 2 })).toContain("2");
+    expect(makeT("en")("lights.count", { n: 2, total: 4 })).toBe("2 of 4 lights on");
+    expect(makeT("he")("lights.count", { n: 2, total: 4 })).toContain("4");
   });
 
   it("localises entity names and action labels", () => {

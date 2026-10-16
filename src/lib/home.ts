@@ -3,41 +3,17 @@
 
 import { makeT, tryT } from "./i18n";
 import type { Lang } from "./i18n";
+import { DEFAULT_CONFIG } from "./panel-config";
+import type { PanelView } from "./panel-config";
 
-// Display-name overrides per language, keyed by the English name used below.
+// Display-name overrides per language, keyed by the English name used below (from the panel config: names).
 // Entities without an entry keep their English name.
-export const NAME_OVERRIDES: Record<Lang, Record<string, string>> = {
-  en: {},
-  he: {
-    "Main light": "אור ראשי",
-    "Spot light": "ספוטים",
-    "Dining table": "שולחן אוכל",
-    "Cabinet strips": "פסי ארון",
-    "Living room": "סלון",
-    "Dining room": "פינת אוכל",
-    Shower: "מקלחת",
-    "Kids room": "חדר ילדים",
-    Corridor: "מסדרון",
-    Kitchen: "מטבח",
-    Hall: "כניסה",
-    Bathroom: "אמבטיה",
-    Bedroom: "חדר שינה",
-    "TV Plug": "שקע טלוויזיה",
-    Workstation: "עמדת עבודה",
-    "Kitchen boiler": "דוד מטבח",
-    "Sony TV": "טלוויזיה",
-    "Yamaha R-N500": "מגבר ימאהה",
-  },
-};
+export const NAME_OVERRIDES: Record<Lang, Record<string, string>> = { en: {}, he: {} };
 export const localName = (lang: Lang, name: string) => NAME_OVERRIDES[lang][name] ?? name;
 
-export const LIGHTS = [
-  { id: "light.main_light", name: "Main light", room: "Living room" },
-  { id: "light.spots", name: "Spot light", room: "Living room" },
-  { id: "light.dining_table", name: "Dining table", room: "Dining room" },
-  { id: "light.cabinet_strips", name: "Cabinet strips", room: "Dining room" },
-] as const;
-export const LIGHT_IDS = LIGHTS.map((l) => l.id) as [string, ...string[]];
+export type LightMeta = { id: string; name: string; room: string; icon: string };
+/** Lights in screen order (panel config: lights). Mutated in place by applyHomeConfig. */
+export const LIGHTS: LightMeta[] = [];
 
 // Warm matches the HA "Evening light" automation (2200 K); HA clamps to each lamp's minimum.
 export const SHADES = { Warm: 2200, Neutral: 4000, Cool: 6000 } as const;
@@ -66,58 +42,23 @@ const COLOR_RGB: Record<string, [number, number, number]> = {
   Pink: [255, 192, 203],
 };
 
-// UI order. Entity numbers follow input_boolean.robo_grid_N.
-export const ROOMS = [
-  { name: "Shower", id: "input_boolean.robo_grid_1" },
-  { name: "Kids room", id: "input_boolean.robo_grid_2" },
-  { name: "Corridor", id: "input_boolean.robo_grid_3" },
-  { name: "Kitchen", id: "input_boolean.robo_grid_7" },
-  { name: "Hall", id: "input_boolean.robo_grid_6" },
-  { name: "Bathroom", id: "input_boolean.robo_grid_5" },
-  { name: "Bedroom", id: "input_boolean.robo_grid_4" },
-  { name: "Living room", id: "input_boolean.robo_grid_8" },
-] as const;
-export const ROOM_IDS = ROOMS.map((r) => r.id) as [string, ...string[]];
+export type RoomMeta = { name: string; id: string; icon: string };
+/** Vacuum rooms in screen order (panel config: vacuum.rooms). */
+export const ROOMS: RoomMeta[] = [];
 
-export const VACUUM = {
-  id: "vacuum.roborock_qrevo_edge_series",
-  battery: "sensor.roborock_qrevo_edge_series_battery",
-} as const;
+export const VACUUM = { id: "", battery: "" };
 
-const TV_PLUG = "smart_switch_23081678814571510d0548e1e9d69992";
-const WORKSTATION = "smart_switch_23081667767888510d0548e1e9d69812";
-const BOILER = "smart_switch_23091502032711510d0248e1e9dac29d";
-// energy is converted to Wh with energyToWh.
-export const PLUGS = [
-  {
-    name: "TV Plug",
-    id: `switch.${TV_PLUG}_outlet`,
-    power: `sensor.${TV_PLUG}_power`,
-    energy: `sensor.${TV_PLUG}_energy`,
-    energyToWh: 1,
-  },
-  {
-    name: "Workstation",
-    id: `switch.${WORKSTATION}_outlet`,
-    power: `sensor.${WORKSTATION}_power`,
-    energy: `sensor.${WORKSTATION}_energy`,
-    energyToWh: 1,
-  },
-  {
-    name: "Kitchen boiler",
-    id: `switch.${BOILER}_outlet`,
-    power: `sensor.${BOILER}_power`,
-    energy: "sensor.kitchen_boiler_energy_calc",
-    energyToWh: 1000,
-  },
-] as const;
-export const SWITCH_IDS = PLUGS.map((p) => p.id) as [string, ...string[]];
+export type PlugMeta = {
+  name: string;
+  id: string;
+  power: string | null;
+  energy: string | null;
+  /** energy is converted to Wh with energyToWh. */
+  energyToWh: number;
+};
+export const PLUGS: PlugMeta[] = [];
 
-export const MEDIA = [
-  { name: "Yamaha R-N500", id: "media_player.r_n500_main" },
-  { name: "Sony TV", id: "media_player.bravia_xr_65x90k" },
-] as const;
-export const MEDIA_IDS = MEDIA.map((m) => m.id) as [string, ...string[]];
+export const MEDIA: { name: string; id: string }[] = [];
 export const MEDIA_OPS = [
   "turn_on",
   "turn_off",
@@ -130,17 +71,99 @@ export const MEDIA_OPS = [
 ] as const;
 export type MediaOp = (typeof MEDIA_OPS)[number];
 
-export const SCRIPTS = {
-  movie: "script.movie_mode",
-  movieOff: "script.movie_mode_off",
-  roomsStart: "script.robo_grid_start",
-  movieActive: "input_boolean.movie_mode_active",
-} as const;
-export const SENSORS = {
-  indoorTemp: "sensor.ikea_of_sweden_vindstyrka_temperature",
-  indoorHumidity: "sensor.ikea_of_sweden_vindstyrka_humidity",
-  weather: "weather.forecast_home",
-} as const;
+export const SCRIPTS = { movie: "", movieOff: "", roomsStart: "", movieActive: "" };
+export const SENSORS = { indoorTemp: "", indoorHumidity: "", weather: "" };
+/** The Evening scene (panel config: evening). */
+export const EVENING = { entity: "", pct: 40, kelvin: 2200 };
+
+const eveningIndex = () =>
+  Math.max(
+    0,
+    LIGHTS.findIndex((l) => l.id === EVENING.entity),
+  );
+
+/** Write a panel config into the constants above, in place (server: from HA; browser: from the snapshot). */
+export function applyHomeConfig(c: {
+  names: Partial<Record<Lang, Record<string, string>>>;
+  lights: { entity_id: string; name: string; room?: string; icon?: string }[];
+  vacuum: {
+    entity_id?: string | null;
+    battery_entity?: string | null;
+    rooms_script?: string | null;
+    rooms: { entity_id: string; name: string; icon?: string }[];
+  };
+  plugs: {
+    entity_id: string;
+    name: string;
+    power_entity?: string | null;
+    energy_entity?: string | null;
+    energy_to_wh?: number;
+  }[];
+  media?: {
+    amp_player?: string | null;
+    tv?: string | null;
+    movie_on?: string | null;
+    movie_off?: string | null;
+    movie_active?: string | null;
+  };
+  sensors?: {
+    indoor_temperature?: string | null;
+    indoor_humidity?: string | null;
+    weather?: string | null;
+  };
+  evening?: { entity_id?: string | null; brightness_pct: number; warm_kelvin: number };
+}) {
+  NAME_OVERRIDES.en = { ...(c.names.en ?? {}) };
+  NAME_OVERRIDES.he = { ...(c.names.he ?? {}) };
+  LIGHTS.splice(
+    0,
+    LIGHTS.length,
+    ...c.lights.map((l) => ({
+      id: l.entity_id,
+      name: l.name,
+      room: l.room ?? "",
+      icon: l.icon ?? "bulb",
+    })),
+  );
+  ROOMS.splice(
+    0,
+    ROOMS.length,
+    ...c.vacuum.rooms.map((r) => ({ id: r.entity_id, name: r.name, icon: r.icon ?? "room" })),
+  );
+  VACUUM.id = c.vacuum.entity_id ?? "";
+  VACUUM.battery = c.vacuum.battery_entity ?? "";
+  SCRIPTS.roomsStart = c.vacuum.rooms_script ?? "";
+  PLUGS.splice(
+    0,
+    PLUGS.length,
+    ...c.plugs.map((p) => ({
+      name: p.name,
+      id: p.entity_id,
+      power: p.power_entity ?? null,
+      energy: p.energy_entity ?? null,
+      energyToWh: p.energy_to_wh ?? 1,
+    })),
+  );
+  if (c.media) {
+    MEDIA.splice(0, MEDIA.length);
+    if (c.media.amp_player) MEDIA.push({ name: "Yamaha R-N500", id: c.media.amp_player });
+    if (c.media.tv) MEDIA.push({ name: "Sony TV", id: c.media.tv });
+    SCRIPTS.movie = c.media.movie_on ?? "";
+    SCRIPTS.movieOff = c.media.movie_off ?? "";
+    SCRIPTS.movieActive = c.media.movie_active ?? "";
+  }
+  if (c.sensors) {
+    SENSORS.indoorTemp = c.sensors.indoor_temperature ?? "";
+    SENSORS.indoorHumidity = c.sensors.indoor_humidity ?? "";
+    SENSORS.weather = c.sensors.weather ?? "";
+  }
+  if (c.evening) {
+    EVENING.entity = c.evening.entity_id ?? LIGHTS[0]?.id ?? "";
+    EVENING.pct = c.evening.brightness_pct;
+    EVENING.kelvin = c.evening.warm_kelvin;
+  }
+}
+applyHomeConfig(DEFAULT_CONFIG);
 
 export type LightState = {
   on: boolean;
@@ -167,8 +190,10 @@ export type SnapshotResult = {
   error?: string;
   snapshot: Snapshot | null;
   lang: Lang;
-  /** Screensaver photo rotation in minutes (env DAY_WAKE_MIN = the Kindle's day wake interval). */
+  /** Screensaver photo rotation in minutes (panel config, else env DAY_WAKE_MIN). */
   photoMinutes?: number;
+  /** The panel configuration the browser renders with (lights, rooms, plugs, tabs, names, …). */
+  panel?: PanelView;
 };
 
 export type Action =
@@ -201,22 +226,25 @@ export const nearestColor = (rgb: number[]): string =>
     { name: "White", d: Infinity },
   ).name;
 
+const DEMO_LIGHTS: LightState[] = [
+  { on: true, level: 96, shade: "Warm", color: "White", canColor: true },
+  { on: false, level: 60, shade: "Neutral", color: "White", canColor: true },
+  { on: false, level: 80, shade: "Warm", color: "White", canColor: false },
+  { on: false, level: 50, shade: "Cool", color: "White", canColor: false },
+];
+const DEMO_PLUGS = [
+  { on: false, power: 0, energyWh: 244 },
+  { on: true, power: 62.1, energyWh: 569 },
+  { on: false, power: 0, energyWh: 0 },
+];
+
 export function demoSnapshot(): Snapshot {
   return {
-    lights: [
-      { on: true, level: 96, shade: "Warm", color: "White", canColor: true },
-      { on: false, level: 60, shade: "Neutral", color: "White", canColor: true },
-      { on: false, level: 80, shade: "Warm", color: "White", canColor: false },
-      { on: false, level: 50, shade: "Cool", color: "White", canColor: false },
-    ],
+    lights: LIGHTS.map((_, i) => ({ ...DEMO_LIGHTS[i % DEMO_LIGHTS.length]! })),
     movieActive: false,
     vacuum: { state: "docked", battery: 100 },
     rooms: ROOMS.map(() => false),
-    plugs: [
-      { on: false, power: 0, energyWh: 244 },
-      { on: true, power: 62.1, energyWh: 569 },
-      { on: false, power: 0, energyWh: 0 },
-    ],
+    plugs: PLUGS.map((_, i) => ({ ...DEMO_PLUGS[i % DEMO_PLUGS.length]! })),
     media: MEDIA.map(() => ({ state: "unavailable", volume: null, source: null })),
     weather: { condition: "sunny", temp: 19.1 },
     indoor: { temp: 22, humidity: 63 },
@@ -329,8 +357,13 @@ export function applyOptimistic(s: Snapshot, a: Action): Snapshot {
       else
         next.lights.forEach((_, i) =>
           patchLight(i, {
-            on: a.name === "Bright" || i === 0,
-            level: a.name === "Bright" ? 100 : i === 0 ? 40 : (next.lights[i]?.level ?? 0),
+            on: a.name === "Bright" || i === eveningIndex(),
+            level:
+              a.name === "Bright"
+                ? 100
+                : i === eveningIndex()
+                  ? EVENING.pct
+                  : (next.lights[i]?.level ?? 0),
           }),
         );
       break;

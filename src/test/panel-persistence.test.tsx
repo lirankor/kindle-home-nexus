@@ -238,7 +238,7 @@ describe("Panel idle behaviour and persistence", () => {
 
     press("F1");
     await waitFor(() =>
-      expect(mocks.markScreensaverPhoto).toHaveBeenCalledWith({ data: { id: "photo-1" } }),
+      expect(mocks.markScreensaverPhoto).toHaveBeenCalledWith({ data: { id: "photo-1", verdict: "keep" } }),
     );
     await waitFor(() =>
       expect(document.querySelector(".photo-demo")?.textContent).toContain("3 סומנו"),
@@ -247,10 +247,13 @@ describe("Panel idle behaviour and persistence", () => {
     expect(document.querySelector(".photo-screen")).not.toBeNull();
     expect(document.documentElement.dataset["einkBusy"]).toBeUndefined();
 
-    // F4: next photo, nothing marked, still asleep.
+    // F4: skip this photo for good (stored in HA with the kindle_panel integration), next photo, still asleep.
     press("F4");
     await waitFor(() => expect(mocks.getScreensaver).toHaveBeenCalledTimes(3));
-    expect(mocks.markScreensaverPhoto).toHaveBeenCalledTimes(1);
+    expect(mocks.markScreensaverPhoto).toHaveBeenCalledTimes(2);
+    expect(mocks.markScreensaverPhoto).toHaveBeenLastCalledWith({
+      data: { id: "photo-2", verdict: "skip" },
+    });
     expect(document.querySelector(".photo-screen")).not.toBeNull();
 
     // Any other key still wakes the panel.
