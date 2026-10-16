@@ -8,9 +8,11 @@ services:
         required: false
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # Media state (Jellyfin queue, radio position) and resized-image cache survive rebuilds.
+    # Media state (Jellyfin queue, mixes, photo marks, radio position) and the resized-image cache survive rebuilds.
+    # Runtime state lives in bind mounts under KINDLE_DATA_DIR (default ./data next to this file; set it in .env to
+    # keep the state somewhere your backups cover).
     volumes:
-      - app-data:/data
+      - ${KINDLE_DATA_DIR:-./data}/app-data:/data
     # Also on cover-forge's network (a separate compose project on this box) for generated station covers;
     # the bridge shares this namespace and so reaches it too. That network must exist (`docker compose up` in
     # /home/openclaw/cover-forge) or drop the line + COVER_FORGE_URL.
@@ -62,11 +64,11 @@ services:
     ports:
       - "127.0.0.1:8095:80"
     volumes:
-      - ytuner-cache:/app/cache
-      - ytuner-db:/app/db
-      # YTuner keeps the amp's bookmarks ("Favourites") in config/bookmark.xml next to the station list: a volume so a
-      # rebuild keeps them, with the versioned files bind-mounted read-only on top (edit + `docker compose restart ytuner`).
-      - ytuner-config:/app/config
+      - ${KINDLE_DATA_DIR:-./data}/ytuner-cache:/app/cache
+      - ${KINDLE_DATA_DIR:-./data}/ytuner-db:/app/db
+      # YTuner keeps the amp's bookmarks ("Favourites") in config/bookmark.xml next to the station list: a persistent
+      # dir so a rebuild keeps them, with the versioned files bind-mounted read-only on top (edit + `docker compose restart ytuner`).
+      - ${KINDLE_DATA_DIR:-./data}/ytuner-config:/app/config
       - ./ytuner/config/stations.yaml:/app/config/stations.yaml:ro
       - ./ytuner/config/avr.ini:/app/config/avr.ini:ro
 
@@ -78,12 +80,6 @@ services:
       - "192.168.1.15:8792:8792"
     volumes:
       - ./src/data/radio-stations.json:/app/radio-stations.json:ro
-
-volumes:
-  app-data:
-  ytuner-cache:
-  ytuner-db:
-  ytuner-config:
 
 networks:
   cover-forge:

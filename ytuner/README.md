@@ -37,7 +37,7 @@ The file is bind-mounted read-only into the container: edit, commit, `docker com
 `Successfully loaded N my stations`.
 
 Bookmarks (the amp's / Kindle's "Favourites") are written by YTuner to `config/bookmark.xml`, which lives in the
-`ytuner-config` volume so rebuilds keep them (before 2026-10-14 it was container-local and a rebuild emptied the list).
+`ytuner-config` dir (`${KINDLE_DATA_DIR:-./data}/ytuner-config`, a named volume until 2026-10-16) so rebuilds keep them (before 2026-10-14 it was container-local and a rebuild emptied the list).
 
 ## Checks
 

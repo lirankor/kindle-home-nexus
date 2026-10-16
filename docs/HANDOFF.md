@@ -164,7 +164,7 @@ Cause: `SHADES.Warm` in `src/lib/home.ts` was 2700 K; the HA "Evening light" aut
 
 User: some Immich favourites dither really well, some badly; wants to judge them from the device and later show only the good ones.
 - Screensaver caption now reads "Immich favorite · F1 = looks good · F4 = next · N marked". F4 skips to the next photo without judging (b. commit after a10e189). F1 on the screensaver calls `markScreensaverPhoto` (src/lib/home.functions.ts) with the shown asset id, then refetches the photo. Any other key wakes as before.
-- Marks live in `MEDIA_STATE_DIR/kindle-photo-marks.json` (= `/data`, app-data volume) as `{marked:[{id,at}]}` (src/lib/photo.server.ts `loadMarks/addMark`, cap 5000). Only ids served in the last 8 picks are accepted (home.server.ts `servedPhotos`).
+- Marks live in `MEDIA_STATE_DIR/kindle-photo-marks.json` (= `/data`, the `app-data` bind mount under `KINDLE_DATA_DIR`) as `{marked:[{id,at}]}` (src/lib/photo.server.ts `loadMarks/addMark`, cap 5000). Only ids served in the last 8 picks are accepted (home.server.ts `servedPhotos`).
 - Pool: all favourites (Immich search/metadata paged, ≤ 8×250) minus marked; if everything is marked the full pool is used again. `pickAsset` gained an `exclude` set.
 - Bridge: page sets `<html data-eink-busy>` while mark + next photo are in flight; `pressKey` waits for it to clear (BUSY_WAIT_MS=6000) so the F1 redraw already shows the next photo.
 - Next step when a few hundred are marked: switch the pool to the marks (e.g. env `SCREENSAVER_POOL=marked`) — not built. To inspect: `docker compose exec app cat /data/kindle-photo-marks.json`.

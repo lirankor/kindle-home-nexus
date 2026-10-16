@@ -59,7 +59,7 @@ curl -o screen.png -H "X-Bridge-Token: $BRIDGE_TOKEN" http://127.0.0.1:8790/scre
   `sudo ufw allow from 10.90.90.0/24 to any port 8123 proto tcp`.
 - **Rebuilding only the app:** `docker compose up -d --build app` **then** `docker compose up -d --force-recreate --no-deps bridge`.
   The bridge uses `network_mode: service:app`; without the second command it stays in the dead namespace and `:8790` stops answering.
-- Persistent state: volume `app-data` (queue / radio position / image cache), `ytuner-cache`, `ytuner-db`.
+- Persistent state: bind mounts under `KINDLE_DATA_DIR` (default `./data`): `app-data` (queue / mixes / photo marks / radio position / image cache), `ytuner-cache`, `ytuner-db`, `ytuner-config` (Favourites). Named volumes until 2026-10-16.
 - `.env` is the only secret-bearing file. Its encrypted copy and the restore procedure live in the home-server DR repo
   (`homeserver-cloud/stacks/kindle-home-nexus/SOURCE.md`); the server backs this directory up nightly.
 

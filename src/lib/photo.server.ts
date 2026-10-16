@@ -64,7 +64,7 @@ export async function cropToScreen(input: Buffer): Promise<Buffer> {
 
 // ---- "Looks good on e-ink" marks ----
 // The user presses F1 on the screensaver to mark a photo that dithers well. Marked ids are kept in
-// MEDIA_STATE_DIR/kindle-photo-marks.json (the app-data volume) and leave the random pool, so each
+// MEDIA_STATE_DIR/kindle-photo-marks.json (the app-data bind mount) and leave the random pool, so each
 // favourite is judged once. Later, once a few hundred are marked, the pool can be the marks instead.
 
 export type PhotoMark = { id: string; at: string };

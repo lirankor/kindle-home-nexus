@@ -34,3 +34,6 @@ bridge/node_modules
 
 # Secrets
 .env
+
+# Runtime state (default KINDLE_DATA_DIR, see docker-compose.yml)
+/data/
