@@ -84,16 +84,23 @@ more, which is what the 2 s settle covers; there is no completion flag in sysfs 
 
 With the radio off, a key press takes ~6 s, up to `WIFI_WAIT`, before the bridge even hears of it. The owner asked
 for an indication on the device. The bridge can't draw while the radio is off, so the Kindle draws it itself:
-- **Before switching the radio off** (`prepare_connecting`), the client fetches `/connecting.png`: the frame on the
-  panel with a black "מתחבר… / Connecting…" badge with a Wi-Fi icon at the top centre. It's an empty answer when
-  unchanged, so it's usually free.
-- **On a key press while the radio is off** (`radio_up key`), the client switches the radio on and at once draws the
-  stored frame with a partial update. The full redraw after the reconnect then clears it.
+- On a key press while the radio is off (`radio_up key`), the client switches the radio on and at once draws
+  `connecting.png`. That's a 200×200 icon (a Wi-Fi symbol on a black tile, no text, so any language) kept next to
+  `nexus.sh` in `/mnt/us/nexus/`.
+- It's drawn in the middle of the screen (`eips -g … -x 200 -y 300`, partial update). The full redraw after the
+  reconnect clears it.
+- No network is involved, so it works whatever the bridge or the screen. An earlier version had the bridge prepare a
+  "connecting" frame before the radio went off; it was replaced, owner's call, because it needed a download before
+  every window and failed on any screen without the badge.
 - **Fallbacks:**
-  - No stored frame: the text line `Connecting...`.
+  - Icon missing, or this firmware's `eips` refuses `-x`/`-y`: the text line `Connecting...`.
   - The radio does not come back within `WIFI_WAIT`: `No Wi-Fi yet, still trying (HH:MM)`.
 - Scheduled wakes, where nobody is waiting, draw nothing.
-- Test: `sh kindle/tests/connecting-test.sh` (stubs for eips, lipc and wget).
+- **Unverified on the device:** that this Kindle 4's `eips` places an image with `-x`/`-y`. If it ignores them, the
+  icon lands top-left: still visible, and `CONNECTING_X`/`CONNECTING_Y` in the device config can't fix that.
+  Check it once: `eips -g /mnt/us/nexus/connecting.png -x 200 -y 300`.
+- Icon source: `scripts/make-connecting-icon.mjs`.
+- Test: `sh kindle/tests/connecting-test.sh` (stubs for eips and lipc).
 
 ### Watchdog
 `cron.sh` cannot use a flat 180 s any more: no fetch can succeed while the radio is off. `nexus.sh` writes

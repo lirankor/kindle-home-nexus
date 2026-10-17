@@ -4,7 +4,6 @@ import { EventEmitter } from "node:events";
 import puppeteer from "puppeteer";
 import sharp from "sharp";
 import { computeSchedule, readConfig as readScheduleConfig } from "./schedule.js";
-import { composeConnecting } from "./connecting.js";
 
 const env = (k, d) => process.env[k] ?? d;
 const APP_URL = env("APP_URL", "http://app:3000/");
@@ -324,42 +323,6 @@ async function shoot() {
   return latest;
 }
 
-// The frame the Kindle draws the instant a key wakes its radio (see connecting.js): the frame it shows plus the app's
-// .eink-connecting badge, which only renders while <html data-eink-connecting> is set. Cached per frame.
-let connecting = null;
-async function connectingFrame() {
-  const base = latest;
-  if (!base) return null;
-  if (connecting?.forEtag === base.etag) return connecting;
-  const badge = await exclusive(async () => {
-    const p = await ensurePage();
-    const box = await p.evaluate(() => {
-      document.documentElement.dataset.einkConnecting = "1";
-      const r = document.querySelector(".eink-connecting")?.getBoundingClientRect();
-      return r && r.width > 0 && r.height > 0
-        ? { x: r.x, y: r.y, width: r.width, height: r.height }
-        : null;
-    });
-    try {
-      if (!box) return null;
-      const clip = {
-        x: Math.floor(box.x),
-        y: Math.floor(box.y),
-        width: Math.ceil(box.width),
-        height: Math.ceil(box.height),
-      };
-      return { box: clip, png: await p.screenshot({ type: "png", clip }) };
-    } finally {
-      await p
-        .evaluate(() => delete document.documentElement.dataset.einkConnecting)
-        .catch(() => {});
-    }
-  });
-  if (!badge) return null; // not on a screen that has the badge (the radio only goes off on the screensaver)
-  connecting = { ...(await composeConnecting(base.buf, badge.png, badge.box)), forEtag: base.etag };
-  return connecting;
-}
-
 const safeShoot = () =>
   exclusive(shoot).catch(async (e) => {
     log("screenshot failed, relaunching:", e.message);
@@ -548,14 +511,6 @@ const server = http.createServer(async (req, res) => {
         ETag: latest?.etag ?? "",
       });
       return res.end(hint + "\n");
-    }
-    if (path === "/connecting.png") {
-      const frame = await connectingFrame();
-      if (!frame) {
-        res.writeHead(404, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
-        return res.end("no connecting badge on this screen\n");
-      }
-      return sendPng(res, frame, url.searchParams.get("etag"));
     }
     if (path === "/screen.png") {
       const since = url.searchParams.get("since");

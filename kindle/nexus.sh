@@ -20,7 +20,7 @@ RADIOOFF=/tmp/nexus.radio_off  # exists while the Wi-Fi radio is switched off, h
 WINDOW=/tmp/nexus.window   # "<end epoch> <window s>" of the current radio-off window: cron.sh widens its stale threshold with it
 BATSTAMP=/tmp/nexus.last_bat   # epoch of the last battery report (once a minute)
 DRAWING=/tmp/nexus.drawing     # exists while eips runs: a draw cut short (restart, kill) is redone in full next cycle
-CONN=/tmp/nexus.connecting.png # the frame on the panel + a "connecting" badge, drawn the instant a key wakes the radio
+CONN=$DIR/connecting.png       # 200x200 icon drawn in the middle the instant a key wakes the radio (deployed with nexus.sh)
 GOV=/sys/devices/system/cpu/cpu0/cpufreq
 URL="$BRIDGE_URL/$BRIDGE_TOKEN"
 T=${FETCH_TIMEOUT:-15}
@@ -123,20 +123,12 @@ radio_down() { # radio_down <secs> <label> : switch the radio off until the next
   log "could not switch the radio off, leaving it on"
   return 1
 }
-# The bridge cannot reach us while the radio is off, so a key press shows nothing for the ~6 s the radio needs.
-# Before switching it off we fetch the frame on the panel with a "connecting" badge (bridge /connecting.png; it
-# answers empty when that frame did not change) and draw it ourselves the instant a key comes in.
-prepare_connecting() {
-  rm -f $CONN.tmp
-  if get $CONN.tmp "/connecting.png?etag=$(cat $CONN.md5 2>/dev/null)"; then
-    if [ -s $CONN.tmp ]; then mv $CONN.tmp $CONN && md5sum $CONN | cut -c1-32 > $CONN.md5; fi
-  else
-    rm -f $CONN $CONN.md5   # no badge for this screen (or the bridge failed): the text line instead
-  fi
-  rm -f $CONN.tmp
-}
-show_connecting() { # partial update (fast); the full redraw after the reconnect clears it
-  if [ -s $CONN ]; then eips -g $CONN 2>/dev/null; else eips 1 38 "Connecting..." 2>/dev/null; fi
+# The bridge cannot reach us while the radio is off, so a key press would show nothing for the ~6 s the radio needs.
+# We draw a small icon from our own storage in the middle of the screen (partial update) the instant the key comes
+# in; the full redraw after the reconnect clears it. No network, so it works whatever the bridge or the screen.
+show_connecting() {
+  if [ -s $CONN ] && eips -g $CONN -x ${CONNECTING_X:-200} -y ${CONNECTING_Y:-300} >/dev/null 2>&1; then return 0; fi
+  eips 1 38 "Connecting..." 2>/dev/null   # icon missing or this eips cannot place an image: a text line
 }
 radio_up() { # radio_up <why> : bring the radio back and wait (bounded) for the association; always returns 0
   [ -f $RADIOOFF ] || return 0
@@ -223,7 +215,6 @@ cycle() { # one scheduled update: radio up if needed, battery + frame, then deci
   sleep $EINK_SETTLE
   sync
   if [ -n "$(duty_blocked)" ]; then arm $s; return; fi   # a button arrived while we drew
-  prepare_connecting
   if radio_down $secs "$label"; then arm $secs; else arm $s; fi
 }
 
@@ -246,7 +237,7 @@ run() {
   set_governor "${CPU_GOVERNOR-ondemand}"
   radio_force_on
   eips -c
-  rm -f $FIFO $LAST $RADIOOFF $WINDOW $DRAWING $CONN $CONN.md5; mkfifo $FIFO
+  rm -f $FIFO $LAST $RADIOOFF $WINDOW $DRAWING; mkfifo $FIFO
   ok   # the watchdog's stale clock starts now, not at an unknown time in the past
   reader /dev/input/event0 0 > $FIFO &
   R0=$!
