@@ -1,8 +1,9 @@
 // Pure helpers for the media screens: volume display rule, optimistic reducer for MediaAction,
 // next/previous dispatch by what is playing, and status-line labels. No React, no network.
-import { AMP, MIX_IDS } from "./media";
+import { AMP, INPUT_NET_RADIO, INPUT_PHONO, INPUT_SERVER, INPUT_TUNER, MIX_IDS } from "./media";
 import type {
   AmpSource,
+  NodeView,
   AmpStatus,
   MediaAction,
   MediaSnapshot,
@@ -34,13 +35,17 @@ export const formatDb = (db: number | null): string =>
 const clampDb = (db: number) => Math.max(AMP.volumeMinDb, Math.min(AMP.volumeMaxDb, db));
 const dbToLevel = (db: number) => (db - AMP.volumeMinDb) / (AMP.volumeMaxDb - AMP.volumeMinDb);
 
-export const KIND_BY_SOURCE: Record<AmpSource, NowPlayingKind> = {
-  SERVER: "music",
-  CD: "tv",
-  PHONO: "phono",
-  TUNER: "fm",
-  "NET RADIO": "radio",
-};
+/** What the panel shows for an input: the music / radio / FM / turntable screens, else just the input's name. */
+export const kindForSource = (source: AmpSource): NowPlayingKind =>
+  source === INPUT_SERVER
+    ? "music"
+    : source === INPUT_NET_RADIO
+      ? "radio"
+      : source === INPUT_TUNER
+        ? "fm"
+        : source === INPUT_PHONO
+          ? "phono"
+          : "input";
 
 const EMPTY_PLAY: NowPlaying = {
   kind: "none",
@@ -55,14 +60,31 @@ const EMPTY_PLAY: NowPlaying = {
 
 /** Screen to open after CHOOSING a source: radio for NET RADIO, the music library for SERVER, else the amp view. */
 export const screenForSource = (source: AmpSource | null | undefined): "radio" | "music" | "now" =>
-  source === "NET RADIO" ? "radio" : source === "SERVER" ? "music" : "now";
+  source === INPUT_NET_RADIO ? "radio" : source === INPUT_SERVER ? "music" : "now";
 
 /** The now-playing screen of a source: radio for NET RADIO, the amp view for everything else (SERVER included). */
 export const sourceHomeScreen = (source: AmpSource | null | undefined): "radio" | "now" =>
-  source === "NET RADIO" ? "radio" : "now";
+  source === INPUT_NET_RADIO ? "radio" : "now";
 
-/** Order of the source list rows: Jellyfin, TV, turntable, radio, FM. */
-export const SOURCE_ROWS: readonly AmpSource[] = ["SERVER", "CD", "PHONO", "NET RADIO", "TUNER"];
+/** The receiver the amp screens belong to: the node whose entity is the amp player, else the first receiver. */
+export const ampNode = (s: MediaSnapshot | null | undefined): NodeView | null =>
+  s?.nodes?.find((n) => n.type === "receiver") ?? null;
+
+/** The amp's input list rows: its receiver node's inputs (live source_list, hidden ones left out), in its order. */
+export const ampSourceRows = (s: MediaSnapshot | null | undefined): AmpSource[] =>
+  ampNode(s)?.sources ?? [];
+
+/** An input's name on the panel: the name its node's `inputs` row gives (Hebrew when there is one), else the device's
+ *  own title. */
+export function inputLabel(
+  lang: Lang,
+  node: Pick<NodeView, "inputNames"> | null | undefined,
+  source: string | null | undefined,
+): string {
+  if (!source) return "—";
+  const n = node?.inputNames?.[source];
+  return (lang === "he" ? n?.name_he || n?.name : n?.name) || source;
+}
 
 /** On-screen keyboard of the search screen, driven by the 5-way: an alphabetic grid scans faster
  *  than QWERTY when there is a cursor instead of fingers. Ten columns, so left / right walk a row
@@ -128,13 +150,13 @@ export function applyMediaOptimistic(s: MediaSnapshot, action: MediaAction): Med
       next.amp.available = true;
       if (!action.on) next.amp.playing = false;
       if (!action.on) next.nowPlaying = { ...EMPTY_PLAY };
-      else if (next.amp.source) next.nowPlaying.kind = KIND_BY_SOURCE[next.amp.source];
+      else if (next.amp.source) next.nowPlaying.kind = kindForSource(next.amp.source);
       break;
     case "amp.source":
       next.amp.source = action.source;
       next.nowPlaying = {
         ...EMPTY_PLAY,
-        kind: next.amp.on ? KIND_BY_SOURCE[action.source] : "none",
+        kind: next.amp.on ? kindForSource(action.source) : "none",
       };
       break;
     case "amp.volume.step": {
@@ -347,8 +369,9 @@ export function stepAction(s: MediaSnapshot | null, delta: 1 | -1): MediaAction 
  *  (the amp cannot pause a pushed stream: the server stops and later re-pushes with a seek), resume
  *  covers paused, stopped and ended queues. */
 export const toggleAction = (s: MediaSnapshot | null): MediaAction | null =>
-  s?.amp.on && s.nowPlaying.kind === "music" && s.queue
-    ? { type: "queue", op: s.queue.status === "playing" ? "pause" : "resume" }
+  s?.queue && ((s.amp.on && s.nowPlaying.kind === "music") || (s.output && !s.amp.on))
+    ? // music through HA with the receiver off: resume is what wakes it (the HA package powers the output's receiver)
+      { type: "queue", op: s.queue.status === "playing" ? "pause" : "resume" }
     : null;
 
 /** Status-line text after an action; `after` is the optimistic snapshot (for the new volume). */
@@ -358,7 +381,7 @@ export function mediaActionLabel(action: MediaAction, lang: Lang, after?: MediaS
     case "amp.power":
       return t(action.on ? "act.ampOn" : "act.ampOff");
     case "amp.source":
-      return t("act.ampSource", { source: t(`source.${action.source}` as Key) });
+      return t("act.ampSource", { source: inputLabel(lang, ampNode(after), action.source) });
     case "amp.volume.step":
     case "amp.volume.db":
     case "amp.volume.set":

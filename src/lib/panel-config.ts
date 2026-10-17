@@ -110,6 +110,15 @@ export type MediaNode = {
   movie_on?: string | null;
   movie_off?: string | null;
   movie_active?: string | null;
+  /** Any type: renamed / hidden entries of its entity's source_list (bus task 015). */
+  inputs?: NodeInput[] | null;
+};
+/** One row of a node's inputs: `input` as the entity lists it, a name (+ Hebrew) to show instead, or hidden. */
+export type NodeInput = {
+  input: string;
+  name?: string | null;
+  name_he?: string | null;
+  hidden?: boolean | null;
 };
 export const nodeEntity = (n: MediaNode): string =>
   (n[NODE_TYPES[n.type].entity] as string | null) ?? "";

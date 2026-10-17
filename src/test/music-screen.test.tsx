@@ -228,11 +228,9 @@ describe("Music screen", () => {
     renderPanel();
     await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
     press("F1"); // NET RADIO plays: the radio screen
-    press("F3"); // source list, cursor on רדיו (the current source, row 4)
-    press("ArrowUp");
-    press("ArrowUp");
-    press("ArrowUp");
-    press("Enter"); // ג׳ליפין
+    press("F3"); // source list, cursor on NET RADIO (the current source, row 2 of the receiver's inputs)
+    press("ArrowDown");
+    press("Enter"); // SERVER
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenCalledWith({
         data: { type: "amp.source", source: "SERVER" },
@@ -358,7 +356,7 @@ describe("Music screen", () => {
     await waitFor(() => expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible());
     const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
     expect(dialog.querySelector(".amp-transport .transport-reading strong")?.textContent).toBe(
-      "ג׳ליפין",
+      "SERVER", // the receiver's own title: no inputs row renames it (task 015)
     );
     expect(dialog.querySelector(".amp-title")?.textContent).toBe("New Born");
     expect(dialog.querySelector(".amp-queue-pos")?.textContent).toBe("1 מתוך 4");

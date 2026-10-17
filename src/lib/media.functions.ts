@@ -4,7 +4,6 @@ import { z } from "zod";
 import { parseLang } from "@/lib/i18n";
 import {
   AMP,
-  AMP_SOURCES,
   MUSIC_TABS,
   RADIO_LIST_IDS,
   RADIO_STATION_IDS,
@@ -58,7 +57,8 @@ import {
   tuneRadioHa,
 } from "./media-ha.server";
 
-const sourceSchema = z.enum(AMP_SOURCES);
+/** A receiver input as its media_player lists it (source_list); HA refuses one the receiver does not have. */
+const sourceSchema = z.string().trim().min(1).max(64);
 /** Jellyfin ids (32 hex) and the demo / mix ids: no slashes, dots or query characters, since the id
  *  becomes part of a Jellyfin URL path. */
 const itemIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);

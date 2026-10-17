@@ -1,4 +1,4 @@
-// Shared (client + server) media model: amp entities and sources, the radio station catalog,
+// Shared (client + server) media model: amp entities, the radio station catalog,
 // snapshot / list / queue shapes, the action union and demo data. Contains no secrets.
 import catalog from "@/data/radio-stations.json";
 import type { Lang } from "./i18n";
@@ -6,10 +6,16 @@ import { KEY_MUSIC } from "./panel-config";
 import type { MediaNode, NodeType } from "./panel-config";
 
 // ---- Amp (Yamaha R-N500) ----
-export const AMP_SOURCES = ["SERVER", "CD", "PHONO", "TUNER", "NET RADIO"] as const;
-export type AmpSource = (typeof AMP_SOURCES)[number];
-export const isAmpSource = (v: unknown): v is AmpSource =>
-  typeof v === "string" && (AMP_SOURCES as readonly string[]).includes(v);
+/** A receiver input as its media_player lists it in `source_list` (the receiver's own title, e.g. "SERVER", "PHONO").
+ *  The list itself always comes live from HA (bus task 015); the panel has no input list of its own. */
+export type AmpSource = string;
+export const isAmpSource = (v: unknown): v is AmpSource => typeof v === "string" && v.length > 0;
+/** Inputs with a meaning for the panel's screens (Yamaha's standard titles): the DLNA / music input, the receiver's
+ *  internet radio, its FM tuner and the turntable. Every other input is a plain "input". */
+export const INPUT_SERVER = "SERVER";
+export const INPUT_NET_RADIO = "NET RADIO";
+export const INPUT_TUNER = "TUNER";
+export const INPUT_PHONO = "PHONO";
 
 const MEDIA_PLUG = "smart_switch_23081678814571510d0548e1e9d69992";
 /** Amp / TV / movie entities (panel config: media). Mutated in place by applyMediaConfig. */
@@ -148,7 +154,8 @@ export type AmpStatus = {
   volume: number | null;
   muted: boolean;
 };
-export type NowPlayingKind = "radio" | "music" | "fm" | "tv" | "phono" | "none";
+/** "input": any other receiver input (CD, LINE1, OPTICAL, …): its name is all the panel can show. */
+export type NowPlayingKind = "radio" | "music" | "fm" | "input" | "phono" | "none";
 export type NowPlaying = {
   kind: NowPlayingKind;
   title: string | null;
@@ -182,7 +189,10 @@ export type NodeView = {
   /** HA state of the node's media_player. */
   state: string;
   source: string | null;
+  /** The entity's source_list in its own order, without the inputs hidden in the node's `inputs` rows. */
   sources: string[];
+  /** Inputs renamed in the node's `inputs` rows (absent: the device's own title). */
+  inputNames?: Record<string, InputName>;
   volumeDb: number | null;
   /** 0..1 */
   volume: number | null;
@@ -194,6 +204,7 @@ export type NodeView = {
   movie: boolean;
   movieActive: boolean;
 };
+export type InputName = { name?: string; name_he?: string };
 /** The music output (MUSIC_BACKEND=ha): what the panel plays to, and what the picker offers. */
 export type OutputView = {
   /** The chosen MA player; null = none chosen yet. */
@@ -443,7 +454,9 @@ export function demoMediaSnapshot(): MediaSnapshot {
         on: true,
         state: "playing",
         source: "NET RADIO",
-        sources: ["SERVER", "CD", "PHONO", "TUNER", "NET RADIO"],
+        // what yamaha_netbridge reports for an R-N500 (demo data stands in for HA's source_list)
+        sources: ["Spotify", "NET RADIO", "SERVER", "AirPlay", "TUNER", "PHONO", "CD", "LINE1"],
+        inputNames: { CD: { name: "Bluetooth & TV", name_he: "בלוטות׳ וטלוויזיה" } },
         volumeDb: -44.5,
         volume: 0.37,
         muted: false,

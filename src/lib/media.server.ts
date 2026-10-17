@@ -34,9 +34,11 @@ import { AMP_XML_GRACE_MS, deriveAmpPower } from "@/lib/amp-state";
 import type { AmpPowerVerdict } from "@/lib/amp-state";
 import type { CoverParams, StationArtResult, StationArtSource } from "@/lib/station-art";
 import type { HaState } from "@/lib/home.server";
+import { invalidatePanelConfig } from "@/lib/panel-config.server";
 import {
   AMP,
   MEDIA_KEYS,
+  OUTPUT_KEYS,
   CATALOG_LOGO_HOSTS,
   FAVOURITES_LIST_ID,
   MIX_IDS,
@@ -1304,8 +1306,8 @@ export function buildMediaSnapshot(
       title: attrStr(a["media_title"]),
       preset: attrNum(a["preset"]),
     };
-  } else if (on && source === "CD") nowPlaying = { ...NO_PLAY, kind: "tv" };
-  else if (on && source === "PHONO") nowPlaying = { ...NO_PLAY, kind: "phono" };
+  } else if (on && source === "PHONO") nowPlaying = { ...NO_PLAY, kind: "phono" };
+  else if (on && source) nowPlaying = { ...NO_PLAY, kind: "input" };
   const tv = states.get(AMP.tv);
   return {
     amp: {
@@ -1332,13 +1334,15 @@ export function buildMediaSnapshot(
     nodes: nodeViews(states),
     keys: [...MEDIA_KEYS],
     keyLabels: Object.fromEntries(
-      MEDIA_KEYS.filter((k) => k.startsWith("script.")).map((k) => [
-        k,
-        String(
-          (states.get(k)?.attributes as { friendly_name?: unknown } | undefined)?.friendly_name ??
-            k,
-        ),
-      ]),
+      [...MEDIA_KEYS, ...OUTPUT_KEYS]
+        .filter((k) => k.startsWith("script."))
+        .map((k) => [
+          k,
+          String(
+            (states.get(k)?.attributes as { friendly_name?: unknown } | undefined)?.friendly_name ??
+              k,
+          ),
+        ]),
     ),
     output: null,
   };
@@ -2678,8 +2682,12 @@ export async function performMediaAction(a: MediaAction): Promise<void> {
       await performNodeAction(a, await fetchStates());
       break;
     case "script":
-      if (!MEDIA_KEYS.includes(a.entity)) throw new HomeError("This script is not on a Media key");
+      // a Media tab key or an output picker key (e.g. plug on, amp on, input SERVER, kindle_panel.set_output)
+      if (!MEDIA_KEYS.includes(a.entity) && !OUTPUT_KEYS.includes(a.entity))
+        throw new HomeError("This script is not on a Media key");
       await service("script", "turn_on", { entity_id: a.entity });
+      // a script may pick the panel's output (kindle_panel.set_output): read the config again on the next snapshot
+      if (OUTPUT_KEYS.includes(a.entity)) invalidatePanelConfig();
       break;
     case "output":
       throw new HomeError("Music outputs need music played by Home Assistant");

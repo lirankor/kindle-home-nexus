@@ -112,7 +112,7 @@ describe("Media tab and amp view", () => {
     const cards = Array.from(document.querySelectorAll<HTMLElement>(".media-cards button"));
     expect(cards).toHaveLength(3);
     expect(cards[0]?.textContent).toContain("מוזיקה");
-    expect(cards[0]?.textContent).toContain("רדיו");
+    expect(cards[0]?.textContent).toContain("דלוק · NET RADIO"); // the receiver's own title (task 015)
     expect(cards[0]?.textContent).toContain("-44.5 dB");
     expect(cards[1]?.textContent).toContain("מגבר");
     expect(cards[1]?.textContent).toContain("דלוק · NET RADIO");
@@ -145,10 +145,21 @@ describe("Media tab and amp view", () => {
         data: { type: "node", id: "amp", op: "stream", option: "airplay" },
       }),
     );
-    press("F2"); // the receiver's own inputs
+    press("F2"); // the receiver's own inputs, live from its source_list and in its order (task 015)
     const list = screen.getByRole("listbox", { name: "Source" });
+    expect(Array.from(list.querySelectorAll("strong")).map((r) => r.textContent)).toEqual([
+      "Spotify",
+      "NET RADIO",
+      "SERVER",
+      "AirPlay",
+      "TUNER",
+      "PHONO",
+      "Bluetooth & TV", // CD, renamed by the node's inputs row
+    ]);
     expect(list.querySelector('[aria-selected="true"]')?.textContent).toContain("NET RADIO");
-    press("ArrowUp");
+    press("ArrowDown");
+    press("ArrowDown");
+    press("ArrowDown");
     press("Enter");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
@@ -276,6 +287,75 @@ describe("Media tab and amp view", () => {
     expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
   });
 
+  it("music through HA never powers the amp: Music on the key, no power-on on entering, no Power on on F4 (task 015)", async () => {
+    const r = liveResult();
+    r.snapshot!.amp = { ...r.snapshot!.amp, on: false, state: "off" };
+    r.snapshot!.nowPlaying = {
+      ...r.snapshot!.nowPlaying,
+      kind: "none",
+      station: null,
+      title: null,
+    };
+    r.snapshot!.radio = null;
+    r.snapshot!.output = {
+      entity: "media_player.ma_amp_dlna",
+      name: "R-N500",
+      valid: true,
+      outputs: [{ entity_id: "media_player.ma_amp_dlna", name: "R-N500", state: "off" }],
+      keys: ["media_player.ma_amp_dlna", "none", "none", "none"],
+    };
+    mocks.getMediaSnapshot.mockResolvedValue(r);
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
+    const footer = screen.getByRole("contentinfo");
+    expect(footer.querySelector("[data-soft-key]")?.textContent).toBe("Music");
+    press("F1");
+    const now = screen.getByRole("dialog", { name: "Amplifier view" });
+    expect(Array.from(now.querySelectorAll("[data-soft-key]")).map((b) => b.textContent)).toEqual([
+      "Radio",
+      "Library",
+      "Output",
+      "\u00a0",
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(mocks.startAmpPowerOn).not.toHaveBeenCalled();
+    expect(mocks.runMediaAction).not.toHaveBeenCalled();
+  });
+
+  it("output picker keys may run scripts: the legend shows the script's name, the key runs it and returns (task 015)", async () => {
+    const r = liveResult();
+    r.snapshot!.output = {
+      entity: "media_player.ma_kitchen",
+      name: "Kitchen",
+      valid: true,
+      outputs: [
+        { entity_id: "media_player.ma_amp_dlna", name: "R-N500", state: "off" },
+        { entity_id: "media_player.ma_kitchen", name: "Kitchen", state: "idle" },
+      ],
+      keys: ["script.amp_dlna", "media_player.ma_kitchen", "none", "none"],
+    };
+    r.snapshot!.keyLabels = { "script.amp_dlna": "Amp over DLNA" };
+    r.snapshot!.amp.source = "SERVER";
+    r.snapshot!.nowPlaying = { ...r.snapshot!.nowPlaying, kind: "music", station: null };
+    mocks.getMediaSnapshot.mockResolvedValue(r);
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
+    press("F1");
+    expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
+    press("F3");
+    const picker = screen.getByRole("dialog", { name: "Play music on" });
+    expect(
+      Array.from(picker.querySelectorAll("[data-soft-key]")).map((b) => b.textContent),
+    ).toEqual(["Amp over DLNA", "Kitchen", "\u00a0", "\u00a0"]);
+    press("F1");
+    await waitFor(() =>
+      expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
+        data: { type: "script", entity: "script.amp_dlna" },
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
+  });
+
   it("opens the active source's screen from the amp card: the radio for NET RADIO, the amp view for the turntable", async () => {
     renderPanel();
     await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
@@ -298,7 +378,7 @@ describe("Media tab and amp view", () => {
     press("F1");
     const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
     expect(dialog).toBeVisible();
-    expect(dialog.querySelector(".amp-title")?.textContent).toBe("פטיפון");
+    expect(dialog.querySelector(".amp-title")?.textContent).toBe("PHONO"); // the receiver's title (task 015)
     expect(dialog.querySelector(".transport-db")?.textContent).toBe("-44.5dB");
     // Footer: back, no library (not the SERVER screen), source, no power key.
     const slots = Array.from(dialog.querySelectorAll("[data-soft-key]")).map((b) => b.textContent);
@@ -341,34 +421,37 @@ describe("Media tab and amp view", () => {
     press("F3"); // source list
     const list = screen.getByRole("listbox", { name: "מקור" });
     const rows = list.querySelectorAll('[role="option"]');
+    // The receiver's inputs in its own order (its node's live source_list), names from the node's rows (task 015).
     expect(Array.from(rows).map((r) => r.querySelector("strong")?.textContent)).toEqual([
-      "ג׳ליפין",
-      "טלוויזיה",
-      "פטיפון",
-      "רדיו",
-      "FM",
+      "Spotify",
+      "NET RADIO",
+      "SERVER",
+      "AirPlay",
+      "TUNER",
+      "PHONO",
+      "בלוטות׳ וטלוויזיה",
     ]);
-    // Cursor starts on the current source (PHONO = row 3).
-    expect(rows[2]).toHaveAttribute("aria-selected", "true");
-    press("ArrowUp");
-    expect(screen.getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
+    // Cursor starts on the current source (PHONO = row 6).
+    expect(rows[5]).toHaveAttribute("aria-selected", "true");
+    press("ArrowDown");
+    expect(screen.getAllByRole("option")[6]).toHaveAttribute("aria-selected", "true");
     press("Enter");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
         data: { type: "amp.source", source: "CD" },
       }),
     );
-    // CD goes back to the amp view; Jellyfin / radio would open their screens.
+    // A plain input goes back to the amp view; SERVER / NET RADIO would open their screens.
     expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
     press("F3");
-    // The snapshot still says PHONO (the mock returned no new one), so the cursor is on פטיפון.
-    expect(screen.getAllByRole("option")[2]).toHaveAttribute("aria-selected", "true");
+    // The snapshot still says PHONO (the mock returned no new one), so the cursor is on PHONO.
+    expect(screen.getAllByRole("option")[5]).toHaveAttribute("aria-selected", "true");
     // Cancel returns to where the list was opened from.
     press("F1");
     expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
     press("F3");
-    press("ArrowDown");
-    expect(screen.getAllByRole("option")[3]).toHaveAttribute("aria-selected", "true");
+    for (let i = 0; i < 4; i++) press("ArrowUp");
+    expect(screen.getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
     press("F4");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({

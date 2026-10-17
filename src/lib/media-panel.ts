@@ -57,7 +57,9 @@ import type {
 import {
   SEARCH_KEYS,
   SEARCH_KEY_COLS,
-  SOURCE_ROWS,
+  ampNode,
+  ampSourceRows,
+  inputLabel,
   ampPowerSlot,
   appendSearchChar,
   applyMediaOptimistic,
@@ -417,7 +419,9 @@ export function useMediaPanel({
       return next;
     });
     if (next === "source")
-      setCursor(Math.max(0, SOURCE_ROWS.indexOf(latest.current?.amp.source ?? "SERVER")));
+      setCursor(
+        Math.max(0, ampSourceRows(latest.current).indexOf(latest.current?.amp.source ?? "")),
+      );
     if (next === "radio") setRadioView("dial");
     if (next === "music") setCursor(0);
     if (next === "queue") setCursor(Math.max(0, latest.current?.queue?.index ?? 0));
@@ -434,6 +438,10 @@ export function useMediaPanel({
   const nodes = data?.nodes ?? [];
   const node = nodes.find((n) => n.id === nodeId) ?? null;
   const output = data?.output ?? null;
+  /** The amp's input list (its receiver node's live source_list, hidden inputs left out) and their names. */
+  const sourceRows = ampSourceRows(data);
+  const sourceName = (source: string | null | undefined) => inputLabel(lang, ampNode(data), source);
+  const nodeSourceName = (source: string | null | undefined) => inputLabel(lang, node, source);
   /** HA music backend and no usable output yet: entering the music screen opens the picker first. */
   const needsOutput = !!output && (!output.entity || !output.valid);
   const openNode = (id: string) => {
@@ -488,6 +496,8 @@ export function useMediaPanel({
       return;
     }
     if (s.amp.on) open(sourceHomeScreen(s.amp.source));
+    else if (out)
+      open("now"); // music through HA: an MA controller, playing wakes the output's receiver (task 015)
     else if (!configuredRef.current) {
       void act({ type: "amp.power", on: true });
       open(sourceHomeScreen(s.amp.source));
@@ -639,7 +649,7 @@ export function useMediaPanel({
       notify({ text: t("act.tuned", { station: station.name }) });
       return;
     }
-    if (!before.amp.on) {
+    if (!before.amp.on && !before.output) {
       tuneAfterPowerOn.current = pos;
       if (!powerOn?.running) void startPowerOn("NET RADIO");
       return;
@@ -652,12 +662,15 @@ export function useMediaPanel({
   const toggleRadioPlayback = () => {
     const s = latest.current;
     if (!s) return;
-    if (!s.amp.on) {
+    if (!s.amp.on && !s.output) {
       if (!configuredRef.current) void act({ type: "amp.power", on: true });
       else if (!powerOn?.running) void startPowerOn("NET RADIO");
       return;
     }
-    void act({ type: "radio.playback", op: s.amp.state === "playing" ? "stop" : "play" });
+    void act({
+      type: "radio.playback",
+      op: s.amp.on && s.amp.state === "playing" ? "stop" : "play",
+    });
   };
 
   /** Left / right on the dial: the neighbour in the current band, wrapping at the ends. */
@@ -830,7 +843,7 @@ export function useMediaPanel({
       open("now");
       return;
     }
-    if (!before.amp.on) {
+    if (!before.amp.on && !before.output) {
       playAfterPowerOn.current = item;
       if (!powerOn?.running) void startPowerOn("SERVER");
       return;
@@ -1028,7 +1041,8 @@ export function useMediaPanel({
     if (key === "music")
       // Amp off / standby / unknown: the slot reads Power on (opening music powers the receiver, step block on the
       // music screen); on: Music. A missing output opens the picker instead.
-      return powerSlot === "open" || needsOutput
+      // Music through HA (an output): always Music, the screen never powers a receiver (task 015).
+      return powerSlot === "open" || needsOutput || output
         ? { label: t("media.music"), icon: Music2, onClick: openAmp }
         : {
             label: t("amp.powerOn"),
@@ -1102,6 +1116,16 @@ export function useMediaPanel({
   };
   const outputRows = output?.outputs ?? [];
   const outputKeyActions: (DeviceAction | null)[] = (output?.keys ?? []).map((k) => {
+    if (k.startsWith("script."))
+      // a script runs instead of picking (e.g. plug on, amp on, input SERVER, output DLNA); back to the music screen
+      return {
+        label: data?.keyLabels?.[k] ?? t("media.script"),
+        icon: Zap,
+        onClick: () => {
+          void act({ type: "script", entity: k });
+          open(outputReturn.current ?? "now");
+        },
+      };
     const o = outputRows.find((x) => x.entity_id === k);
     return o
       ? {
@@ -1159,16 +1183,10 @@ export function useMediaPanel({
                 { label: t("radio.title"), icon: Radio, onClick: () => open("radio") },
                 { label: t("amp.library"), icon: ListMusic, onClick: () => open("music") },
                 outputKey,
+                // no Power on here: playing / picking an output wakes the output's receiver (task 015)
                 serverScreen && data?.queue
                   ? { label: t("amp.playlist"), icon: ListOrdered, onClick: () => open("queue") }
-                  : powerSlot !== "open"
-                    ? {
-                        label: t("amp.powerOn"),
-                        icon: Power,
-                        pressed: powerSlot === "powering",
-                        onClick: powerOnNow,
-                      }
-                    : null,
+                  : null,
               ]
             : screen === "now"
               ? [
@@ -1197,7 +1215,7 @@ export function useMediaPanel({
                       label: t("source.apply"),
                       icon: Check,
                       onClick: () => {
-                        const source = SOURCE_ROWS[cursor];
+                        const source = sourceRows[cursor];
                         if (source) applySource(source);
                       },
                     },
@@ -1435,7 +1453,7 @@ export function useMediaPanel({
         const action = toggleAction(latest.current);
         if (action) void act(action);
       } else if (screen === "source") {
-        const source = SOURCE_ROWS[cursor];
+        const source = sourceRows[cursor];
         if (source) applySource(source);
       } else if (screen === "tv") close();
       else if (screen === "radio") toggleRadioPlayback();
@@ -1472,7 +1490,7 @@ export function useMediaPanel({
     } else if (screen === "source") {
       if (event.key === "ArrowUp" || event.key === "PageUp") setCursor((c) => Math.max(0, c - 1));
       else if (event.key === "ArrowDown" || event.key === "PageDown")
-        setCursor((c) => Math.min(SOURCE_ROWS.length - 1, c + 1));
+        setCursor((c) => Math.min(sourceRows.length - 1, c + 1));
     }
     return true;
   };
@@ -1674,6 +1692,9 @@ export function useMediaPanel({
     close,
     act,
     applySource,
+    sourceRows,
+    sourceName,
+    nodeSourceName,
     openAmp,
     restoreScreen,
     // Media tab nodes, output picker

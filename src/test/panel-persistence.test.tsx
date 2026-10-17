@@ -358,11 +358,9 @@ describe("Panel idle behaviour and persistence", () => {
     await renderApp();
     press("PageUp");
     press("F1"); // radio screen
-    press("F3"); // source list, cursor on רדיו
-    press("ArrowUp");
-    press("ArrowUp");
-    press("ArrowUp");
-    press("Enter"); // ג׳ליפין → the music screen
+    press("F3"); // source list (the receiver's inputs in its order), cursor on NET RADIO
+    press("ArrowDown");
+    press("Enter"); // SERVER → the music screen
     await waitFor(() => expect(dialog()).toBe("מוזיקה"));
     press("ArrowLeft"); // Hebrew: the next tab (מומלצים)
     await waitFor(() => expect(document.querySelector(".music-page")?.textContent).toBe("1/2"));

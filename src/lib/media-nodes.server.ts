@@ -4,7 +4,7 @@
 import { HomeError, service } from "./home.server";
 import type { HaState } from "./home.server";
 import { AMP, MEDIA_NODES } from "./media";
-import type { MediaAction, NodeView } from "./media";
+import type { InputName, MediaAction, NodeView } from "./media";
 import { nodeEntity } from "./panel-config";
 import type { MediaNode } from "./panel-config";
 
@@ -19,6 +19,24 @@ const strList = (v: unknown): string[] =>
 /** yamaha_netbridge's media_player (it reports the receiver's dB volume and its power-on steps). */
 export const isNetbridge = (s: HaState | undefined) =>
   s !== undefined && "volume_db" in attrs(s) && "power_on_step" in attrs(s);
+
+/** The node's input list: its entity's source_list in the device's order, minus the inputs its rows hide, and the
+ *  names its rows give (pure; unit tested). No row: the device's own title. */
+export function nodeInputs(
+  n: MediaNode,
+  sourceList: string[],
+): { sources: string[]; inputNames: Record<string, InputName> } {
+  const rows = (n.inputs ?? []).filter((r) => r && typeof r.input === "string");
+  const hidden = new Set(rows.filter((r) => r.hidden).map((r) => r.input));
+  const inputNames: Record<string, InputName> = {};
+  for (const r of rows) {
+    const name: InputName = {};
+    if (r.name) name.name = r.name;
+    if (r.name_he) name.name_he = r.name_he;
+    if (name.name || name.name_he) inputNames[r.input] = name;
+  }
+  return { sources: sourceList.filter((s) => !hidden.has(s)), inputNames };
+}
 
 /** A node's live state from the HA states (pure; unit tested). */
 export function nodeView(n: MediaNode, states: Map<string, HaState>): NodeView {
@@ -37,7 +55,7 @@ export function nodeView(n: MediaNode, states: Map<string, HaState>): NodeView {
     on: available && !plugOff && state !== "off" && state !== "standby",
     state: plugOff ? "off" : state,
     source: typeof a["source"] === "string" ? a["source"] : null,
-    sources: strList(a["source_list"]),
+    ...nodeInputs(n, strList(a["source_list"])),
     volumeDb: num(a["volume_db"]) ?? (vol && vol.state !== "unavailable" ? num(vol.state) : null),
     volume: num(a["volume_level"]),
     muted: a["is_volume_muted"] === true,

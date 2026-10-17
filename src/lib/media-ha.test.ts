@@ -94,7 +94,8 @@ describe("pure mappings", () => {
   it("treats AirPlay as the music path", () => {
     expect(panelSource("AirPlay")).toBe("SERVER");
     expect(panelSource("CD")).toBe("CD");
-    expect(panelSource("USB")).toBeNull();
+    expect(panelSource("USB")).toBe("USB"); // any input of the receiver (task 015)
+    expect(panelSource(null)).toBeNull();
   });
   it("finds catalogue stations and their dial position by name", () => {
     const first = RADIO_LISTS[0]!.stations[0]!;

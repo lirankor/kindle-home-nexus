@@ -64,6 +64,36 @@ describe("media nodes", () => {
     m.set("switch.media_plug", st("switch.media_plug", "off"));
     expect(nodeView(amp, m)).toMatchObject({ on: false, state: "off", available: true });
   });
+  it("inputs: the entity's own list and order, rows rename or hide entries (task 015)", () => {
+    const m = states(bridge);
+    const rx: MediaNode = {
+      ...amp,
+      inputs: [
+        { input: "CD", name: "Bluetooth & TV", name_he: "בלוטות׳ וטלוויזיה" },
+        { input: "NET RADIO", hidden: true },
+        { input: "LINE9", name: "Not listed by the receiver" },
+      ],
+    };
+    const v = nodeView(rx, m);
+    expect(v.sources).toEqual(["SERVER", "CD"]);
+    expect(v.inputNames).toEqual({
+      CD: { name: "Bluetooth & TV", name_he: "בלוטות׳ וטלוויזיה" },
+      LINE9: { name: "Not listed by the receiver" },
+    });
+    // a TV takes rows the same way; without rows every input shows with the device's title
+    expect(nodeView({ ...tv, inputs: [{ input: "Netflix", hidden: true }] }, m).sources).toEqual([
+      "HDMI 1",
+    ]);
+    expect(nodeView(tv, m)).toMatchObject({ sources: ["HDMI 1", "Netflix"], inputNames: {} });
+    // selecting sends the device's own title
+    expect(nodeCalls(rx, { type: "node", id: "amp", op: "source", source: "CD" }, m)).toEqual([
+      {
+        domain: "media_player",
+        service: "select_source",
+        data: { entity_id: "media_player.r_n500", source: "CD" },
+      },
+    ]);
+  });
   it("power on: plug first when it is off, then turn_on in the background; off waits", () => {
     const m = states(bridge);
     m.set("switch.media_plug", st("switch.media_plug", "off"));

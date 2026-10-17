@@ -2,7 +2,6 @@
 //   MEDIA_LIVE=1 AMP_HOST=192.168.1.25 JELLYFIN_URL=… JELLYFIN_API_KEY=… JELLYFIN_USER_ID=… npx vitest run src/lib/media.live.test.ts
 // Nothing here changes amp state (GET-only XML, GetPositionInfo/GetTransportInfo, Jellyfin reads, YTuner reads).
 import { describe, expect, it } from "vitest";
-import { AMP_SOURCES } from "./media";
 import {
   amp,
   ampConfigured,
@@ -20,7 +19,7 @@ describe.skipIf(!live || !ampConfigured())("amp (live, read-only)", () => {
   it("Basic_Status / List_Info / Play_Info / Tuner parse", async () => {
     const status = await amp.basicStatus();
     expect(typeof status.power).toBe("boolean");
-    expect(status.input === null || AMP_SOURCES.includes(status.input as never) || true).toBe(true);
+    expect(status.input === null || typeof status.input === "string").toBe(true);
     const list = await amp.listInfo();
     expect(["Ready", "Busy"]).toContain(list.status);
     expect(list.maxLine).toBeGreaterThanOrEqual(list.lines.length);

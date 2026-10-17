@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
+  Cable,
   Check,
   Compass,
   Disc3,
@@ -46,12 +47,12 @@ import type {
 import {
   SEARCH_KEYS,
   SEARCH_KEY_ROWS,
-  SOURCE_ROWS,
   albumDateLabel,
   displayDb,
   formatDb,
   musicItemDetail,
   musicItemTitle,
+  inputLabel,
   nodeLabel,
   powerOnStepKey,
 } from "@/lib/media-ui";
@@ -61,13 +62,14 @@ import { RADIO_BANDS, bandKey, listById, stationDetail } from "@/lib/radio-dial"
 
 const Ltr = ({ children }: { children: ReactNode }) => <bdi dir="ltr">{children}</bdi>;
 const POWER_ON_STEPS: PowerOnStep[] = ["plug", "wait", "reload", "turn_on", "source"];
-const SOURCE_ICONS: Record<AmpSource, typeof Radio> = {
+/** Glyphs of the inputs with a meaning for the panel; any other input (CD, LINE1, OPTICAL, …) is a plain input. */
+const SOURCE_ICONS: Record<string, typeof Radio> = {
   SERVER: Server,
-  CD: Tv,
   PHONO: Disc3,
   "NET RADIO": Radio,
   TUNER: RadioTower,
 };
+const sourceIcon = (source: AmpSource) => SOURCE_ICONS[source] ?? Cable;
 const mmss = (ms: number) => {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -75,8 +77,8 @@ const mmss = (ms: number) => {
 
 const stateLabel = (lang: Lang, state: string | undefined) =>
   state === undefined ? "—" : (tryT(lang, `state.${state}`) ?? state);
-const sourceLabel = (t: MediaPanel["t"], source: AmpSource | null) =>
-  source ? t(`source.${source}` as Key) : "—";
+/** An input's name: its node's row name, else the receiver's own title (bus task 015). */
+const sourceLabel = (panel: MediaPanel, source: AmpSource | null) => panel.sourceName(source);
 
 /** Headline / sub lines for what the amp is doing, by kind. */
 function nowPlayingLines(panel: MediaPanel, s: MediaSnapshot | null): [string, string, string] {
@@ -101,10 +103,14 @@ function nowPlayingLines(panel: MediaPanel, s: MediaSnapshot | null): [string, s
         n.title ?? "",
         n.preset === null ? "" : `P${n.preset}`,
       ];
-    case "tv":
-      return [t("source.CD"), t("source.CD.detail"), ""];
+    case "input":
+      return [
+        sourceLabel(panel, s.amp.source),
+        tryT(panel.lang, `source.${s.amp.source}.detail`) ?? "",
+        "",
+      ];
     case "phono":
-      return [t("source.PHONO"), t("source.PHONO.detail"), ""];
+      return [sourceLabel(panel, s.amp.source), t("source.PHONO.detail"), ""];
     default:
       return [t("amp.nothing"), "", ""];
   }
@@ -133,7 +139,7 @@ export function MediaCards({ panel }: { panel: MediaPanel }) {
         : t("output.none")
       : s
         ? `${s.amp.on ? t("state.on") : t("state.off")}${
-            s.amp.on && s.amp.source ? ` · ${sourceLabel(t, s.amp.source)}` : ""
+            s.amp.on && s.amp.source ? ` · ${sourceLabel(panel, s.amp.source)}` : ""
           }`
         : "—";
   const playing = routine
@@ -186,7 +192,7 @@ export function MediaCards({ panel }: { panel: MediaPanel }) {
             const name = nodeLabel(lang, n.name);
             const line = !n.available
               ? t("state.unavailable")
-              : `${n.on ? t("state.on") : t("state.off")}${n.on && n.source ? ` · ${n.source}` : ""}`;
+              : `${n.on ? t("state.on") : t("state.off")}${n.on && n.source ? ` · ${inputLabel(lang, n, n.source)}` : ""}`;
             return (
               <DeviceRow
                 key={n.id}
@@ -232,7 +238,9 @@ function NodeScreen({ panel, status }: { panel: MediaPanel; status: string }) {
         <Icon size={120} strokeWidth={1.1} />
       </div>
       <p className="modal-look">
-        {n.on ? `${t("media.source")} · ${n.source ?? t("node.noSource")}` : "\u00a0"}
+        {n.on
+          ? `${t("media.source")} · ${n.source ? panel.nodeSourceName(n.source) : t("node.noSource")}`
+          : "\u00a0"}
       </p>
       <p className="modal-look node-volume">
         {n.on && n.volumeDb !== null ? (
@@ -276,7 +284,7 @@ function NodeSourceList({ panel, status }: { panel: MediaPanel; status: string }
               onClick={() => panel.setCursor(index)}
             >
               <span className="source-row-text">
-                <strong>{src}</strong>
+                <strong>{panel.nodeSourceName(src)}</strong>
               </span>
               {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
             </Button>
@@ -484,7 +492,7 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
   const [line1, line2, line3] = nowPlayingLines(panel, s);
   const on = s?.amp.on ?? false;
   const art = on && s?.nowPlaying.artItemId ? s.nowPlaying.artItemId : null;
-  const Glyph = on && s?.amp.source ? SOURCE_ICONS[s.amp.source] : Power;
+  const Glyph = on && s?.amp.source ? sourceIcon(s.amp.source) : Power;
   const queue = on && s?.nowPlaying.kind === "music" ? s.queue : null;
   const position = useTrackPosition(queue);
   const db = on && s ? displayDb(s.amp) : null;
@@ -545,7 +553,7 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
             source={
               s?.output
                 ? (s.output.name ?? s.output.entity ?? "—")
-                : sourceLabel(t, s?.amp.source ?? null)
+                : sourceLabel(panel, s?.amp.source ?? null)
             }
             mode={transportMode(s)}
           />
@@ -564,34 +572,37 @@ function SourceList({ panel, status }: { panel: MediaPanel; status: string }) {
         <p>{t("media.amp")}</p>
       </header>
       <div className="source-rows" role="listbox" aria-label={t("source.title")}>
-        {SOURCE_ROWS.map((source, index) => {
-          const Icon = SOURCE_ICONS[source];
-          const current = s?.amp.on && s.amp.source === source;
-          return (
-            <Button
-              key={source}
-              variant="eink"
-              className="source-row"
-              role="option"
-              aria-selected={index === cursor}
-              aria-pressed={index === cursor}
-              data-current={current ?? false}
-              onClick={() => {
-                panel.setCursor(index);
-                panel.applySource(source);
-              }}
-            >
-              <span className="source-row-icon">
-                <Icon size={30} strokeWidth={1.6} />
-              </span>
-              <span className="source-row-text">
-                <strong>{t(`source.${source}` as Key)}</strong>
-                <span>{t(`source.${source}.detail` as Key)}</span>
-              </span>
-              {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
-            </Button>
-          );
-        })}
+        {panel.sourceRows
+          .slice(Math.max(0, cursor - 6), Math.max(0, cursor - 6) + 7)
+          .map((source) => {
+            const index = panel.sourceRows.indexOf(source);
+            const Icon = sourceIcon(source);
+            const current = s?.amp.on && s.amp.source === source;
+            return (
+              <Button
+                key={source}
+                variant="eink"
+                className="source-row"
+                role="option"
+                aria-selected={index === cursor}
+                aria-pressed={index === cursor}
+                data-current={current ?? false}
+                onClick={() => {
+                  panel.setCursor(index);
+                  panel.applySource(source);
+                }}
+              >
+                <span className="source-row-icon">
+                  <Icon size={30} strokeWidth={1.6} />
+                </span>
+                <span className="source-row-text">
+                  <strong>{sourceLabel(panel, source)}</strong>
+                  <span>{tryT(panel.lang, `source.${source}.detail`) ?? "\u00a0"}</span>
+                </span>
+                {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
+              </Button>
+            );
+          })}
       </div>
       <p className="modal-hint">{t("source.hint")}</p>
     </FullModal>
@@ -714,7 +725,7 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
                 db={db}
                 label={t("media.volume")}
                 sourceTitle={t("media.source")}
-                source={sourceLabel(t, s?.amp.source ?? null)}
+                source={sourceLabel(panel, s?.amp.source ?? null)}
                 mode={transportMode(s)}
                 small
               />
