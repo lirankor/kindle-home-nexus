@@ -351,3 +351,72 @@ async def test_entry_configured_before_the_seeded_flag_is_not_reseeded(hass: Hom
     assert (await call(hass, "get_config"))["seeded"] is True
     r = await call(hass, "seed", config=dict(HOUSE, language="en"))
     assert r["config"] == "kept"
+
+
+def _node(cid, title, expand=True, ctype="app", children=None):
+    return SimpleNamespace(
+        media_content_id=cid, title=title, can_expand=expand, media_content_type=ctype, children=children or []
+    )
+
+
+async def test_discover_sources_walks_only_photo_libraries(hass, monkeypatch) -> None:
+    """Q14: Radio Browser, TTS, AI task, camera and image entities are never browsed; Immich albums are offered
+    without listing their photos; local folders with images are offered."""
+    import asyncio
+
+    from custom_components.kindle_panel import photos
+
+    imm = "media-source://immich/u1"
+    tree = {
+        None: _node(
+            None,
+            "Media sources",
+            children=[
+                _node(f"media-source://{d}", d)
+                for d in ("radio_browser", "tts", "ai_task", "camera", "image", "immich", "media_source")
+            ],
+        ),
+        "media-source://immich": _node("", "Immich", children=[_node(imm, "Owner")]),
+        imm: _node(imm, "Owner", children=[_node(f"{imm}|albums", "albums")]),
+        f"{imm}|albums": _node("", "albums", children=[_node(f"{imm}|albums|a1", "Book pick")]),
+        "media-source://media_source": _node(
+            "", "My media", children=[_node("media-source://media_source/local/photos", "photos")]
+        ),
+        "media-source://media_source/local/photos": _node(
+            "", "photos", children=[_node("media-source://media_source/local/photos/x.jpg", "x", False, "image/jpeg")]
+        ),
+    }
+    browsed: list[str | None] = []
+
+    async def browse(_hass, cid):
+        browsed.append(cid)
+        if cid not in tree:
+            await asyncio.sleep(30)  # what Radio Browser feels like
+        return tree[cid]
+
+    monkeypatch.setattr(photos.media_source, "async_browse_media", browse)
+    found = await photos.discover_sources(hass)
+    assert found == {
+        f"media_source:{imm}|albums|a1": "immich · Owner · albums · Book pick",
+        "media_source:media-source://media_source/local/photos": "media_source · photos",
+    }
+    assert not [c for c in browsed if c and c.split("/")[2] in ("radio_browser", "tts", "ai_task", "camera", "image")]
+
+
+async def test_discover_sources_is_capped_by_time(hass, monkeypatch) -> None:
+    import asyncio
+    import time
+
+    from custom_components.kindle_panel import photos
+
+    root = _node(None, "Media sources", children=[_node("media-source://media_source", "My media")])
+
+    async def browse(_hass, cid):
+        if cid is None:
+            return root
+        await asyncio.sleep(30)  # a huge or hanging folder
+
+    monkeypatch.setattr(photos.media_source, "async_browse_media", browse)
+    t = time.monotonic()
+    assert await photos.discover_sources(hass, budget=0.3) == {}
+    assert time.monotonic() - t < 2

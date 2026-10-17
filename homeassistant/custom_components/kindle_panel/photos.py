@@ -18,6 +18,7 @@ Skipped photos are never shown in any mode. Portrait photos are weighted up (the
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import time
@@ -233,35 +234,64 @@ class PhotoLibrary:
         return photo.url
 
 
-async def discover_sources(hass: HomeAssistant) -> dict[str, str]:
-    """Selectable sources for the options UI: {json-ish key: label}. Two levels of HA's media browser."""
+# Only these media sources can hold photo folders worth offering. Everything else is skipped without a single
+# browse: Radio Browser alone (252 countries, categories, languages) made the page take 393 s on the owner's HA, and
+# tts / ai_task / camera / image entities are not photo libraries.
+DISCOVER_DOMAINS = (IMMICH_DOMAIN, "media_source")
+DISCOVER_BUDGET = 6.0  # seconds for the whole walk; the page opens with what was found by then
+DISCOVER_MAX = 400
+
+
+async def discover_sources(hass: HomeAssistant, budget: float = DISCOVER_BUDGET) -> dict[str, str]:
+    """Selectable sources for the options UI: {key: label}. Walks only Immich and local media (image folders),
+    three levels deep, within `budget` seconds."""
     found: dict[str, str] = {}
     if hass.config_entries.async_loaded_entries(IMMICH_DOMAIN):
         found[SOURCE_IMMICH_FAVORITES] = "Immich · Favourites"
-    try:
-        root = await media_source.async_browse_media(hass, None)
-    except Exception:  # noqa: BLE001
+    deadline = time.monotonic() + budget
+    root = await _browse(hass, None, deadline)
+    if root is None:
         return found
     for top in root.children or []:
-        await _walk(hass, top, [top.title], found, depth=0)
+        if _domain(top.media_content_id) in DISCOVER_DOMAINS:
+            await _walk(hass, top, [top.title], found, 0, deadline)
+    if time.monotonic() >= deadline:
+        _LOGGER.info("photo source listing stopped after %.0f s with %d sources", budget, len(found))
     return found
 
 
-async def _walk(hass: HomeAssistant, node: Any, path: list[str], found: dict[str, str], depth: int) -> None:
-    if not node.can_expand or depth > 3 or len(found) > 400:
+def _domain(content_id: str | None) -> str:
+    """media-source://<domain>/... -> <domain>"""
+    rest = (content_id or "").removeprefix("media-source://")
+    return rest.split("/", 1)[0]
+
+
+async def _browse(hass: HomeAssistant, content_id: str | None, deadline: float) -> Any | None:
+    left = deadline - time.monotonic()
+    if left <= 0:
+        return None
+    try:
+        return await asyncio.wait_for(media_source.async_browse_media(hass, content_id), left)
+    except Exception:  # noqa: BLE001 - a folder that fails or times out is just not offered
+        return None
+
+
+async def _walk(
+    hass: HomeAssistant, node: Any, path: list[str], found: dict[str, str], depth: int, deadline: float
+) -> None:
+    if not node.can_expand or depth > 3 or len(found) >= DISCOVER_MAX or time.monotonic() >= deadline:
         return
     cid = node.media_content_id or ""
     if cid.startswith(f"media-source://{IMMICH_DOMAIN}/") and cid.count("|") == 2:
         # an Immich album / person / tag: offer it without listing its photos (one API call per album otherwise)
         found[f"{SOURCE_MEDIA}:{cid}"] = " · ".join(path)
         return
-    try:
-        folder = await media_source.async_browse_media(hass, node.media_content_id)
-    except Exception:  # noqa: BLE001
+    folder = await _browse(hass, node.media_content_id, deadline)
+    if folder is None:
         return
     children = folder.children or []
     if any((c.media_content_type or "").startswith("image/") for c in children):
         found[f"{SOURCE_MEDIA}:{node.media_content_id}"] = " · ".join(path)
     for c in children:
         if c.can_expand:
-            await _walk(hass, c, [*path, c.title], found, depth + 1)
+            await _walk(hass, c, [*path, c.title], found, depth + 1, deadline)
