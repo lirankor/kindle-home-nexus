@@ -110,6 +110,8 @@ const POWER_ON_POLL_MS = 2000;
 /** HA publishes the new state a moment after an action: refetch the snapshot this long after it resolved. */
 const AFTER_ACTION_MS = 2000;
 const FAILED_SHOWN_MS = 2 * 60 * 1000;
+/** How long a dial notice (F2 in MUSIC_BACKEND=ha) stays on the radio screen. */
+const DIAL_NOTICE_MS = 8000;
 const NAV_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"];
 
 export type MediaScreen =
@@ -619,9 +621,22 @@ export function useMediaPanel({
   };
 
   const isFavourite = !!dialStation && (dialPos.list === RADIO_BANDS[0] || dialStation.favourite);
-  const canFavourite = !!dialStation && isCatalogStationId(dialStation.id);
-  /** F3: add the station under the needle to the YTuner bookmarks, or remove it when it is one. */
+  /** MUSIC_BACKEND=ha: the favourites live in Music Assistant; F2 explains that on the dial instead of editing. */
+  const favouritesExternal = listsQuery.data?.favouritesExternal ?? false;
+  const canFavourite = !!dialStation && (favouritesExternal || isCatalogStationId(dialStation.id));
+  /** A short notice shown on the dial itself (the dial has no visible status line). */
+  const [dialNotice, setDialNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!dialNotice) return;
+    const id = window.setTimeout(() => setDialNotice(null), DIAL_NOTICE_MS);
+    return () => window.clearTimeout(id);
+  }, [dialNotice]);
+  /** F2: add the station under the needle to the YTuner bookmarks, or remove it when it is one. */
   const toggleFavourite = () => {
+    if (favouritesExternal) {
+      setDialNotice(t("radio.favInMa"));
+      return;
+    }
     const station = dialStation;
     if (!station || !isCatalogStationId(station.id)) return;
     const add = !isFavourite;
@@ -1394,6 +1409,7 @@ export function useMediaPanel({
     radioView,
     radioLists,
     radioListsError,
+    dialNotice,
     radioListsLoading: listsQuery.isPending,
     dialPos,
     dialStation,

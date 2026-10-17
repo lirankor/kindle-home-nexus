@@ -396,6 +396,35 @@ describe("Radio screen", () => {
     );
   });
 
+  it("MUSIC_BACKEND=ha: F2 on the dial shows the Music Assistant notice on the dial, translated, and edits nothing", async () => {
+    mocks.getRadioLists.mockResolvedValue({ ...lists(), favouritesExternal: true });
+    await openRadio("he");
+    await waitFor(() =>
+      expect(
+        document.querySelector('.full-modal [data-soft-key="F2"]')?.hasAttribute("disabled"),
+      ).toBe(false),
+    );
+    press("F2");
+    await waitFor(() =>
+      expect(document.querySelector(".full-modal .radio-error")?.textContent).toBe(
+        "המועדפים נשמרים ב-Music Assistant",
+      ),
+    );
+    expect(mocks.runMediaAction).not.toHaveBeenCalled();
+  });
+
+  it("MUSIC_BACKEND=ha: the dial notice in English", async () => {
+    mocks.getRadioLists.mockResolvedValue({ ...lists(), favouritesExternal: true });
+    await openRadio("en");
+    press("F2");
+    await waitFor(() =>
+      expect(document.querySelector(".full-modal .radio-error")?.textContent).toBe(
+        "Favourites are kept in Music Assistant",
+      ),
+    );
+    expect(mocks.runMediaAction).not.toHaveBeenCalled();
+  });
+
   it("while the amp is off: empty favourites text, and tuning starts the power-on routine into NET RADIO", async () => {
     const off = liveResult();
     off.snapshot!.amp.on = false;

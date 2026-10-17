@@ -121,6 +121,8 @@ export type RadioListsResult = {
   error?: string;
   lists: RadioListView[];
   current: RadioPosition | null;
+  /** The favourites band is read-only here (MUSIC_BACKEND=ha: Music Assistant keeps the favourites). */
+  favouritesExternal?: boolean;
 };
 
 // ---- Now playing / snapshot ----

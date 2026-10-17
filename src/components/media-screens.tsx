@@ -565,7 +565,13 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
                     : t("radio.empty")
               }
             />
-            {panel.radioListsError && <p className="radio-error">{panel.radioListsError}</p>}
+            {panel.dialNotice ? (
+              <p className="radio-error" role="status">
+                {panel.dialNotice}
+              </p>
+            ) : (
+              panel.radioListsError && <p className="radio-error">{panel.radioListsError}</p>
+            )}
             <div className="radio-transport-row" data-on={on}>
               <TransportControl
                 db={db}

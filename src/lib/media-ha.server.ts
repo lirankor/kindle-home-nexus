@@ -454,6 +454,7 @@ export async function readRadioListsHa(): Promise<RadioListsResult> {
   return {
     configured: true,
     ...(error === undefined ? {} : { error }),
+    favouritesExternal: true,
     lists: [
       { id: FAVOURITES_LIST_ID, stations: favourites },
       ...RADIO_LISTS.map((l) => ({
