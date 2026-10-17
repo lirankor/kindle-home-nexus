@@ -870,7 +870,12 @@ async def test_media_page_edits_nodes_and_keys(hass, panel) -> None:
     keys = {str(k): v for k, v in flow["data_schema"].schema.items()}
     offered = [o["value"] for o in keys["key_f1"].config["options"]]
     assert offered[:5] == ["music", "amp", "tv", "all_off", "none"] and "script.movie_mode" in offered
-    assert [o["value"] for o in keys["out_f1"].config["options"]] == ["none", "media_player.ma_amp_dlna"]
+    # output picker keys: an MA player (picks it) or a script (runs it; bus task 015)
+    assert [o["value"] for o in keys["out_f1"].config["options"]] == [
+        "none",
+        "media_player.ma_amp_dlna",
+        "script.movie_mode",
+    ]
     # rename the TV (with a Hebrew name), drop the amp, swap the keys
     tv = {**rows[1], "name": "Projector", "name_he": "מקרן", "volume": "number.ignored_for_a_tv"}
     res = await hass.config_entries.options.async_configure(
@@ -924,3 +929,91 @@ async def test_media_page_edits_nodes_and_keys(hass, panel) -> None:
         },
     )
     assert res["type"] is FlowResultType.FORM and "names no node" in res["description_placeholders"]["error"]
+
+
+RX_NODE = {"id": "amp", "type": "receiver", "name": "Yamaha R-N500", "power_device": "media_player.r_n500"}
+RX_SOURCES = ["Spotify", "NET RADIO", "SERVER", "AirPlay", "PHONO", "CD", "LINE1", "LINE3"]
+
+
+def test_node_inputs_and_script_output_keys() -> None:
+    """Bus task 015: input rows rename / hide entries of the device's source_list; picker keys may be scripts."""
+    import voluptuous as vol
+
+    from custom_components.kindle_panel.config import normalize
+
+    rows = [
+        {"input": "CD", "name": "Bluetooth & TV", "name_he": "בלוטות׳ וטלוויזיה"},
+        {"input": "LINE3", "hidden": True},
+        {"input": "PHONO", "name": "", "name_he": None, "hidden": False},  # changes nothing: dropped
+    ]
+    cfg = normalize(
+        {"media": {"nodes": [{**RX_NODE, "inputs": rows}], "output_keys": ["script.amp_dlna", "media_player.x"]}}
+    )
+    m = cfg["media"]
+    assert m["nodes"][0]["inputs"] == [
+        {"input": "CD", "name": "Bluetooth & TV", "name_he": "בלוטות׳ וטלוויזיה"},
+        {"input": "LINE3", "hidden": True},
+    ]
+    assert m["output_keys"] == ["script.amp_dlna", "media_player.x", "none", "none"]
+    assert normalize(cfg) == cfg
+    # a TV node takes input rows too
+    tv = normalize({"media": {"nodes": [{**TV_NODE, "inputs": [{"input": "HDMI 1", "name": "Console"}]}]}})
+    assert tv["media"]["nodes"][0]["inputs"] == [{"input": "HDMI 1", "name": "Console"}]
+    for bad in (
+        [{"input": "CD", "name": "A"}, {"input": "CD", "hidden": True}],  # one input, two rows
+        [{"name": "no input"}],
+    ):
+        with pytest.raises(vol.Invalid):
+            normalize({"media": {"nodes": [{**RX_NODE, "inputs": bad}]}})
+    with pytest.raises(vol.Invalid):
+        normalize({"media": {"output_keys": ["light.x"]}})
+
+
+async def test_media_inputs_page(hass, panel) -> None:
+    hass.states.async_set("media_player.r_n500", "off", {"source_list": RX_SOURCES})
+    await call(hass, "seed", config={**HOUSE, "media": {"music_backend": "ha", "nodes": [RX_NODE]}})
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "media"})
+    keys = {str(k): v for k, v in flow["data_schema"].schema.items()}
+    assert [o["value"] for o in keys["inputs_for"].config["options"]] == ["amp"]
+    rows = {str(k): k for k in flow["data_schema"].schema}["nodes"].description["suggested_value"]
+    page = {"music_backend": "ha", "nodes": rows, **{f"key_f{i}": "none" for i in range(1, 5)}}
+    page |= {f"out_f{i}": "none" for i in range(1, 5)}
+    res = await hass.config_entries.options.async_configure(flow["flow_id"], {**page, "inputs_for": "amp"})
+    assert res["type"] is FlowResultType.FORM and res["step_id"] == "media_inputs"
+    assert res["description_placeholders"]["name"] == "Yamaha R-N500"
+    schema = {str(k): k for k in res["data_schema"].schema}
+    # every input of the receiver, live and in its own order
+    assert [r["input"] for r in schema["inputs"].description["suggested_value"]] == RX_SOURCES
+    edited = [
+        {"input": "CD", "name": "Bluetooth & TV", "name_he": "בלוטות׳ וטלוויזיה"},
+        {"input": "LINE3", "hidden": True},
+        {"input": "SERVER"},
+    ]
+    res = await hass.config_entries.options.async_configure(res["flow_id"], {"inputs": edited})
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    node = (await call(hass, "get_config"))["config"]["media"]["nodes"][0]
+    assert node["inputs"] == edited[:2]
+    # the node editor does not show the rows, and saving it keeps them
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "media"})
+    rows = {str(k): k for k in flow["data_schema"].schema}["nodes"].description["suggested_value"]
+    assert "inputs" not in rows[0]
+    res = await hass.config_entries.options.async_configure(flow["flow_id"], {**page, "nodes": rows})
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert (await call(hass, "get_config"))["config"]["media"]["nodes"][0]["inputs"] == edited[:2]
+    # the inputs page again: saved rows filled in, an input the receiver no longer lists is kept at the end
+    hass.states.async_set("media_player.r_n500", "off", {"source_list": ["SERVER", "CD"]})
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "media"})
+    res = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {**page, "nodes": rows, "inputs_for": "amp"}
+    )
+    shown = {str(k): k for k in res["data_schema"].schema}["inputs"].description["suggested_value"]
+    assert shown == [
+        {"input": "SERVER"},
+        {"input": "CD", "name": "Bluetooth & TV", "name_he": "בלוטות׳ וטלוויזיה"},
+        {"input": "LINE3", "hidden": True},
+    ]

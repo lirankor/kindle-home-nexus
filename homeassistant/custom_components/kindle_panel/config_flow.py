@@ -239,15 +239,18 @@ NODE_COLUMNS: dict[str, dict[str, Any]] = {
 
 
 def _node_rows(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Nodes as rows of the node list editor; their input rows have a page of their own (media_inputs)."""
     rows = []
     for n in nodes:
         field = NODE_TYPES[n["type"]]["entity"][0]
-        rows.append({("entity" if k == field else k): v for k, v in n.items()})
+        rows.append({("entity" if k == field else k): v for k, v in n.items() if k != "inputs"})
     return rows
 
 
-def _nodes_from_rows(rows: Any) -> list[dict[str, Any]]:
-    """Rows back to nodes; a column the row's type does not use is dropped (normalize() checks the rest)."""
+def _nodes_from_rows(rows: Any, old: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Rows back to nodes; a column the row's type does not use is dropped (normalize() checks the rest). A node keeps
+    the input rows it had under its id (they are edited on their own page)."""
+    inputs = {n["id"]: n["inputs"] for n in old or [] if n.get("inputs")}
     nodes = []
     for row in rows or []:
         kind = row.get("type")
@@ -258,8 +261,22 @@ def _nodes_from_rows(rows: Any) -> list[dict[str, Any]]:
         node = {"id": str(row.get("id") or "").strip(), "type": kind, "name": str(row.get("name") or "").strip()}
         node[t["entity"][0]] = row.get("entity")
         node |= {k: row[k] for k in t["optional"] if row.get(k) not in (None, "", [])}
+        if node["id"] in inputs:
+            node["inputs"] = inputs[node["id"]]
         nodes.append(node)
     return nodes
+
+
+INPUT_COLUMNS_HELP = "Input (as the device lists it)"
+
+
+def _input_rows(node: dict[str, Any], source_list: list[str]) -> list[dict[str, Any]]:
+    """The node's input rows for the list editor: every input of the device in its own order (renamed / hidden ones
+    with their values), then saved rows of inputs the device does not list right now (kept, marked by name only)."""
+    saved = {r["input"]: r for r in node.get("inputs") or []}
+    rows = [{"input": i, **{k: v for k, v in saved.get(i, {}).items() if k != "input"}} for i in source_list]
+    rows += [dict(r) for i, r in saved.items() if i not in source_list]
+    return rows
 
 
 CARD_LABELS = {
@@ -298,6 +315,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
         self._found: dict[str, str] | None = None  # photo sources, listed once per visit
         self._error: str | None = None
         self._tab_id: str | None = None  # the custom tab being edited
+        self._node_id: str | None = None  # the media device whose inputs are edited
 
     @property
     def cfg(self) -> dict[str, Any]:
@@ -653,11 +671,23 @@ class KindlePanelOptionsFlow(OptionsFlow):
         if user_input is not None:
             c["media"] = {
                 "music_backend": user_input["music_backend"],
-                "nodes": _nodes_from_rows(_take_he(c, user_input.get("nodes"))),
+                "nodes": _nodes_from_rows(_take_he(c, user_input.get("nodes")), c["media"]["nodes"]),
                 "keys": [user_input.get(f"key_f{i + 1}") or POWER_KEY_NONE for i in range(POWER_KEY_COUNT)],
                 "output_keys": [user_input.get(f"out_f{i + 1}") or POWER_KEY_NONE for i in range(POWER_KEY_COUNT)],
             }
-            if (done := self._save("media")) is not None:
+            edit = user_input.get("inputs_for")
+            if edit:
+                try:  # the inputs page saves both pages together
+                    self._cfg = normalize(c)
+                except vol.Invalid as err:
+                    self._error = str(err)
+                else:
+                    if any(n["id"] == edit for n in self._cfg["media"]["nodes"]):
+                        self._error = None
+                        self._node_id = edit
+                        return await self.async_step_media_inputs()
+                    self._error = f"no device with the id {edit!r}"
+            elif (done := self._save("media")) is not None:
                 return done
         m = c["media"]
         # F1..F4 on the Media tab: the music screen, a node's controls, a script, all off or nothing
@@ -668,11 +698,12 @@ class KindlePanelOptionsFlow(OptionsFlow):
         keys |= {k: v for k, v in _runs_options(self.hass).items() if k.startswith("script.")}
         for key in m["keys"]:
             keys.setdefault(key, f"{key} (not available)")
-        # F1..F4 in the output picker: a Music Assistant player / group or nothing
+        # F1..F4 in the output picker: a Music Assistant player / group, a script (runs it) or nothing
         outs = {POWER_KEY_NONE: "Nothing"}
         from . import ma_players  # the integration module imports this one
 
-        outs |= {o["entity_id"]: f"{o['name']} ({o['entity_id']})" for o in ma_players(self.hass)}
+        outs |= {o["entity_id"]: f"Output: {o['name']} ({o['entity_id']})" for o in ma_players(self.hass)}
+        outs |= {k: v for k, v in _runs_options(self.hass).items() if k.startswith("script.")}
         for key in m["output_keys"]:
             outs.setdefault(key, f"{key} (not available)")
         key_select, out_select = _key_select(keys), _key_select(outs)
@@ -684,8 +715,54 @@ class KindlePanelOptionsFlow(OptionsFlow):
                     _opt("nodes", _with_he(c, _node_rows(m["nodes"]))): _list(NODE_COLUMNS, "name"),
                     **{vol.Required(f"key_f{i + 1}", default=k): key_select for i, k in enumerate(m["keys"])},
                     **{vol.Required(f"out_f{i + 1}", default=k): out_select for i, k in enumerate(m["output_keys"])},
+                    vol.Optional("inputs_for"): sel.SelectSelector(
+                        sel.SelectSelectorConfig(
+                            options=[sel.SelectOptionDict(value=n["id"], label=n["name"]) for n in m["nodes"]],
+                            mode=sel.SelectSelectorMode.DROPDOWN,
+                            custom_value=True,  # the id of a device added on this very page
+                        )
+                    ),
                 }
             ),
+        )
+
+    async def async_step_media_inputs(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """One device's inputs: rename or hide entries of its media player's source_list. Saves the Media pages."""
+        c = self.cfg
+        node = next((n for n in c["media"]["nodes"] if n["id"] == self._node_id), None)
+        if node is None:
+            return self.async_abort(reason="media_node_gone")
+        if user_input is not None:
+            node["inputs"] = list(user_input.get("inputs") or [])
+            if (done := self._save("media")) is not None:
+                return done
+        entity = node.get(NODE_TYPES[node["type"]]["entity"][0])
+        st = self.hass.states.get(entity) if entity else None
+        live = [str(x) for x in (st.attributes.get("source_list") or [])] if st else []
+        rows = _input_rows(node, live)
+        options = [*live, *[r["input"] for r in rows if r["input"] not in live]]
+        return self._form(
+            "media_inputs",
+            vol.Schema(
+                {
+                    _opt("inputs", rows): _list(
+                        {
+                            "input": {
+                                "label": INPUT_COLUMNS_HELP,
+                                "required": True,
+                                "selector": {"select": {"options": options, "mode": "dropdown", "custom_value": True}},
+                            },
+                            "name": {"label": "Name (empty: the device's own title)", "selector": {"text": {}}},
+                            "name_he": NAME_HE,
+                            "hidden": {"label": "Hidden on the panel", "selector": {"boolean": {}}},
+                        },
+                        "input",
+                    ),
+                }
+            ),
+            name=node["name"],
+            entity=entity or "-",
+            inputs=", ".join(live) if live else "(the device lists no inputs right now)",
         )
 
     async def async_step_screensaver(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

@@ -16,6 +16,15 @@ type:
 * **TV**: *Entity* = the TV's media player. Optional: movie-mode on / off scripts and the movie-mode boolean. On the
   panel: on / off, volume, input list, movie mode.
 
+**Inputs** (since 0.5.1): a device's input list on the panel is its media player's own `source_list`, live from Home
+Assistant and in the device's order (a Yamaha through yamaha_netbridge: Spotify, NET RADIO, SERVER, AirPlay, USB,
+TUNER, PHONO, CD, OPTICAL, COAXIAL, LINE…). Every input shows with the device's own title. To rename or hide some, pick
+the device under *Then rename / hide the inputs of* on the Media page: the next page lists its inputs, each with a name,
+a Hebrew name and *Hidden on the panel* (e.g. `CD` → "Bluetooth & TV" / "בלוטות׳ וטלוויזיה", `LINE3` hidden). Rows are
+stored on the device as `inputs: [{input, name, name_he, hidden}]`; selecting an input on the panel calls
+`media_player.select_source` with the device's own title, and a receiver in standby is turned on by that (yamaha_netbridge
+≥ 0.2.1 does it itself, through its power supply switch when the plug is off).
+
 The **F1–F4 keys of the Media tab** each open the music screen, open one device's controls, run a script, switch all
 media off, or do nothing. A new panel starts with F1 = music, F2 = the first receiver, F3 = the first TV.
 
@@ -23,7 +32,8 @@ media off, or do nothing. A new panel starts with F1 = music, F2 = the first rec
 Assistant to **one output per panel**, chosen on the panel itself: the music screen's Output key opens a list of every
 Music Assistant player Home Assistant has (names from Home Assistant). Up / down and select choose it, Back closes the
 list without a change, and the picker's F1–F4 are quick keys to the outputs set under *F1–F4 in the output picker*.
-The list opens by itself when the panel has no output yet (or its output is gone from Home Assistant). One output at a
+A picker key can also be a **script** (its name shows on the key): it runs instead of picking, for anything more than
+choosing a player. The list opens by itself when the panel has no output yet (or its output is gone from Home Assistant). One output at a
 time by design: **to play in several rooms, make a group in Music Assistant**; the group shows up as one more player.
 
 When the chosen output is one of a receiver's Music Assistant players, the panel's music turns that receiver on first,
@@ -32,6 +42,36 @@ entity id, e.g. `dlna` / `airplay`). Any other output plays as it is (volume on 
 stored per panel in Home Assistant (`kindle_panel.set_output`; `kindle_panel.get_config` answers `music_output` and
 the list `outputs`). Configs saved before 0.5.0 are migrated: the amplifier fields become a receiver `amp`, the TV fields
 a TV `tv`, and a panel that played through Home Assistant keeps the amplifier's DLNA player as its output.
+
+The music screen never powers a receiver by itself (since 0.5.1): it is a Music Assistant controller. Playing, or
+picking an output, wakes the output's receiver (the HA package does it through the receiver's `power_device`); the
+screen shows the output's state. Device power is on the device's own screen (Media tab).
+
+### Example: a picker key that wakes the amp and plays to it over DLNA
+
+Plug on → amp on → input SERVER → the panel's output = the amp's DLNA player. Settings → Scripts → add (YAML), then
+pick it under *F1–F4 in the output picker*. Use your own entity ids:
+
+```yaml
+alias: Amp over DLNA          # the key's label on the panel
+icon: mdi:speaker
+mode: single
+sequence:
+  - action: switch.turn_on
+    target: {entity_id: switch.media_plug}
+  - action: media_player.turn_on          # yamaha_netbridge waits until the amp is up (up to a minute)
+    target: {entity_id: media_player.r_n500}
+  - action: media_player.select_source
+    target: {entity_id: media_player.r_n500}
+    data: {source: SERVER}
+  - action: select.select_option          # the receiver's stream output follows the player
+    target: {entity_id: select.r_n500_stream_output}
+    data: {option: dlna}
+  - action: kindle_panel.set_output       # the panel plays here from now on
+    data: {entity_id: media_player.ma_amp_dlna}
+```
+
+`kindle_panel.set_output` takes any Music Assistant player; the panel shows the new output within 30 s.
 
 ## Scene buttons are Home Assistant scenes
 

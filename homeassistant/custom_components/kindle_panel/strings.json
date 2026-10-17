@@ -89,12 +89,21 @@
           "out_f1": "F1 in the output picker",
           "out_f2": "F2 in the output picker",
           "out_f3": "F3 in the output picker",
-          "out_f4": "F4 in the output picker"
+          "out_f4": "F4 in the output picker",
+          "inputs_for": "Then rename / hide the inputs of"
         },
         "data_description": {
           "nodes": "One row per device. Type receiver: Entity = the receiver's media player (power, inputs); optional volume number, plug, stream output select (DLNA/AirPlay) and the Music Assistant players it plays (an output among them turns the receiver on first). Type tv: Entity = the TV's media player; optional movie mode scripts and boolean. Id: a-z, 0-9, _ (keep it once chosen; the F-keys use it).",
           "key_f1": "Music screen, a device's controls, a script, all off or nothing. Devices added on this page are offered after saving and reopening it.",
-          "out_f1": "Quick keys in the output picker: a Music Assistant player or group, or nothing."
+          "out_f1": "Quick keys in the output picker: a Music Assistant player or group (picks it), a script (runs it, e.g. plug on, amp on, input SERVER, output DLNA; see the README), or nothing.",
+          "inputs_for": "Pick a device (or type the id of one added above) to go on to its inputs: the list comes live from its media player (source_list), in the device's order; rename an input (e.g. CD -> Bluetooth & TV) or hide it. Both pages are saved together there."
+        }
+      },
+      "media_inputs": {
+        "title": "Inputs of {name}",
+        "description": "{entity} lists: {inputs}. Every input shows on the panel with the device's own title unless a row renames or hides it. Rows of inputs the device does not list right now are kept.",
+        "data": {
+          "inputs": "Inputs"
         }
       },
       "screensaver": {
@@ -166,7 +175,8 @@
       "invalid_config": "Not saved, the value is not valid: {error}"
     },
     "abort": {
-      "custom_tab_gone": "That custom tab no longer exists."
+      "custom_tab_gone": "That custom tab no longer exists.",
+      "media_node_gone": "That media device no longer exists."
     }
   },
   "selector": {

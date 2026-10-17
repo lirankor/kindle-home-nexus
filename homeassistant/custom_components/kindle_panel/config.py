@@ -30,6 +30,7 @@ from .const import (
     LIGHT_ICONS,
     MAX_CARDS,
     MAX_CUSTOM_TABS,
+    MAX_INPUT_ROWS,
     MAX_NODES,
     MAX_SCENES,
     MAX_TABS,
@@ -51,7 +52,8 @@ from .const import (
     TOGGLE_ICONS,
 )
 
-CONFIG_VERSION = 2  # 2: media = typed device nodes + F-keys + output-picker keys (0.5.0, bus task 014)
+CONFIG_VERSION = 2  # 2: media = typed device nodes + F-keys + output-picker keys (0.5.0, bus task 014); 0.5.1 adds
+# optional node `inputs` rows and scripts on output-picker keys, both backward compatible (no version bump)
 HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
@@ -176,8 +178,37 @@ def _node_entity(domain: str) -> Any:
     return vol.Any(None, vol.All(cv.entity_id, cv.entity_domain(domain)))
 
 
+INPUT_ROW = vol.Schema(
+    {
+        # the input as the device's media_player lists it in source_list (the receiver's own title)
+        vol.Required("input"): vol.All(cv.string, vol.Strip, vol.Length(min=1, max=64)),
+        vol.Optional("name"): vol.Any(None, vol.All(cv.string, vol.Strip, vol.Length(max=40))),
+        vol.Optional("name_he"): vol.Any(None, vol.All(cv.string, vol.Strip, vol.Length(max=40))),
+        vol.Optional("hidden", default=False): cv.boolean,
+    },
+    extra=vol.REMOVE_EXTRA,
+)
+
+
+def _inputs(v: Any) -> list[dict[str, Any]]:
+    """A node's input rows: renames / hidden inputs of its entity's source_list. Rows that change nothing are dropped;
+    an input named twice is refused."""
+    rows = [INPUT_ROW(r) for r in cv.ensure_list(v or [])]
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        row = {k: x for k, x in r.items() if x not in (None, "", False)}
+        if len(row) == 1:
+            continue  # only the input: nothing renamed, not hidden
+        if any(o["input"] == row["input"] for o in out):
+            raise vol.Invalid(f"input {row['input']!r} has two rows")
+        out.append(row)
+    if len(out) > MAX_INPUT_ROWS:
+        raise vol.Invalid(f"at most {MAX_INPUT_ROWS} input rows")
+    return out
+
+
 def _node(v: Any) -> dict[str, Any]:
-    """A Media tab node: {id, type, name, <the type's entity>, <the type's optional fields>} (see NODE_TYPES)."""
+    """A Media tab node: {id, type, name, <the type's entity>, <the type's optional fields>, inputs} (see NODE_TYPES)."""
     if not isinstance(v, dict):
         raise vol.Invalid("a media node is an object")
     kind = v.get("type")
@@ -192,6 +223,7 @@ def _node(v: Any) -> dict[str, Any]:
             vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=40)),
             vol.Required(field, msg=f"a {kind} node needs {field}"): vol.All(cv.entity_id, cv.entity_domain(domain)),
             **{vol.Optional(k): _node_entity(d) for k, d in t["optional"].items()},
+            vol.Optional("inputs"): _inputs,
         },
         extra=vol.REMOVE_EXTRA,
     )
@@ -208,9 +240,10 @@ def _media_key(v: Any) -> str:
 
 
 def _output_key(v: Any) -> str:
+    """Output picker F1..F4: none, a Music Assistant player / group, or a script (run instead of picking)."""
     if v in (None, "", POWER_KEY_NONE):
         return POWER_KEY_NONE
-    return vol.All(cv.entity_id, cv.entity_domain("media_player"))(v)
+    return vol.All(cv.entity_id, cv.entity_domain(["media_player", "script"]))(v)
 
 
 def _power_key(v: Any) -> str:

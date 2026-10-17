@@ -76,9 +76,13 @@ NODE_TYPES: dict[str, dict] = {
     },
 }
 MAX_NODES = 6
+# Every node type may carry `inputs`: rows {input, name, name_he, hidden} that rename or hide entries of its entity's
+# source_list (the list itself always comes live from HA, in the device's order; bus task 015).
+MAX_INPUT_ROWS = 40
 # Media tab F1..F4: none, all_off, "music" (the music screen), a node id (that node's controls) or a script.
 MEDIA_KEY_MUSIC = "music"
-# The output picker's F1..F4: none or a Music Assistant media_player (a player or an MA group).
+# The output picker's F1..F4: none, a Music Assistant media_player (a player or an MA group) or a script (e.g. plug on,
+# amp on, input SERVER, output DLNA; see the README).
 # kindle_panel <= 0.4.0 (config version 1) had flat amp/tv fields and the owner's amp hard-wired in the HA package and
 # the app: those become an "amp" receiver and a "tv" node, and the panel's output starts as the amp's DLNA player.
 LEGACY_POWER_DEVICE = "media_player.r_n500"
