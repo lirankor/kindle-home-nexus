@@ -241,6 +241,10 @@ export const panelSource = (src: string | null): AmpSource | null =>
  * Project the bridge entity onto the entity ids the panel's snapshot builder reads (AMP.player / volume /
  * DLNA), so the panel keeps exactly its UI rules (screens by source, screensaver, footer slots).
  */
+/** yamaha_netbridge >= 0.2.0: the receiver plays its own input (NET RADIO, CD, …), not Music Assistant (Q18). */
+export const receiverPlaysOwnInput = (b: HaState | null | undefined): boolean =>
+  (b?.attributes as { foreign_state?: unknown } | undefined)?.foreign_state === "playing";
+
 export function projectStates(states: Map<string, HaState>, s: HaMusicState): Map<string, HaState> {
   const out = new Map(states);
   const b = states.get(BRIDGE);
@@ -248,9 +252,15 @@ export function projectStates(states: Map<string, HaState>, s: HaMusicState): Ma
     (p) => p && ["playing", "buffering"].includes(p.state),
   );
   const bridgeState = b?.state ?? (s.amp.available ? (s.amp.on ? "on" : "off") : "unavailable");
+  // yamaha_netbridge >= 0.2.0 reports "on" (not "playing") while the receiver plays its own input (NET RADIO, CD, …)
+  // and puts that play state in `foreign_state` (Q18); without this the NET RADIO play/stop key always sent "play".
+  const foreignPlaying = receiverPlaysOwnInput(b);
   out.set(AMP.player, {
     entity_id: AMP.player,
-    state: busy && bridgeState !== "off" ? "playing" : bridgeState,
+    state:
+      (busy && bridgeState !== "off") || (foreignPlaying && bridgeState === "on")
+        ? "playing"
+        : bridgeState,
     attributes: {
       ...(b?.attributes ?? {}),
       source: panelSource(s.amp.source),
@@ -612,8 +622,14 @@ export async function performMediaActionHa(
       await radioStepHa(a.delta);
       return;
     case "radio.playback":
-      if (a.op === "stop") await control("stop");
-      else if (lastRadio) await tuneRadioHa(lastRadio.list, lastRadio.index);
+      if (a.op === "stop") {
+        // The receiver's own NET RADIO is not Music Assistant's: stop it on the bridge, MA's stop would not reach it.
+        const b = await ha<HaState>("GET", `/api/states/${BRIDGE}`).catch(() => null);
+        if (receiverPlaysOwnInput(b)) {
+          await service("media_player", "media_stop", { entity_id: BRIDGE });
+          lastState = null;
+        } else await control("stop");
+      } else if (lastRadio) await tuneRadioHa(lastRadio.list, lastRadio.index);
       else await control("resume");
       return;
     case "radio.favourite":

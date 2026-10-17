@@ -199,6 +199,28 @@ describe("snapshot through the panel's own builder", () => {
     expect(snap.nowPlaying.stationId).toBe(station.id);
     expect(snap.radio).toEqual({ list: RADIO_LISTS[1]!.id, index: 0 });
   });
+  it("the receiver playing its own input (bridge 0.2.0: state on + foreign_state) is playing (Q18)", () => {
+    const amp = { ...music().amp, source: "NET RADIO", playing: false };
+    const s = music({ amp, queue: null });
+    const at = (foreign: string, state = "on") =>
+      buildMediaSnapshot(
+        projectStates(
+          new Map([
+            [
+              BRIDGE,
+              { ...st(BRIDGE, state), attributes: { source: "NET RADIO", foreign_state: foreign } },
+            ],
+          ]),
+          s,
+        ),
+        {},
+      );
+    expect(at("playing").amp.state).toBe("playing");
+    expect(at("playing").amp.playing).toBe(true);
+    expect(at("stopped").amp.state).toBe("on");
+    expect(at("stopped").amp.playing).toBe(false);
+    expect(at("playing", "off").amp.on).toBe(false); // standby wins over a stale foreign_state
+  });
   it("an amp in standby is off", () => {
     const states = new Map([[BRIDGE, st(BRIDGE, "off")]]);
     const s = music({ amp: { ...music().amp, on: false, state: "off" }, queue: null });
@@ -210,6 +232,7 @@ describe("snapshot through the panel's own builder", () => {
 
 describe("HA calls", () => {
   const calls: { path: string; body: Record<string, unknown> }[] = [];
+  let bridgeForeign: string | null = null;
   beforeEach(() => {
     calls.length = 0;
     process.env["HA_TOKEN"] = "t";
@@ -221,7 +244,13 @@ describe("HA calls", () => {
         const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
         calls.push({ path, body });
         let payload: unknown = [];
-        if (path === "/api/states")
+        if (path === `/api/states/${BRIDGE}`)
+          payload = {
+            entity_id: BRIDGE,
+            state: "on",
+            attributes: { source: "NET RADIO", foreign_state: bridgeForeign },
+          };
+        else if (path === "/api/states")
           payload = [
             { entity_id: BRIDGE, state: "on", attributes: { source: "SERVER", volume_db: -40 } },
             { entity_id: "media_player.ma_amp_dlna", state: "playing", attributes: {} },
@@ -268,6 +297,17 @@ describe("HA calls", () => {
     expect(calls.at(-1)?.body).toEqual({ entity_id: BRIDGE, delta_db: -AMP.volumeStepDb });
     await performMediaActionHa({ type: "tv", op: "turn_on" }, legacy);
     expect(legacy).toHaveBeenCalledOnce(); // TV / plug / movie keep their old path
+  });
+  it("the radio stop key stops the receiver's own NET RADIO on the bridge, MA's radio through MA (Q18)", async () => {
+    bridgeForeign = "playing";
+    await performMediaActionHa({ type: "radio.playback", op: "stop" }, vi.fn());
+    expect(calls.at(-1)?.path).toBe("/api/services/media_player/media_stop");
+    expect(calls.at(-1)?.body).toEqual({ entity_id: BRIDGE });
+    bridgeForeign = "stopped";
+    await performMediaActionHa({ type: "radio.playback", op: "stop" }, vi.fn());
+    expect(calls.at(-1)?.path).toContain("/api/services/script/music_control");
+    expect(calls.at(-1)?.body).toEqual({ op: "stop" });
+    bridgeForeign = null;
   });
   it("jumps with kindle_panel.play_index on the active MA player", async () => {
     await performMediaActionHa({ type: "queue.jump", index: 12 }, vi.fn());
