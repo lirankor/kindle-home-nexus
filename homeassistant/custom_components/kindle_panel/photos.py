@@ -128,6 +128,7 @@ class PhotoLibrary:
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
         self._cache: dict[str, tuple[float, list[Photo]]] = {}
+        self._immich_view_ready = False
 
     async def candidates(self, sources: list[dict[str, Any]]) -> list[Photo]:
         seen: dict[str, Photo] = {}
@@ -154,8 +155,21 @@ class PhotoLibrary:
         self._cache[key] = (time.monotonic(), photos)
         return photos
 
+    async def _ensure_immich_view(self) -> None:
+        """HA registers the `/immich/<uid>/<asset>/...` image view lazily, when its Immich media source is first
+        instantiated (a browse). Until then every photo URL we hand out answers 404, e.g. after an HA restart. One
+        cheap root browse per library instance makes the view exist."""
+        if self._immich_view_ready:
+            return
+        try:
+            await media_source.async_browse_media(self.hass, f"media-source://{IMMICH_DOMAIN}")
+            self._immich_view_ready = True
+        except Exception:  # noqa: BLE001 - a failed browse just means we try again next time
+            _LOGGER.debug("immich media source not browsable yet", exc_info=True)
+
     async def _immich_favorites(self) -> list[Photo]:
         out: list[Photo] = []
+        await self._ensure_immich_view()
         for entry in self.hass.config_entries.async_loaded_entries(IMMICH_DOMAIN):
             # aioimmich >= 0.16 (HA 2026.8) moved the raw request onto the `Immich.api` client; older versions
             # (HA 2026.2, the design sandbox) had it on the `Immich` object itself.
