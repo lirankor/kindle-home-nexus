@@ -16,6 +16,7 @@ import {
 } from "./home.server";
 import { onlinePhoto } from "./unsplash.server";
 import { NoHaPhoto, haMarkPhoto, haPickPhoto, haPhotosActive } from "./photo-ha.server";
+import { MarkRouter } from "./photo.server";
 
 /** Shape only; whether the entity is one of the configured ones is checked in the handler (the configuration
  *  comes from Home Assistant and can change at runtime). */
@@ -125,6 +126,13 @@ export type ScreensaverResult = {
 let lastPhoto: { image: string; assetId: string | null; marked: number; credit?: string } | null =
   null;
 
+// Which store judges a photo (Q15): the one whose picker served it. A photo from Home Assistant is marked in HA
+// (kindle_panel); a photo from the app's own Immich fallback (HA gave no photo) is marked in the local marks file,
+// whose kept / skipped lists are exactly what that fallback filters on and counts in the footer. The local marks
+// are not copied to HA later (HA was seeded once); they only matter while the fallback runs.
+const markRouter = new MarkRouter();
+const rememberServed = (id: string | null, via: "ha" | "local") => markRouter.remember(id, via);
+
 export const getScreensaver = createServerFn({ method: "GET" })
   .validator((input: unknown) => {
     const force = !!(
@@ -163,22 +171,33 @@ export const getScreensaver = createServerFn({ method: "GET" })
     };
     if (!viaHa && !immichConfigured()) return fallback();
     try {
-      const pickHa = () =>
-        haPickPhoto(lastPhoto?.assetId ?? null).catch((e: unknown) => {
-          // HA has no photos at all (HA's Immich entry not added yet, or not loaded) or HA is unreachable (e.g.
-          // restarting): the panel's own Immich connection, as before. "Everything skipped" (candidates > 0) is
-          // respected, no fallback.
-          const allSkipped = e instanceof NoHaPhoto && e.candidates > 0;
-          if (!allSkipped && immichConfigured()) {
-            const why = e instanceof Error ? e.message : String(e);
-            console.warn(
-              `[screensaver] no photo from Home Assistant (${why}); using Immich directly`,
-            );
-            return randomFavorite();
-          }
-          throw e;
+      const local = () =>
+        randomFavorite().then((p) => {
+          rememberServed(p.assetId, "local");
+          return p;
         });
-      const [photo, result] = await Promise.all([viaHa ? pickHa() : randomFavorite(), readings]);
+      const pickHa = () =>
+        haPickPhoto(lastPhoto?.assetId ?? null).then(
+          (p) => {
+            rememberServed(p.assetId, "ha");
+            return p;
+          },
+          (e: unknown) => {
+            // HA has no photos at all (HA's Immich entry not added yet, or not loaded) or HA is unreachable (e.g.
+            // restarting): the panel's own Immich connection, as before. "Everything skipped" (candidates > 0) is
+            // respected, no fallback.
+            const allSkipped = e instanceof NoHaPhoto && e.candidates > 0;
+            if (!allSkipped && immichConfigured()) {
+              const why = e instanceof Error ? e.message : String(e);
+              console.warn(
+                `[screensaver] no photo from Home Assistant (${why}); using Immich directly`,
+              );
+              return local();
+            }
+            throw e;
+          },
+        );
+      const [photo, result] = await Promise.all([viaHa ? pickHa() : local(), readings]);
       lastPhoto = { image: photo.image, assetId: photo.assetId, marked: photo.marked };
       return {
         image: photo.image,
@@ -193,8 +212,9 @@ export const getScreensaver = createServerFn({ method: "GET" })
     }
   });
 
-/** F1 on the screensaver: keep (looks good on e-ink); F4: skip for good. With the kindle_panel integration both are
- *  stored in Home Assistant; without it F1 goes to the local marks file as before and F4 only moves on. */
+/** F1 on the screensaver: keep (looks good on e-ink); F4: skip for good. A photo Home Assistant served is marked in
+ *  HA (kindle_panel); a photo from the app's own Immich (no HA sources, or the fallback while HA gives no photo) is
+ *  marked in the local marks file, which that picker filters on and counts. */
 export const markScreensaverPhoto = createServerFn({ method: "POST" })
   .validator(
     z.object({
@@ -205,11 +225,10 @@ export const markScreensaverPhoto = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: boolean; marked: number; error?: string }> => {
     try {
       const cfg = await ensurePanelConfig();
-      if (haPhotosActive(cfg))
+      if (markRouter.storeFor(data.id, haPhotosActive(cfg)) === "ha")
         return { ok: true, marked: await haMarkPhoto(data.id, data.verdict) };
-      if (data.verdict === "skip") return { ok: true, marked: 0 };
       if (!/^[A-Za-z0-9-]{1,64}$/.test(data.id)) return { ok: false, marked: 0, error: "bad id" };
-      return { ok: true, marked: await markFavorite(data.id) };
+      return { ok: true, marked: await markFavorite(data.id, data.verdict) };
     } catch (e) {
       return { ok: false, marked: 0, error: errorMessage(e) };
     }

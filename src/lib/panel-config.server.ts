@@ -60,9 +60,12 @@ async function call<T>(service: string, data: Record<string, unknown> = {}): Pro
   return r.service_response;
 }
 
-/** The marks this panel collected before HA held them (F1 = keep). null when they cannot be read (state dir not
+/** The marks this panel collected before HA held them (F1 = keep, F4 = skip). null when they cannot be read (state dir not
  *  mounted, unreadable file): then the marks are not handed over yet, and HA keeps asking for them. */
-async function localMarks(): Promise<Record<string, string> | null> {
+async function localMarks(): Promise<{
+  kept: Record<string, string>;
+  skipped: Record<string, string>;
+} | null> {
   const file = marksFile();
   const stateDir = (process.env["MEDIA_STATE_DIR"] ?? "").trim();
   try {
@@ -75,7 +78,7 @@ async function localMarks(): Promise<Record<string, string> | null> {
   } catch {
     // The state dir is there and nothing was ever marked. Without MEDIA_STATE_DIR the file would be in the temp
     // dir, which always exists: then "no file" proves nothing, keep asking.
-    return stateDir ? {} : null;
+    return stateDir ? { kept: {}, skipped: {} } : null;
   }
   const raw = await readFile(file, "utf8").catch(() => null);
   if (raw === null) return null;
@@ -85,7 +88,10 @@ async function localMarks(): Promise<Record<string, string> | null> {
     return null;
   }
   const m = await loadMarks(file);
-  return Object.fromEntries(m.marked.map((x) => [x.id, x.at]));
+  return {
+    kept: Object.fromEntries(m.marked.map((x) => [x.id, x.at])),
+    skipped: Object.fromEntries(m.skipped.map((x) => [x.id, x.at])),
+  };
 }
 
 /** HA is running and has no kindle_panel config entry. Any valid token may list config entries (HA 2026.2); if that
@@ -139,9 +145,11 @@ async function load(): Promise<Loaded> {
     const seed: Record<string, unknown> = {};
     if (!got.seeded) seed["config"] = defaultFromEnv();
     if (!got.marks_seeded) {
-      const kept = await localMarks();
-      if (kept) seed["kept"] = kept;
-      else if (!marksWarned) {
+      const local = await localMarks();
+      if (local) {
+        seed["kept"] = local.kept;
+        if (Object.keys(local.skipped).length) seed["skipped"] = local.skipped;
+      } else if (!marksWarned) {
         marksWarned = true;
         console.warn(
           `[panel] photo marks not readable (${marksFile()}); not handed to Home Assistant yet`,

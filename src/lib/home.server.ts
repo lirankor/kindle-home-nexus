@@ -14,7 +14,14 @@ import {
   nearestColor,
   nearestShade,
 } from "@/lib/home";
-import { addMark, cropToScreen, loadMarks, markedIds, pickAsset } from "@/lib/photo.server";
+import {
+  addMark,
+  cropToScreen,
+  loadMarks,
+  markedIds,
+  pickAsset,
+  skippedIds,
+} from "@/lib/photo.server";
 import type { PhotoAsset } from "@/lib/photo.server";
 import type { Action, LightState, Shade, Snapshot } from "@/lib/home";
 
@@ -278,8 +285,8 @@ export async function randomFavorite(): Promise<FavoritePhoto> {
   const headers = { "x-api-key": env("IMMICH_API_KEY") };
   const [items, marks] = await Promise.all([favoriteAssets(base, headers), loadMarks()]);
   if (!items.length) throw new Error("No favorites");
-  const asset = pickAsset(items, previousPhoto, Math.random, markedIds(marks));
-  if (!asset) throw new Error("No favorites");
+  const asset = pickAsset(items, previousPhoto, Math.random, markedIds(marks), skippedIds(marks));
+  if (!asset) throw new Error("Every favourite is skipped");
   previousPhoto = asset.id;
   if (!servedPhotos.includes(asset.id)) servedPhotos.push(asset.id);
   while (servedPhotos.length > SERVED_PHOTOS_KEPT) servedPhotos.shift();
@@ -301,8 +308,9 @@ export async function randomFavorite(): Promise<FavoritePhoto> {
   }
 }
 
-/** F1 on the screensaver: remember that this favourite looks good on the e-ink. Returns the new total. */
-export async function markFavorite(id: string): Promise<number> {
+/** F1 on the screensaver: remember that this favourite looks good on the e-ink; F4: never show it again. Stored in
+ *  the local marks file. Returns the new kept total. */
+export async function markFavorite(id: string, verdict: "keep" | "skip" = "keep"): Promise<number> {
   if (!servedPhotos.includes(id)) throw new Error("Not a photo shown recently");
-  return addMark(id);
+  return addMark(id, undefined, new Date(), verdict);
 }
