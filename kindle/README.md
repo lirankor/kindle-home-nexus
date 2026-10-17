@@ -3,7 +3,7 @@
 Runs on a jailbroken Kindle 4 NT (firmware 4.1.4) with NiLuJe's USBNetwork installed
 (provides SSH and a modern busybox at `/mnt/us/usbnet/bin/busybox`).
 
-Install: copy this folder to `/mnt/us/nexus/` on the Kindle, set `BRIDGE_URL` in `config`,
+Install: copy this folder to `/mnt/us/nexus/` on the Kindle, set `BRIDGE_URL` and `BRIDGE_TOKEN` in `config` (the device copy of `config` is the only place the real token lives; updates deploy `nexus.sh`/`cron.sh` only, never `config`: a stale template token broke the panel for 3 min on 2026-10-17),
 then add to `/etc/crontab/root` (rootfs must be remounted rw):
 
     * * * * * /bin/sh /mnt/us/nexus/cron.sh
