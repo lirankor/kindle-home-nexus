@@ -4,6 +4,7 @@ import { EventEmitter } from "node:events";
 import puppeteer from "puppeteer";
 import sharp from "sharp";
 import { computeSchedule, readConfig as readScheduleConfig } from "./schedule.js";
+import { connectingResponse, createConnectingStore } from "./connecting.js";
 
 const env = (k, d) => process.env[k] ?? d;
 const APP_URL = env("APP_URL", "http://app:3000/");
@@ -107,6 +108,8 @@ let lastDuty = null;
 let lastAlive = { value: 0, seenAt: 0 };
 let starting = null;
 const frames = new EventEmitter();
+// Recent frames by ETag + their "connecting" badge variants (GET /screen.png?connecting=1, see connecting.js).
+const connecting = createConnectingStore();
 frames.setMaxListeners(0);
 
 // Serialize all page interactions (keys, shots, reloads).
@@ -318,6 +321,7 @@ async function shoot() {
   const etag = crypto.createHash("md5").update(buf).digest("hex");
   const changed = !latest || latest.etag !== etag;
   latest = { buf, etag, fullGen, saver };
+  connecting.remember(latest);
   lastShotAt = new Date().toISOString();
   if (changed) frames.emit("frame", latest);
   return latest;
@@ -511,6 +515,13 @@ const server = http.createServer(async (req, res) => {
         ETag: latest?.etag ?? "",
       });
       return res.end(hint + "\n");
+    }
+    if (path === "/screen.png" && url.searchParams.get("connecting") === "1") {
+      // The frame the client has on its panel (?of=<etag>) with the battery saver's connecting badge in the middle.
+      if (!latest) await safeShoot();
+      const r = await connectingResponse(connecting, latest, url.searchParams);
+      res.writeHead(r.status, r.headers);
+      return res.end(r.body);
     }
     if (path === "/screen.png") {
       const since = url.searchParams.get("since");

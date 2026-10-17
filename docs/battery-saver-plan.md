@@ -84,21 +84,29 @@ more, which is what the 2 s settle covers; there is no completion flag in sysfs 
 
 With the radio off, a key press takes ~6 s, up to `WIFI_WAIT`, before the bridge even hears of it. The owner asked
 for an indication on the device. The bridge can't draw while the radio is off, so the Kindle draws it itself:
-- On a key press while the radio is off (`radio_up key`), the client switches the radio on and at once draws the
-  text label `Connecting...` in the middle of the screen with `eips <col> <row> "text"`, over whatever is showing. The
-  full redraw after the reconnect replaces it.
-- Why text and not a picture (measured on the device with framebuffer dumps, 2026-10-17, Q16): this Kindle 4's eips
-  (firmware 4.1.4) has no overlay for images. `eips -g` wipes the whole screen white and then draws the image top-left;
-  a PNG with an alpha channel comes out as a blank white screen; `-x`/`-y` draw nothing and still exit 0. A text draw
-  touches only the text's own cells (12×20 px each on a 50×40 grid). The full-frame icon that task 009 deployed was
-  therefore replaced: the owner found the white screen with a centred icon too aggressive.
-- No network is involved, so it works whatever the bridge or the screen. An earlier version had the bridge prepare a
-  "connecting" frame before the radio went off; it was replaced, owner's call, because it needed a download before
-  every window and failed on any screen without the badge.
-- `CONNECTING_COL` / `CONNECTING_ROW` (kindle/config, default 18 / 20) move the label.
+- **Badge picture (owner's final call, 2026-10-17, Q16):** the radio only goes off while the screensaver shows, so
+  right before it does (`cycle`, after the full draw, settle and sync) the client downloads the frame it has on the
+  panel with a Wi-Fi badge composited in the middle: `GET /<token>/screen.png?connecting=1&of=<frame etag>` into
+  `/tmp/nexus.conn.png`, its frame ETag in `/tmp/nexus.conn.etag` (`fetch_badge`; skipped when the frame ETag did not
+  change since the last badge download, so a screensaver photo that stays costs one download). The bridge composites
+  the badge (216×216: the project's 200×200 black tile with white arcs, on a white ring, no text) onto ANY frame it
+  still remembers (last 8 by ETag; `bridge/connecting.js`, cached per frame ETag; unknown frame = 404).
+- On a key press while the radio is off (`radio_up key`), the client switches the radio on and at once draws
+  `/tmp/nexus.conn.png` with `eips -g` **without** `-f`, i.e. a partial e-ink update: the picture equals the panel except
+  the badge square, so to the eye only the badge appears, no flash. `DRAWING` marks the draw as usual. The full redraw
+  after the reconnect replaces it.
+- **Text fallback:** no badge file, or one made for another frame than the one on the panel (the download failed, or
+  the frame changed): the text label `Connecting...` in the middle of the screen with `eips <col> <row> "text"`, over
+  whatever is showing. `CONNECTING_COL` / `CONNECTING_ROW` (kindle/config, default 18 / 20) move it.
+- Why a whole frame and not an overlay (measured on the device with framebuffer dumps, 2026-10-17): this Kindle 4's
+  eips (firmware 4.1.4) has no overlay for images. `eips -g` wipes the whole screen white and then draws the image
+  top-left; a PNG with an alpha channel comes out as a blank white screen; `-x`/`-y` draw nothing and still exit 0. Only
+  a text draw touches just its own cells (12×20 px each on a 50×40 grid). History: task 009 drew a full-frame icon on
+  white (too aggressive, owner), then the text label alone (`8f79f04`), now the badge frame with a partial update.
 - **Fallback:** the radio does not come back within `WIFI_WAIT`: `No Wi-Fi yet, still trying (HH:MM)`.
 - Scheduled wakes, where nobody is waiting, draw nothing.
-- Test: `sh kindle/tests/connecting-test.sh` (stubs for eips and lipc).
+- Tests: `sh kindle/tests/connecting-test.sh` (stubs for eips, lipc and wget: badge drawn partial, stale/missing badge
+  = text, one badge download per frame ETag on the doze path), bridge `node --test` (`bridge/connecting.test.js`).
 
 ### Watchdog
 `cron.sh` cannot use a flat 180 s any more: no fetch can succeed while the radio is off. `nexus.sh` writes

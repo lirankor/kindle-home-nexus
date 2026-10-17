@@ -20,6 +20,8 @@ RADIOOFF=/tmp/nexus.radio_off  # exists while the Wi-Fi radio is switched off, h
 WINDOW=/tmp/nexus.window   # "<end epoch> <window s>" of the current radio-off window: cron.sh widens its stale threshold with it
 BATSTAMP=/tmp/nexus.last_bat   # epoch of the last battery report (once a minute)
 DRAWING=/tmp/nexus.drawing     # exists while eips runs: a draw cut short (restart, kill) is redone in full next cycle
+CONN=/tmp/nexus.conn.png       # the frame on the panel with the connecting badge (bridge /screen.png?connecting=1), fetched before the radio goes off
+CONNTAG=/tmp/nexus.conn.etag   # ETag of the frame $CONN was composited on: it is drawn only while that frame is on the panel
 GOV=/sys/devices/system/cpu/cpu0/cpufreq
 URL="$BRIDGE_URL/$BRIDGE_TOKEN"
 T=${FETCH_TIMEOUT:-15}
@@ -123,21 +125,43 @@ radio_down() { # radio_down <secs> <label> : switch the radio off until the next
   return 1
 }
 # The bridge cannot reach us while the radio is off, so a key press would show nothing for the ~6 s the radio needs.
-# We draw a small text label over whatever is on the screen the instant the key comes in. Text is the only overlay
-# this Kindle 4's eips (firmware 4.1.4) can do: `eips -g` always wipes the whole screen white first (an image with an
-# alpha channel comes out blank, -x/-y draw nothing), while `eips <col> <row> "text"` touches only the text's own cells
-# (12x20 px each, 50x40 grid). The full redraw after the reconnect replaces it. No network, so it works whatever the
-# bridge or the screen. CONNECTING_COL/CONNECTING_ROW (kindle/config) move it; the default is the middle of the screen.
-show_connecting() {
+# The radio only goes off while the screensaver shows, so right before it does we download the frame on the panel
+# with a Wi-Fi badge composited in the middle (fetch_badge, bridge /screen.png?connecting=1&of=<etag>, once per frame
+# ETag). On a key, show_connecting draws it with a PARTIAL update (`eips -g` without -f): the picture equals the
+# panel except the badge square, so to the eye only the badge appears, no flash. This Kindle 4's eips (firmware
+# 4.1.4) cannot overlay an image any other way (`-g` always redraws the whole screen, alpha comes out blank, -x/-y draw
+# nothing). Without a badge file for the frame on the panel (download failed, frame changed) it falls back to the
+# text label `Connecting...` with `eips <col> <row> "text"`, which touches only the text's own cells (12x20 px each,
+# 50x40 grid); CONNECTING_COL/CONNECTING_ROW (kindle/config) move it. The full redraw after the reconnect replaces both.
+fetch_badge() { # the badge variant of the frame on the panel into $CONN; 1 = none (the text label will be used)
+  e=$(etag)
+  [ -n "$e" ] || return 1
+  [ -s $CONN ] && [ "$(cat $CONNTAG 2>/dev/null)" = "$e" ] && return 0   # same frame as last time: nothing to fetch
+  rm -f $CONN $CONNTAG $CONN.tmp
+  if get $CONN.tmp "/screen.png?connecting=1&of=$e" && [ -s $CONN.tmp ]; then
+    mv $CONN.tmp $CONN && echo "$e" > $CONNTAG && return 0
+  fi
+  rm -f $CONN.tmp
+  log "no connecting badge for this frame, the text label will be used"
+  return 1
+}
+show_connecting() { # show_connecting <etag of the frame on the panel>
+  if [ -n "$1" ] && [ -s $CONN ] && [ "$(cat $CONNTAG 2>/dev/null)" = "$1" ]; then
+    touch $DRAWING
+    eips -g $CONN 2>/dev/null; r=$?   # partial: no -f
+    rm -f $DRAWING
+    [ $r = 0 ] && return 0
+  fi
   eips ${CONNECTING_COL:-18} ${CONNECTING_ROW:-20} "Connecting..." 2>/dev/null
 }
 radio_up() { # radio_up <why> : bring the radio back and wait (bounded) for the association; always returns 0
   [ -f $RADIOOFF ] || return 0
   rm -f $RADIOOFF
+  shown=$(etag)   # the frame on the panel, before $LAST goes
   rm -f $LAST; RECONNECTED=1   # force a full redraw after every reconnect: never leave a ghosted frame
   t0=$(date +%s)
   lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
-  [ "$1" = "key" ] && show_connecting   # someone is waiting: show it while the radio associates
+  [ "$1" = "key" ] && show_connecting "$shown"   # someone is waiting: show it while the radio associates
   i=0
   while [ $i -lt $WIFI_WAIT ]; do
     [ "$(radio_state)" = "CONNECTED" ] && break
@@ -216,6 +240,8 @@ cycle() { # one scheduled update: radio up if needed, battery + frame, then deci
   sleep $EINK_SETTLE
   sync
   if [ -n "$(duty_blocked)" ]; then arm $s; return; fi   # a button arrived while we drew
+  fetch_badge   # what a key shows while the radio is off (one download per frame ETag)
+  if [ -n "$(duty_blocked)" ]; then arm $s; return; fi
   if radio_down $secs "$label"; then arm $secs; else arm $s; fi
 }
 
@@ -238,7 +264,7 @@ run() {
   set_governor "${CPU_GOVERNOR-ondemand}"
   radio_force_on
   eips -c
-  rm -f $FIFO $LAST $RADIOOFF $WINDOW $DRAWING; mkfifo $FIFO
+  rm -f $FIFO $LAST $RADIOOFF $WINDOW $DRAWING $CONN $CONNTAG; mkfifo $FIFO
   ok   # the watchdog's stale clock starts now, not at an unknown time in the past
   reader /dev/input/event0 0 > $FIFO &
   R0=$!

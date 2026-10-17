@@ -27,6 +27,11 @@ and serves 8-bit grayscale PNG screenshots (WIDTH x HEIGHT) for a Kindle to draw
   `X-Unchanged: 1` (busybox 1.7.2 wget accepts only 200/206, so no 304). Long-poll with `?since=<etag>&wait=<ms>`
   (max 60000): returns 304 if nothing changed in time. `?fresh=1` takes a new screenshot first instead of serving
   the last frame (the Kindle's polls).
+- `/screen.png?connecting=1[&of=<frame etag>][&etag=<badge etag>]`: the battery saver's connecting picture, the frame
+  with that ETag (default the current one; the bridge remembers the last 8) with a 216×216 Wi-Fi badge composited in
+  the middle (`connecting.js`, cached per frame ETag). Unknown frame = 404. `ETag` = md5 of this PNG, `X-Frame-ETag` =
+  the frame it was made from, `?etag=` = empty 200 as above. The Kindle draws it with a partial update on a key press
+  while its radio is off (docs/battery-saver-plan.md).
 - `GET /poll?default=<s>`: seconds the Kindle should sleep before its next poll: the app's `<html data-eink-poll>` (5 while a Jellyfin queue plays on the Media tab), `SAVER_POLL_S` while the screensaver shows, else `default`.
 - `GET /schedule?default=<s>[&woke=1]`: one line `"<poll s> <doze|awake> <next update epoch s> <window s> <night 0|1> <HH:MM local>"` —
   the Kindle's battery saver. `doze` ("you may switch your radio off until the next update") only while the app shows the
