@@ -157,7 +157,10 @@ class PhotoLibrary:
     async def _immich_favorites(self) -> list[Photo]:
         out: list[Photo] = []
         for entry in self.hass.config_entries.async_loaded_entries(IMMICH_DOMAIN):
-            api = entry.runtime_data.api
+            # aioimmich >= 0.16 (HA 2026.8) moved the raw request onto the `Immich.api` client; older versions
+            # (HA 2026.2, the design sandbox) had it on the `Immich` object itself.
+            client = entry.runtime_data.api
+            api = getattr(client, "api", client)
             for page in range(1, MAX_PAGES + 1):
                 res = await api.async_do_request(
                     "search/metadata",
