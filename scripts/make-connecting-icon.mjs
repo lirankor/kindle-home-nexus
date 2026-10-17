@@ -13,6 +13,11 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" vi
   <circle cx="100" cy="158" r="8" fill="#fff"/>
 </svg>`;
 const out = process.argv[2] ?? "kindle/connecting.png";
-await sharp(Buffer.from(svg)).flatten({ background: "#ffffff" }).grayscale().toColourspace("b-w")
-  .png({ palette: false, compressionLevel: 9 }).toFile(out);
-const m = await sharp(out).metadata(); console.log(m.width, m.height, m.channels, m.depth);
+await sharp(Buffer.from(svg))
+  .flatten({ background: "#ffffff" })
+  .grayscale()
+  .toColourspace("b-w")
+  .png({ palette: false, compressionLevel: 9 })
+  .toFile(out);
+const m = await sharp(out).metadata();
+console.log(m.width, m.height, m.channels, m.depth);

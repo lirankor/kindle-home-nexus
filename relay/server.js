@@ -34,7 +34,17 @@ function publicTarget(u) {
   const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
   if (m) {
     const [a, b] = [Number(m[1]), Number(m[2])];
-    if (a >= 224 || a === 10 || a === 127 || a === 0 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127)) return false; // incl. multicast/reserved/broadcast
+    if (
+      a >= 224 ||
+      a === 10 ||
+      a === 127 ||
+      a === 0 ||
+      (a === 192 && b === 168) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 169 && b === 254) ||
+      (a === 100 && b >= 64 && b <= 127)
+    )
+      return false; // incl. multicast/reserved/broadcast
   }
   if (h.includes(":")) return false; // no IPv6 literals at all (URL.hostname keeps the brackets, so this catches [::1] too)
   return true;
@@ -44,17 +54,36 @@ function publicTarget(u) {
 function privateAddress(addr, family) {
   if (family === 4) {
     const [a, b] = addr.split(".").map(Number);
-    return a >= 224 || a === 10 || a === 127 || a === 0 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
+    return (
+      a >= 224 ||
+      a === 10 ||
+      a === 127 ||
+      a === 0 ||
+      (a === 192 && b === 168) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 169 && b === 254) ||
+      (a === 100 && b >= 64 && b <= 127)
+    );
   }
   const h = addr.toLowerCase();
-  if (h === "::1" || h === "::" || h.startsWith("fe80:") || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("ff") || h.startsWith("64:ff9b:")) return true;
+  if (
+    h === "::1" ||
+    h === "::" ||
+    h.startsWith("fe80:") ||
+    h.startsWith("fc") ||
+    h.startsWith("fd") ||
+    h.startsWith("ff") ||
+    h.startsWith("64:ff9b:")
+  )
+    return true;
   const v4 = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(h);
   return v4 ? privateAddress(v4[1], 4) : false;
 }
 function safeLookup(host, opts, cb) {
   dns.lookup(host, { all: true }, (err, addrs) => {
     if (err) return cb(err);
-    if (!addrs.length || addrs.some((a) => privateAddress(a.address, a.family))) return cb(new Error("resolved to a private address"));
+    if (!addrs.length || addrs.some((a) => privateAddress(a.address, a.family)))
+      return cb(new Error("resolved to a private address"));
     const a = addrs.find((x) => x.family === 4) || addrs[0];
     if (opts && opts.all) return cb(null, [a]);
     cb(null, a.address, a.family);
@@ -65,17 +94,25 @@ function open(url, hops, cb) {
   if (hops > 5) return cb(new Error("too many redirects"));
   if (!publicTarget(url)) return cb(new Error("target not allowed"));
   const mod = url.startsWith("https:") ? https : http;
-  const req = mod.get(url, { lookup: safeLookup, headers: { "User-Agent": UA, "Icy-MetaData": "0", Accept: "*/*" }, timeout: 15000 }, (up) => {
-    if (up.statusCode >= 300 && up.statusCode < 400 && up.headers.location) {
-      up.resume();
-      return open(new URL(up.headers.location, url).toString(), hops + 1, cb);
-    }
-    if (up.statusCode !== 200) {
-      up.resume();
-      return cb(new Error(`upstream ${up.statusCode}`));
-    }
-    cb(null, up);
-  });
+  const req = mod.get(
+    url,
+    {
+      lookup: safeLookup,
+      headers: { "User-Agent": UA, "Icy-MetaData": "0", Accept: "*/*" },
+      timeout: 15000,
+    },
+    (up) => {
+      if (up.statusCode >= 300 && up.statusCode < 400 && up.headers.location) {
+        up.resume();
+        return open(new URL(up.headers.location, url).toString(), hops + 1, cb);
+      }
+      if (up.statusCode !== 200) {
+        up.resume();
+        return cb(new Error(`upstream ${up.statusCode}`));
+      }
+      cb(null, up);
+    },
+  );
   req.on("timeout", () => req.destroy(new Error("upstream timeout")));
   req.on("error", (e) => cb(e));
 }
@@ -106,7 +143,12 @@ http
         return release();
       }
       const type = up.headers["content-type"] || (st.codec === "AAC" ? "audio/aac" : "audio/mpeg");
-      res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-cache", Connection: "close", "icy-name": st.name });
+      res.writeHead(200, {
+        "Content-Type": type,
+        "Cache-Control": "no-cache",
+        Connection: "close",
+        "icy-name": st.name,
+      });
       up.pipe(res);
       res.on("close", () => up.destroy());
       up.on("error", () => res.destroy());
