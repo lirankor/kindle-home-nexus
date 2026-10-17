@@ -62,7 +62,7 @@ const sourceSchema = z.enum(AMP_SOURCES);
 /** Jellyfin ids (32 hex) and the demo / mix ids: no slashes, dots or query characters, since the id
  *  becomes part of a Jellyfin URL path. */
 const itemIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
-const actionSchema = z.discriminatedUnion("type", [
+const actionSchema = z.union([
   z.object({ type: z.literal("amp.power"), on: z.boolean() }),
   z.object({ type: z.literal("amp.source"), source: sourceSchema }),
   z.object({ type: z.literal("amp.volume.step"), delta: z.union([z.literal(1), z.literal(-1)]) }),
@@ -90,6 +90,29 @@ const actionSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("queue.jump"), index: z.number().int().min(0).max(9999) }),
   z.object({ type: z.literal("all_off") }),
+  z
+    .object({
+      type: z.literal("node"),
+      id: z.string().regex(/^[a-z0-9_]{1,24}$/),
+      op: z.enum(["power", "volume", "source", "stream", "movie"]),
+      on: z.boolean().optional(),
+      delta: z.union([z.literal(1), z.literal(-1)]).optional(),
+      source: z.string().min(1).max(64).optional(),
+      option: z.string().min(1).max(64).optional(),
+    })
+    .refine(
+      (a) =>
+        a.op === "power" || a.op === "movie"
+          ? a.on !== undefined
+          : a.op === "volume"
+            ? a.delta !== undefined
+            : a.op === "source"
+              ? a.source !== undefined
+              : a.option !== undefined,
+      { message: "missing the value for this control" },
+    ),
+  z.object({ type: z.literal("script"), entity: z.string().regex(/^script\.[a-z0-9_]+$/) }),
+  z.object({ type: z.literal("output"), entity: z.string().regex(/^media_player\.[a-z0-9_]+$/) }),
 ]);
 
 const flags = () => ({ amp: ampConfigured() || haBackend(), jellyfin: jellyfinConfigured() });

@@ -4,6 +4,7 @@
 // without AMP_HOST / JELLYFIN_* the callers fall back to demo data (see media.functions.ts).
 import { createHash } from "node:crypto";
 import { haBackend, readMediaSnapshotHa } from "./media-ha.server";
+import { nodeViews, performNodeAction } from "./media-nodes.server";
 import { makeT, parseLang } from "@/lib/i18n";
 import type { Key } from "@/lib/i18n";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -35,6 +36,7 @@ import type { CoverParams, StationArtResult, StationArtSource } from "@/lib/stat
 import type { HaState } from "@/lib/home.server";
 import {
   AMP,
+  MEDIA_KEYS,
   CATALOG_LOGO_HOSTS,
   FAVOURITES_LIST_ID,
   MIX_IDS,
@@ -1327,6 +1329,18 @@ export function buildMediaSnapshot(
     queue,
     radio: extra.radio ?? null,
     powerOn: extra.powerOn ?? null,
+    nodes: nodeViews(states),
+    keys: [...MEDIA_KEYS],
+    keyLabels: Object.fromEntries(
+      MEDIA_KEYS.filter((k) => k.startsWith("script.")).map((k) => [
+        k,
+        String(
+          (states.get(k)?.attributes as { friendly_name?: unknown } | undefined)?.friendly_name ??
+            k,
+        ),
+      ]),
+    ),
+    output: null,
   };
 }
 
@@ -2660,5 +2674,14 @@ export async function performMediaAction(a: MediaAction): Promise<void> {
     case "queue.jump":
       await queueJumpTo(a.index);
       break;
+    case "node":
+      await performNodeAction(a, await fetchStates());
+      break;
+    case "script":
+      if (!MEDIA_KEYS.includes(a.entity)) throw new HomeError("This script is not on a Media key");
+      await service("script", "turn_on", { entity_id: a.entity });
+      break;
+    case "output":
+      throw new HomeError("Music outputs need music played by Home Assistant");
   }
 }

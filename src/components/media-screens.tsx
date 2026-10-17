@@ -21,6 +21,7 @@ import {
   SkipBack,
   SkipForward,
   Sparkles,
+  Speaker,
   Square,
   Sun,
   Tv,
@@ -28,6 +29,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DeviceRow } from "@/components/device-row";
 import { RadioDial } from "@/components/dial-bar";
 import { FullModal } from "@/components/light-modals";
 import { tryT } from "@/lib/i18n";
@@ -50,6 +52,7 @@ import {
   formatDb,
   musicItemDetail,
   musicItemTitle,
+  nodeLabel,
   powerOnStepKey,
 } from "@/lib/media-ui";
 import { QUEUE_PAGE_SIZE, RADIO_PAGE_SIZE } from "@/lib/media-panel";
@@ -114,20 +117,25 @@ function nowPlayingLine(panel: MediaPanel, s: MediaSnapshot): string {
   return [a, b].filter(Boolean).join(" · ");
 }
 
+/** The Media tab (bus task 014): the music card (Music Assistant, its output and what plays) above one row per
+ *  configured device node. Enter on a row opens that node's controls; the F-keys follow media.keys. */
 export function MediaCards({ panel }: { panel: MediaPanel }) {
   const { t, lang, data: s } = panel;
-  const tvState = stateLabel(lang, s?.tv.state);
-  const tvOn = !!s && !["off", "unavailable", "unknown"].includes(s.tv.state);
   // While the power-on routine runs (or just failed) the card follows it: state line = the routine,
   // body = the current step or the error. Unknown (nothing answers) reads as off.
   const routine = panel.showPowerOn ? panel.powerOn : null;
+  const out = s?.output ?? null;
   const ampLine = routine
     ? t(routine.step === "failed" ? "poweron.failed" : "poweron.title")
-    : s
-      ? `${s.amp.on ? t("state.on") : t("state.off")}${
-          s.amp.on && s.amp.source ? ` · ${sourceLabel(t, s.amp.source)}` : ""
-        }`
-      : "—";
+    : out
+      ? out.entity && out.valid
+        ? t("media.outputOn", { name: out.name ?? out.entity })
+        : t("output.none")
+      : s
+        ? `${s.amp.on ? t("state.on") : t("state.off")}${
+            s.amp.on && s.amp.source ? ` · ${sourceLabel(t, s.amp.source)}` : ""
+          }`
+        : "—";
   const playing = routine
     ? routine.step === "failed"
       ? (routine.error ?? t("poweron.failed"))
@@ -147,30 +155,9 @@ export function MediaCards({ panel }: { panel: MediaPanel }) {
       <div className="media-cards">
         <Button
           variant="eink"
-          className="media-card"
-          data-on={tvOn}
-          title={t("media.openTv")}
-          onClick={() => panel.open("tv")}
-        >
-          <span className="media-card-heading">
-            <span className={`device-icon ${tvOn ? "on" : ""}`}>
-              <Tv size={34} />
-            </span>
-            <span className="device-info">
-              <strong>{t("media.tvName")}</strong>
-              <span className="light-state">{tvState}</span>
-            </span>
-          </span>
-          <span className="media-card-body">{s?.tv.source ?? "\u00a0"}</span>
-          <span className="media-card-foot">
-            <span>{tvOn ? t("media.nowPlaying") : "\u00a0"}</span>
-          </span>
-        </Button>
-        <Button
-          variant="eink"
           className="media-card media-card-amp"
           data-on={s?.amp.on ?? false}
-          title={t("media.openAmp")}
+          title={t("media.openMusic")}
           onClick={() => panel.openAmp()}
         >
           <span className="media-card-heading">
@@ -178,7 +165,7 @@ export function MediaCards({ panel }: { panel: MediaPanel }) {
               <Music2 size={34} />
             </span>
             <span className="device-info">
-              <strong>{t("media.amp")}</strong>
+              <strong>{t("media.music")}</strong>
               <span className="light-state">{ampLine}</span>
             </span>
           </span>
@@ -194,8 +181,155 @@ export function MediaCards({ panel }: { panel: MediaPanel }) {
             )}
           </span>
         </Button>
+        <div className="media-nodes">
+          {panel.nodes.map((n) => {
+            const name = nodeLabel(lang, n.name);
+            const line = !n.available
+              ? t("state.unavailable")
+              : `${n.on ? t("state.on") : t("state.off")}${n.on && n.source ? ` · ${n.source}` : ""}`;
+            return (
+              <DeviceRow
+                key={n.id}
+                icon={n.type === "tv" ? Tv : Speaker}
+                name={name}
+                on={n.on}
+                state={line}
+                reading={
+                  n.on && n.volumeDb !== null ? (
+                    <Ltr>
+                      {formatDb(n.volumeDb)} <small>dB</small>
+                    </Ltr>
+                  ) : undefined
+                }
+                title={t("media.openNode", { name })}
+                onClick={() => panel.openNode(n.id)}
+              />
+            );
+          })}
+          {s && panel.nodes.length === 0 && <p className="modal-hint">{t("media.noNodes")}</p>}
+        </div>
       </div>
     </>
+  );
+}
+
+/** A node's controls (receiver: on/off, volume, input, stream output; TV: on/off, volume, input, movie mode). */
+function NodeScreen({ panel, status }: { panel: MediaPanel; status: string }) {
+  const { t, lang, node: n } = panel;
+  if (!n) return null;
+  const Icon = n.type === "tv" ? Tv : Speaker;
+  return (
+    <FullModal label={t("node.label")} actions={panel.modalActions} status={status}>
+      <header className="modal-heading">
+        <h1>{nodeLabel(lang, n.name)}</h1>
+        <p>
+          <strong>
+            {n.available ? (n.on ? t("state.on") : t("state.off")) : t("state.unavailable")}
+          </strong>
+        </p>
+      </header>
+      <div className="tv-glyph" data-on={n.on}>
+        <Icon size={150} strokeWidth={1.1} />
+      </div>
+      <p className="modal-look">
+        {n.on ? `${t("media.source")} · ${n.source ?? t("node.noSource")}` : "\u00a0"}
+      </p>
+      <p className="modal-look node-volume">
+        {n.on && n.volumeDb !== null ? (
+          <Ltr>
+            {t("media.volume")} {formatDb(n.volumeDb)} dB
+          </Ltr>
+        ) : n.on && n.volume !== null ? (
+          `${t("media.volume")} ${Math.round(n.volume * 100)}%`
+        ) : (
+          "\u00a0"
+        )}
+      </p>
+      {n.stream && <p className="modal-look">{t("node.stream", { v: n.stream.toUpperCase() })}</p>}
+      <p className="modal-hint">{t("node.hint")}</p>
+    </FullModal>
+  );
+}
+
+/** A node's inputs (its media_player's source list): up / down, Enter selects. */
+function NodeSourceList({ panel, status }: { panel: MediaPanel; status: string }) {
+  const { t, lang, node: n, cursor } = panel;
+  if (!n) return null;
+  return (
+    <FullModal label={t("source.title")} actions={panel.modalActions} status={status}>
+      <header className="modal-heading">
+        <h1>{t("source.title")}</h1>
+        <p>{nodeLabel(lang, n.name)}</p>
+      </header>
+      <div className="source-rows" role="listbox" aria-label={t("source.title")}>
+        {n.sources.slice(Math.max(0, cursor - 6), Math.max(0, cursor - 6) + 7).map((src) => {
+          const index = n.sources.indexOf(src);
+          const current = n.on && n.source === src;
+          return (
+            <Button
+              key={src}
+              variant="eink"
+              className="source-row"
+              role="option"
+              aria-selected={index === cursor}
+              aria-pressed={index === cursor}
+              data-current={current}
+              onClick={() => panel.setCursor(index)}
+            >
+              <span className="source-row-text">
+                <strong>{src}</strong>
+              </span>
+              {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
+            </Button>
+          );
+        })}
+      </div>
+      <p className="modal-hint">{t("source.hint")}</p>
+    </FullModal>
+  );
+}
+
+/** The music output picker: every Music Assistant player / MA group in HA, single select. Up / down + Enter choose,
+ *  Back closes with no change; F1..F4 (the legend row) are the configured quick outputs. */
+function OutputPicker({ panel, status }: { panel: MediaPanel; status: string }) {
+  const { t, output, outputRows, cursor } = panel;
+  const first = Math.max(0, Math.min(cursor - 3, outputRows.length - 7));
+  return (
+    <FullModal label={t("output.title")} actions={panel.modalActions} status={status}>
+      <header className="modal-heading">
+        <h1>{t("output.title")}</h1>
+        <p>{output?.entity && output.valid ? (output.name ?? output.entity) : t("output.none")}</p>
+      </header>
+      <div className="source-rows" role="listbox" aria-label={t("output.title")}>
+        {outputRows.slice(first, first + 7).map((o, i) => {
+          const index = first + i;
+          const current = o.entity_id === output?.entity;
+          return (
+            <Button
+              key={o.entity_id}
+              variant="eink"
+              className="source-row"
+              role="option"
+              aria-selected={index === cursor}
+              aria-pressed={index === cursor}
+              data-current={current}
+              onClick={() => panel.chooseOutput(o.entity_id)}
+            >
+              <span className="source-row-icon">
+                <Speaker size={30} strokeWidth={1.6} />
+              </span>
+              <span className="source-row-text">
+                <strong>{o.name}</strong>
+                <span>{current ? `${t("output.current")} · ${o.state}` : o.state}</span>
+              </span>
+              {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
+            </Button>
+          );
+        })}
+        {outputRows.length === 0 && <p className="modal-hint">{t("output.empty")}</p>}
+      </div>
+      <p className="modal-hint">{t("output.hint")}</p>
+    </FullModal>
   );
 }
 
@@ -408,8 +542,12 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
           <TransportControl
             db={db}
             label={t("media.volume")}
-            sourceTitle={t("media.source")}
-            source={sourceLabel(t, s?.amp.source ?? null)}
+            sourceTitle={s?.output ? t("media.output") : t("media.source")}
+            source={
+              s?.output
+                ? (s.output.name ?? s.output.entity ?? "—")
+                : sourceLabel(t, s?.amp.source ?? null)
+            }
             mode={transportMode(s)}
           />
         </div>
@@ -1071,6 +1209,12 @@ export function MediaModal({ panel, status }: { panel: MediaPanel; status: strin
       return <SourceList panel={panel} status={status} />;
     case "tv":
       return <TvModal panel={panel} status={status} />;
+    case "node":
+      return <NodeScreen panel={panel} status={status} />;
+    case "nodesource":
+      return <NodeSourceList panel={panel} status={status} />;
+    case "output":
+      return <OutputPicker panel={panel} status={status} />;
     case "radio":
       return <RadioScreen panel={panel} status={status} />;
     case "music":

@@ -9,8 +9,9 @@ import {
   KEY_NONE,
   defaultPowerKeys,
   defaultScenes,
+  nodeEntity,
 } from "./panel-config";
-import type { CustomTab, PanelView, SceneButton } from "./panel-config";
+import type { CustomTab, MediaNode, PanelView, SceneButton } from "./panel-config";
 
 // Display-name overrides per language, keyed by the English name used below (from the panel config: names).
 // Entities without an entry keep their English name.
@@ -131,13 +132,7 @@ export function applyHomeConfig(c: {
     energy_entity?: string | null;
     energy_to_wh?: number;
   }[];
-  media?: {
-    amp_player?: string | null;
-    tv?: string | null;
-    movie_on?: string | null;
-    movie_off?: string | null;
-    movie_active?: string | null;
-  };
+  media?: { nodes?: MediaNode[] };
   sensors?: {
     indoor_temperature?: string | null;
     indoor_humidity?: string | null;
@@ -178,11 +173,15 @@ export function applyHomeConfig(c: {
   );
   if (c.media) {
     MEDIA.splice(0, MEDIA.length);
-    if (c.media.amp_player) MEDIA.push({ name: "Yamaha R-N500", id: c.media.amp_player });
-    if (c.media.tv) MEDIA.push({ name: "Sony TV", id: c.media.tv });
-    SCRIPTS.movie = c.media.movie_on ?? "";
-    SCRIPTS.movieOff = c.media.movie_off ?? "";
-    SCRIPTS.movieActive = c.media.movie_active ?? "";
+    for (const n of c.media.nodes ?? []) {
+      const id = nodeEntity(n);
+      if (id) MEDIA.push({ name: n.name, id });
+    }
+    // the movie mode of the first TV node that has one (scene button "Movie", the old Media footer)
+    const tv = (c.media.nodes ?? []).find((n) => n.movie_on);
+    SCRIPTS.movie = tv?.movie_on ?? "";
+    SCRIPTS.movieOff = tv?.movie_off ?? "";
+    SCRIPTS.movieActive = tv?.movie_active ?? "";
   }
   if (c.sensors) {
     SENSORS.indoorTemp = c.sensors.indoor_temperature ?? "";

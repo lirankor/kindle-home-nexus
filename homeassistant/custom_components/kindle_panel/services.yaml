@@ -59,3 +59,11 @@ mark_photo:
         select:
           options: [keep, skip, clear]
 get_marks:
+set_output:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: music_assistant
+          domain: media_player

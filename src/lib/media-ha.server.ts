@@ -4,9 +4,19 @@
 // chosen tracks to HA's script.music_play_items; everything it shows about playback comes from script.music_state.
 // The scripts live in homeserver-cloud: stacks/homeassistant/.../packages_media_platform/music_platform.yaml.
 import { HomeError, fetchStates, ha, service } from "./home.server";
-import { panelConfigNow } from "./panel-config.server";
+import { nodeViews } from "./media-nodes.server";
+import { panelConfigNow, setMusicOutput } from "./panel-config.server";
 import type { HaState } from "./home.server";
-import { AMP, FAVOURITES_LIST_ID, RADIO_LISTS, isAmpSource } from "./media";
+import {
+  AMP,
+  FAVOURITES_LIST_ID,
+  MEDIA_NODES,
+  OUTPUT_KEYS,
+  RADIO_LISTS,
+  isAmpSource,
+} from "./media";
+import type { OutputView } from "./media";
+import type { MediaNode } from "./panel-config";
 import type {
   AmpSource,
   MediaAction,
@@ -22,9 +32,57 @@ import type {
   RadioStationView,
 } from "./media";
 
-/** yamaha_netbridge's media_player (fixed id, see music_platform.yaml). */
-export const BRIDGE = "media_player.r_n500";
-export const MA_PLAYERS = ["media_player.ma_amp_dlna", "media_player.ma_amp_airplay"] as const;
+/** One panel, one output (bus task 014): the Music Assistant player (or MA group) chosen in the panel's output
+ *  picker, and the receiver node that plays it (its `players` list names it): that receiver is turned on before
+ *  playback, takes volume / mute and gets its DLNA/AirPlay select set to match. No receiver: no wake step, volume on
+ *  the player itself. */
+export type MusicOutput = {
+  player: string;
+  powerDevice: string | null;
+  streamOutput: string | null;
+  /** The MA players whose activity counts as "this output plays" (the receiver's, or just the player). */
+  players: string[];
+};
+export function musicOutputFrom(
+  player: string | null | undefined,
+  nodes: MediaNode[],
+): MusicOutput | null {
+  if (!player) return null;
+  const rx = nodes.find((n) => n.type === "receiver" && n.players?.includes(player));
+  return {
+    player,
+    powerDevice: rx?.power_device ?? null,
+    streamOutput: rx?.stream_output ?? null,
+    players: rx?.players?.length ? [...rx.players] : [player],
+  };
+}
+/** The panel's output; null while none is chosen (then HA's house default answers and the picker opens). */
+export const musicOutput = (): MusicOutput | null => {
+  const l = panelConfigNow();
+  return l?.musicOutputValid ? musicOutputFrom(l.musicOutput, MEDIA_NODES) : null;
+};
+/** The fields every music script takes ("" = none; left out = HA's house default). */
+export const outputFields = (o: MusicOutput | null = musicOutput()): Record<string, string> =>
+  o
+    ? { player: o.player, power_device: o.powerDevice ?? "", stream_output: o.streamOutput ?? "" }
+    : {};
+/** The select option that matches an MA player: the option named in its entity id (dlna / airplay). */
+export const streamOptionFor = (player: string, options: string[]) =>
+  options.find((o) => player.toLowerCase().includes(o.toLowerCase())) ?? null;
+/** What the picker shows. */
+export function outputView(): OutputView | null {
+  const l = panelConfigNow();
+  if (!l || l.source !== "ha") return null;
+  const outputs = l.outputs ?? [];
+  const entity = l.musicOutput ?? null;
+  return {
+    entity,
+    name: outputs.find((o) => o.entity_id === entity)?.name ?? entity,
+    valid: !!l.musicOutputValid,
+    outputs,
+    keys: [...OUTPUT_KEYS],
+  };
+}
 
 /** Panel config (HA) when it is managed there, else the MUSIC_BACKEND env as before. */
 export const musicBackend = (): "ha" | "app" => {
@@ -77,9 +135,18 @@ export type HaMusicState = {
     next: HaTrack[];
   } | null;
   radio: { station: string } | null;
+  /** The MA player in use. */
   player: string;
-  output: string;
+  /** The output asked for (the panel's, else HA's house default). */
+  outputPlayer?: string;
+  /** The receiver reported as `amp` (null: the player itself). */
+  powerDevice?: string | null;
+  /** The receiver's stream select (dlna / airplay), null without one. */
+  output: string | null;
 };
+/** The entity the amp keys (power, volume, mute) act on: the output's receiver, else the player itself. */
+export const ampEntityOf = (s: Pick<HaMusicState, "player" | "powerDevice">) =>
+  s.powerDevice ?? s.player;
 
 export async function haScript<T>(
   name: string,
@@ -245,12 +312,16 @@ export const panelSource = (src: string | null): AmpSource | null =>
 export const receiverPlaysOwnInput = (b: HaState | null | undefined): boolean =>
   (b?.attributes as { foreign_state?: unknown } | undefined)?.foreign_state === "playing";
 
-export function projectStates(states: Map<string, HaState>, s: HaMusicState): Map<string, HaState> {
+export function projectStates(
+  states: Map<string, HaState>,
+  s: HaMusicState,
+  o: MusicOutput | null = null,
+): Map<string, HaState> {
   const out = new Map(states);
-  const b = states.get(BRIDGE);
-  const busy = MA_PLAYERS.map((id) => states.get(id)).find(
-    (p) => p && ["playing", "buffering"].includes(p.state),
-  );
+  const b = states.get(ampEntityOf(s));
+  const busy = (o?.players ?? [s.player])
+    .map((id) => states.get(id))
+    .find((p) => p && ["playing", "buffering"].includes(p.state));
   const bridgeState = b?.state ?? (s.amp.available ? (s.amp.on ? "on" : "off") : "unavailable");
   // yamaha_netbridge >= 0.2.0 reports "on" (not "playing") while the receiver plays its own input (NET RADIO, CD, …)
   // and puts that play state in `foreign_state` (Q18); without this the NET RADIO play/stop key always sent "play".
@@ -263,7 +334,8 @@ export function projectStates(states: Map<string, HaState>, s: HaMusicState): Ma
         : bridgeState,
     attributes: {
       ...(b?.attributes ?? {}),
-      source: panelSource(s.amp.source),
+      // without a receiver Music Assistant is the only path: the panel's "SERVER" screens (library, playlist)
+      source: s.powerDevice === null ? "SERVER" : panelSource(s.amp.source),
       is_volume_muted: s.amp.muted,
       media_title: s.nowPlaying.title,
       media_artist: s.nowPlaying.artist,
@@ -397,7 +469,7 @@ let lastRadio: RadioPosition | null = null;
 
 export async function readMusicState(maxAgeMs = 0): Promise<HaMusicState> {
   if (lastState && Date.now() - lastState.at <= maxAgeMs) return lastState.value;
-  const value = await haScript<HaMusicState>("music_state");
+  const value = await haScript<HaMusicState>("music_state", outputFields());
   lastState = { at: Date.now(), value };
   if (value.powerOn.running) powerStartedAt ??= Date.now();
   else powerStartedAt = null;
@@ -414,13 +486,15 @@ export async function readMediaSnapshotHa(
     },
   ) => MediaSnapshot,
 ): Promise<MediaSnapshot> {
+  const o = musicOutput();
   const [states, s] = await Promise.all([fetchStates(), readMusicState()]);
-  const snap = build(projectStates(states, s), {
+  const snap = build(projectStates(states, s, o), {
     queue: queueFromHa(s),
     radio: lastRadio,
     powerOn: currentPowerOn(s),
   });
-  return withRadio(snap, s);
+  // the nodes from the real states (the projection rewrites the receiver's entry for the music screen)
+  return withRadio({ ...snap, nodes: nodeViews(states), output: outputView() }, s);
 }
 
 export async function getQueueProgressHa(): Promise<QueueProgress | null> {
@@ -460,7 +534,12 @@ export async function playSelectionHa(
   if (!tracks.length) throw new HomeError("Nothing to play");
   const r = await haScript<PlayAnswer>(
     "music_play_items",
-    { media_ids: tracks.map((t) => `jellyfin://track/${t.id}`), media_type: "track", title },
+    {
+      media_ids: tracks.map((t) => `jellyfin://track/${t.id}`),
+      media_type: "track",
+      title,
+      ...outputFields(),
+    },
     30_000,
   );
   if (!r.ok) throw new HomeError(r.error ?? "Music Assistant refused");
@@ -489,6 +568,7 @@ export async function readRadioListsHa(): Promise<RadioListsResult> {
   try {
     const r = await haScript<{ ok: boolean; stations: { name: string; image: string | null }[] }>(
       "music_radio_favourites",
+      outputFields(),
     );
     favourites = r.stations.map((f) => {
       const cat = stationByName(f.name);
@@ -543,7 +623,7 @@ async function stationAt(list: string, index: number): Promise<string> {
 
 export async function tuneRadioHa(list: string, index: number): Promise<RadioPosition> {
   const name = await stationAt(list, index);
-  const r = await haScript<PlayAnswer>("play_radio", { station: name }, 30_000);
+  const r = await haScript<PlayAnswer>("play_radio", { station: name, ...outputFields() }, 30_000);
   if (!r.ok) throw new HomeError(r.error ?? "Music Assistant refused");
   if (r.status === "powering_on") powerStartedAt = Date.now();
   lastRadio = { list, index };
@@ -562,7 +642,11 @@ async function radioStepHa(delta: 1 | -1) {
 }
 
 const control = (op: string) =>
-  haScript<{ ok: boolean; error?: string }>("music_control", { op }, 30_000).then((r) => {
+  haScript<{ ok: boolean; error?: string }>(
+    "music_control",
+    { op, ...outputFields() },
+    30_000,
+  ).then((r) => {
     lastState = null;
     if (!r.ok) throw new HomeError(r.error ?? "Music Assistant refused");
   });
@@ -574,9 +658,11 @@ export async function startPowerOnHa(): Promise<PowerOnStatus> {
   lastState = null; // the next status read asks HA, not a cache from before the key press
   // The bridge's turn_on blocks until the amp is up (25–60 s from deep standby): fire and forget, but remember a
   // refusal so the panel shows "failed" instead of waiting for the give-up time.
-  void service("media_player", "turn_on", { entity_id: BRIDGE }).catch((e: unknown) => {
-    attempt.error = e instanceof Error ? e.message : String(e);
-  });
+  void ampTarget()
+    .then((entity_id) => service("media_player", "turn_on", { entity_id }))
+    .catch((e: unknown) => {
+      attempt.error = e instanceof Error ? e.message : String(e);
+    });
   return {
     running: true,
     step: "turn_on",
@@ -586,6 +672,34 @@ export async function startPowerOnHa(): Promise<PowerOnStatus> {
     source: null,
   };
 }
+/** The amp keys' entity: the output's receiver (or the player), else what HA's house default resolves to. */
+async function ampTarget(): Promise<string> {
+  const o = musicOutput();
+  if (o) return o.powerDevice ?? o.player;
+  return ampEntityOf(await readMusicState(1500));
+}
+
+/** The output picker chose `entity` (an MA player or MA group). */
+export async function setOutputHa(entity: string): Promise<void> {
+  const l = panelConfigNow();
+  if (!(l?.outputs ?? []).some((o) => o.entity_id === entity))
+    throw new HomeError("Not a Music Assistant player");
+  await setMusicOutput(entity);
+  lastState = null;
+  // a receiver's DLNA/AirPlay select follows at once (the HA scripts also set it on the next music start)
+  const o = musicOutputFrom(entity, MEDIA_NODES);
+  if (o?.streamOutput) {
+    const sel = await ha<HaState>("GET", `/api/states/${o.streamOutput}`).catch(() => null);
+    const options = ((sel?.attributes as { options?: unknown } | undefined)?.options ??
+      []) as string[];
+    const option = streamOptionFor(entity, Array.isArray(options) ? options : []);
+    if (option && sel?.state !== option)
+      await service("select", "select_option", { entity_id: o.streamOutput, option }).catch(
+        (e: unknown) => console.warn("[output] stream select not set:", e),
+      );
+  }
+}
+
 export async function powerOnStatusHa(): Promise<PowerOnStatus | null> {
   const s = await readMusicState(1500).catch(() => null);
   return s ? currentPowerOn(s) : null;
@@ -602,19 +716,33 @@ export async function performMediaActionHa(
       else await control("amp_off");
       return;
     case "amp.source":
-      await service("media_player", "select_source", { entity_id: BRIDGE, source: a.source });
-      return;
-    case "amp.volume.step":
-      await service("yamaha_netbridge", "step_volume_db", {
-        entity_id: BRIDGE,
-        delta_db: a.delta * AMP.volumeStepDb,
+      await service("media_player", "select_source", {
+        entity_id: await ampTarget(),
+        source: a.source,
       });
       return;
+    case "amp.volume.step": {
+      const s = await readMusicState(1500);
+      // a receiver with dB volume (yamaha_netbridge reports volume_db) steps in dB, anything else in its own steps
+      if (s.powerDevice && s.amp.volumeDb !== null)
+        await service("yamaha_netbridge", "step_volume_db", {
+          entity_id: s.powerDevice,
+          delta_db: a.delta * AMP.volumeStepDb,
+        });
+      else await control(a.delta > 0 ? "volume_up" : "volume_down");
+      return;
+    }
     case "amp.volume.db":
-      await service("yamaha_netbridge", "set_volume_db", { entity_id: BRIDGE, volume_db: a.db });
+      await service("yamaha_netbridge", "set_volume_db", {
+        entity_id: await ampTarget(),
+        volume_db: a.db,
+      });
       return;
     case "amp.volume.set":
-      await service("media_player", "volume_set", { entity_id: BRIDGE, volume_level: a.level });
+      await service("media_player", "volume_set", {
+        entity_id: await ampTarget(),
+        volume_level: a.level,
+      });
       return;
     case "amp.reload":
       return; // the bridge keeps its own connection healthy
@@ -624,9 +752,10 @@ export async function performMediaActionHa(
     case "radio.playback":
       if (a.op === "stop") {
         // The receiver's own NET RADIO is not Music Assistant's: stop it on the bridge, MA's stop would not reach it.
-        const b = await ha<HaState>("GET", `/api/states/${BRIDGE}`).catch(() => null);
+        const amp = await ampTarget();
+        const b = await ha<HaState>("GET", `/api/states/${amp}`).catch(() => null);
         if (receiverPlaysOwnInput(b)) {
-          await service("media_player", "media_stop", { entity_id: BRIDGE });
+          await service("media_player", "media_stop", { entity_id: amp });
           lastState = null;
         } else await control("stop");
       } else if (lastRadio) await tuneRadioHa(lastRadio.list, lastRadio.index);
@@ -654,6 +783,9 @@ export async function performMediaActionHa(
     case "all_off":
       await control("stop").catch(() => undefined);
       await legacy(a);
+      return;
+    case "output":
+      await setOutputHa(a.entity);
       return;
     default:
       await legacy(a);

@@ -77,19 +77,24 @@
         }
       },
       "media": {
-        "title": "Amplifier, TV and music",
+        "title": "Media tab and music",
+        "description": "The Media tab lists your media devices (nodes); the music screen plays through Music Assistant to the output picked on the panel (its own picker; groups are made in Music Assistant).",
         "data": {
           "music_backend": "Music played by",
-          "amp_player": "Amplifier player",
-          "amp_volume": "Amplifier volume (dB number)",
-          "dlna_player": "Amplifier DLNA renderer",
-          "amp_plug": "Media plug",
-          "amp_plug_power": "Media plug power",
-          "tv": "TV",
-          "movie_on": "Movie mode on (script)",
-          "movie_off": "Movie mode off (script)",
-          "movie_active": "Movie mode active (boolean)",
-          "ynca_entry_id": "yamaha_ynca config entry id (optional)"
+          "nodes": "Media devices (nodes)",
+          "key_f1": "F1 on the Media tab",
+          "key_f2": "F2 on the Media tab",
+          "key_f3": "F3 on the Media tab",
+          "key_f4": "F4 on the Media tab",
+          "out_f1": "F1 in the output picker",
+          "out_f2": "F2 in the output picker",
+          "out_f3": "F3 in the output picker",
+          "out_f4": "F4 in the output picker"
+        },
+        "data_description": {
+          "nodes": "One row per device. Type receiver: Entity = the receiver's media player (power, inputs); optional volume number, plug, stream output select (DLNA/AirPlay) and the Music Assistant players it plays (an output among them turns the receiver on first). Type tv: Entity = the TV's media player; optional movie mode scripts and boolean. Id: a-z, 0-9, _ (keep it once chosen; the F-keys use it).",
+          "key_f1": "Music screen, a device's controls, a script, all off or nothing. Devices added on this page are offered after saving and reopening it.",
+          "out_f1": "Quick keys in the output picker: a Music Assistant player or group, or nothing."
         }
       },
       "screensaver": {
@@ -295,6 +300,16 @@
     "get_marks": {
       "name": "Get photo marks",
       "description": "All kept and skipped photo ids."
+    },
+    "set_output": {
+      "name": "Set the music output",
+      "description": "The Music Assistant player (or MA group) this panel plays its music to.",
+      "fields": {
+        "entity_id": {
+          "name": "Player",
+          "description": "A Music Assistant media player."
+        }
+      }
     }
   }
 }

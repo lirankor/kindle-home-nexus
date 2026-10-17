@@ -91,9 +91,9 @@ const footerLabels = () =>
 /** Media tab → F3 opens the amp on its active source: NET RADIO plays, so the radio screen. */
 async function openRadio(lang: "he" | "en" = "he") {
   renderPanel(lang);
-  const title = lang === "he" ? "פתח את המגבר" : "Open the amplifier";
+  const title = lang === "he" ? "פתח מוזיקה" : "Open music";
   await waitFor(() => expect(screen.getByTitle(title)).toBeVisible());
-  press("F3");
+  press("F1");
   await waitFor(() => expect(dial()).not.toBeNull());
   mocks.runMediaAction.mockClear();
 }
@@ -450,7 +450,7 @@ describe("Radio screen", () => {
     mocks.startAmpPowerOn.mockResolvedValue({ ok: true, status: started });
     mocks.getPowerOnStatus.mockResolvedValue({ ...started, elapsedMs: 2000 });
     renderPanel("en");
-    await waitFor(() => expect(screen.getByTitle("Open the amplifier")).toBeVisible());
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
     act(() => screen.getByTestId("open-radio").click());
     await waitFor(() => expect(dial()).not.toBeNull());
     expect(dial()?.getAttribute("data-list")).toBe("local");

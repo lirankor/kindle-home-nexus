@@ -24,7 +24,9 @@ from .const import (
     LANGUAGES,
     LIGHT_ICONS,
     MA_DOMAIN,
+    MEDIA_KEY_MUSIC,
     MUSIC_BACKENDS,
+    NODE_TYPES,
     OPT_CONFIG,
     OPT_EDITED,
     PHOTO_FALLBACKS,
@@ -134,6 +136,7 @@ def _row_names(cfg: dict[str, Any]) -> set[str]:
     """English names that have a row (and so a Hebrew column) somewhere in the options."""
     names = {x["name"] for key in ("lights", "plugs", "scenes") for x in cfg[key]}
     names |= {r["name"] for r in cfg["vacuum"]["rooms"]}
+    names |= {n["name"] for n in cfg["media"]["nodes"]}
     for tab in cfg["custom_tabs"].values():
         names.add(tab["title"])
         names |= {t["name"] for t in tab["toggles"]}
@@ -197,18 +200,66 @@ def _source_from_key(key: str, title: str | None) -> dict[str, Any]:
     return {"type": SOURCE_MEDIA, "id": key.split(":", 1)[1], "title": title or key}
 
 
-MEDIA_KEYS = (
-    "amp_player",
-    "amp_volume",
-    "dlna_player",
-    "amp_plug",
-    "amp_plug_power",
-    "tv",
-    "movie_on",
-    "movie_off",
-    "movie_active",
-    "ynca_entry_id",
-)
+# The node list editor: one row shape for every type (NODE_TYPES says which columns a type uses).
+NODE_TYPE_LABELS = {"receiver": "Receiver / amplifier", "tv": "TV"}
+NODE_COLUMNS: dict[str, dict[str, Any]] = {
+    "id": {"label": "Id (a-z, 0-9, _; keep it once chosen)", "required": True, "selector": {"text": {}}},
+    "type": {
+        "label": "Type",
+        "required": True,
+        "selector": {"select": {"options": [{"value": k, "label": NODE_TYPE_LABELS.get(k, k)} for k in NODE_TYPES]}},
+    },
+    "name": {"label": "Name", "required": True, "selector": {"text": {}}},
+    "name_he": NAME_HE,
+    "entity": {
+        "label": "Entity (receiver: its media player; TV: the TV)",
+        "required": True,
+        "selector": {"entity": {"domain": "media_player"}},
+    },
+    "volume": {"label": "Receiver: volume (number)", "selector": {"entity": {"domain": "number"}}},
+    "plug": {"label": "Receiver: plug", "selector": {"entity": {"domain": "switch"}}},
+    "plug_power": {"label": "Receiver: plug power", "selector": {"entity": {"domain": "sensor"}}},
+    "stream_output": {
+        "label": "Receiver: stream output (DLNA/AirPlay select)",
+        "selector": {"entity": {"domain": "select"}},
+    },
+    "players": {
+        "label": "Receiver: its Music Assistant players",
+        "selector": {"entity": {"domain": "media_player", "integration": MA_DOMAIN, "multiple": True}},
+    },
+    "movie_on": {"label": "TV: movie mode on (script)", "selector": {"entity": {"domain": "script"}}},
+    "movie_off": {"label": "TV: movie mode off (script)", "selector": {"entity": {"domain": "script"}}},
+    "movie_active": {"label": "TV: movie mode active (boolean)", "selector": {"entity": {"domain": "input_boolean"}}},
+    "dlna_player": {
+        "label": "Receiver, app backend only: DLNA renderer",
+        "selector": {"entity": {"domain": "media_player"}},
+    },
+    "ynca_entry_id": {"label": "Receiver, app backend only: yamaha_ynca entry id", "selector": {"text": {}}},
+}
+
+
+def _node_rows(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for n in nodes:
+        field = NODE_TYPES[n["type"]]["entity"][0]
+        rows.append({("entity" if k == field else k): v for k, v in n.items()})
+    return rows
+
+
+def _nodes_from_rows(rows: Any) -> list[dict[str, Any]]:
+    """Rows back to nodes; a column the row's type does not use is dropped (normalize() checks the rest)."""
+    nodes = []
+    for row in rows or []:
+        kind = row.get("type")
+        t = NODE_TYPES.get(kind)
+        if t is None:
+            nodes.append(dict(row))  # refused by normalize() with the reason
+            continue
+        node = {"id": str(row.get("id") or "").strip(), "type": kind, "name": str(row.get("name") or "").strip()}
+        node[t["entity"][0]] = row.get("entity")
+        node |= {k: row[k] for k in t["optional"] if row.get(k) not in (None, "", [])}
+        nodes.append(node)
+    return nodes
 
 
 CARD_LABELS = {
@@ -602,26 +653,37 @@ class KindlePanelOptionsFlow(OptionsFlow):
         if user_input is not None:
             c["media"] = {
                 "music_backend": user_input["music_backend"],
-                **{k: user_input.get(k) for k in MEDIA_KEYS},
+                "nodes": _nodes_from_rows(_take_he(c, user_input.get("nodes"))),
+                "keys": [user_input.get(f"key_f{i + 1}") or POWER_KEY_NONE for i in range(POWER_KEY_COUNT)],
+                "output_keys": [user_input.get(f"out_f{i + 1}") or POWER_KEY_NONE for i in range(POWER_KEY_COUNT)],
             }
             if (done := self._save("media")) is not None:
                 return done
         m = c["media"]
+        # F1..F4 on the Media tab: the music screen, a node's controls, a script, all off or nothing
+        keys = {MEDIA_KEY_MUSIC: "Music screen"}
+        keys |= {n["id"]: f"Device: {n['name']}" for n in m["nodes"]}
+        keys[POWER_KEY_ALL_OFF] = "All media off"
+        keys[POWER_KEY_NONE] = "Nothing"
+        keys |= {k: v for k, v in _runs_options(self.hass).items() if k.startswith("script.")}
+        for key in m["keys"]:
+            keys.setdefault(key, f"{key} (not available)")
+        # F1..F4 in the output picker: a Music Assistant player / group or nothing
+        outs = {POWER_KEY_NONE: "Nothing"}
+        from . import ma_players  # the integration module imports this one
+
+        outs |= {o["entity_id"]: f"{o['name']} ({o['entity_id']})" for o in ma_players(self.hass)}
+        for key in m["output_keys"]:
+            outs.setdefault(key, f"{key} (not available)")
+        key_select, out_select = _key_select(keys), _key_select(outs)
         return self._form(
             "media",
             vol.Schema(
                 {
                     vol.Required("music_backend", default=m["music_backend"]): _select(MUSIC_BACKENDS, "music_backend"),
-                    _opt("amp_player", m.get("amp_player")): _entity("media_player"),
-                    _opt("amp_volume", m.get("amp_volume")): _entity("number"),
-                    _opt("dlna_player", m.get("dlna_player")): _entity("media_player"),
-                    _opt("amp_plug", m.get("amp_plug")): _entity("switch"),
-                    _opt("amp_plug_power", m.get("amp_plug_power")): _entity("sensor"),
-                    _opt("tv", m.get("tv")): _entity("media_player"),
-                    _opt("movie_on", m.get("movie_on")): _entity("script"),
-                    _opt("movie_off", m.get("movie_off")): _entity("script"),
-                    _opt("movie_active", m.get("movie_active")): _entity("input_boolean"),
-                    _opt("ynca_entry_id", m.get("ynca_entry_id")): sel.TextSelector(),
+                    _opt("nodes", _with_he(c, _node_rows(m["nodes"]))): _list(NODE_COLUMNS, "name"),
+                    **{vol.Required(f"key_f{i + 1}", default=k): key_select for i, k in enumerate(m["keys"])},
+                    **{vol.Required(f"out_f{i + 1}", default=k): out_select for i, k in enumerate(m["output_keys"])},
                 }
             ),
         )

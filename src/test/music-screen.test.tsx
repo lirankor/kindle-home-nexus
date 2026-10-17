@@ -149,7 +149,7 @@ const softKey = (n: number) =>
 /** Media tab → music screen straight away. */
 async function openMusic(lang: "he" | "en" = "he") {
   renderPanel(lang);
-  const title = lang === "he" ? "פתח את המגבר" : "Open the amplifier";
+  const title = lang === "he" ? "פתח מוזיקה" : "Open music";
   await waitFor(() => expect(screen.getByTitle(title)).toBeVisible());
   act(() => screen.getByTestId("open-music").click());
   await waitFor(() => expect(rowTitles().length).toBeGreaterThan(0));
@@ -226,8 +226,8 @@ describe("Music screen", () => {
 
   it("opens from the source list on the mixes tab, names the mixes, and switches tabs with left / right", async () => {
     renderPanel();
-    await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
-    press("F3"); // NET RADIO plays: the radio screen
+    await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
+    press("F1"); // NET RADIO plays: the radio screen
     press("F3"); // source list, cursor on רדיו (the current source, row 4)
     press("ArrowUp");
     press("ArrowUp");
@@ -375,8 +375,8 @@ describe("Music screen", () => {
       tracks,
     });
     renderPanel();
-    await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
-    press("F3"); // amp view (SERVER plays)
+    await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
+    press("F1"); // amp view (SERVER plays)
     expect(document.querySelector('.full-modal [data-soft-key="F4"]')?.textContent?.trim()).toBe(
       "רשימת השמעה",
     );
@@ -411,9 +411,9 @@ describe("Music screen", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mocks.getMediaSnapshot.mockResolvedValue(musicResult());
     renderPanel();
-    await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
-    expect(screen.getByTitle("פתח את המגבר").textContent).toContain("New Born · Muse");
-    press("F3");
+    await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
+    expect(screen.getByTitle("פתח מוזיקה").textContent).toContain("New Born · Muse");
+    press("F1");
     const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
     expect(dialog.querySelector(".amp-title")?.textContent).toBe("New Born");
     expect(dialog.querySelector(".amp-sub")?.textContent).toBe("Muse");
@@ -680,7 +680,7 @@ describe("Music screen", () => {
   it("e-ink full refresh follows events, not cursor moves: a tab or page change bumps the counter, up/down does not", async () => {
     mocks.getMediaSnapshot.mockResolvedValue(liveResult());
     renderPanel();
-    await waitFor(() => expect(screen.getByTitle("פתח את המגבר")).toBeVisible());
+    await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
     act(() => screen.getByTestId("open-music").click());
     const dialog = await screen.findByRole("dialog", { name: "מוזיקה" });
     await waitFor(() => expect(dialog.querySelectorAll(".music-row").length).toBeGreaterThan(1));

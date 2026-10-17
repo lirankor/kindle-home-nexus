@@ -51,6 +51,9 @@ HOUSE = {
 }
 
 
+TV_NODE = {"id": "tv", "type": "tv", "name": "Sony TV", "entity": "media_player.tv", "movie_on": "script.movie_mode"}
+
+
 async def call(hass, svc, **data):
     return await hass.services.async_call(DOMAIN, svc, data, blocking=True, return_response=True)
 
@@ -452,7 +455,7 @@ PLUGS3 = [{"entity_id": f"switch.plug_{i}", "name": f"Plug {i}", "energy_to_wh":
 def test_scene_and_key_defaults_reproduce_the_old_screen() -> None:
     from custom_components.kindle_panel.config import normalize
 
-    cfg = normalize({"plugs": PLUGS3, "media": {"movie_on": "script.movie_mode"}})
+    cfg = normalize({"plugs": PLUGS3, "media": {"nodes": [TV_NODE]}})
     assert cfg["scenes"] == [
         {"entity_id": "scene.bright", "name": "Bright", "icon": "sun"},
         {"entity_id": "scene.evening", "name": "Evening", "icon": "moon"},
@@ -491,7 +494,7 @@ def test_bad_scene_buttons_are_refused(scenes) -> None:
 async def test_lights_page_edits_the_scene_buttons(hass, panel) -> None:
     hass.states.async_set("script.movie_mode", "off", {"friendly_name": "Movie mode"})
     hass.states.async_set("scene.reading", "2026-10-17T20:00:00+00:00", {"friendly_name": "Reading"})
-    await call(hass, "seed", config={**HOUSE, "media": {"movie_on": "script.movie_mode"}})
+    await call(hass, "seed", config={**HOUSE, "media": {"nodes": [TV_NODE]}})
     flow = await hass.config_entries.options.async_init(panel.entry_id)
     flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "lights"})
     schema = {str(k): v for k, v in flow["data_schema"].schema.items()}
@@ -712,3 +715,212 @@ def test_configs_with_built_in_scenes_still_load() -> None:
     assert [s["entity_id"] for s in cfg["scenes"]] == ["scene.bright", "scene.evening", "script.movie_mode"]
     assert "evening" not in cfg and "builtin" not in cfg["scenes"][0]
     assert old["scenes"][0] == {"builtin": "bright", "name": "Bright", "icon": "sun"}  # input untouched
+
+
+# ---- bus task 014: Media tab = typed device nodes, music output picked on the panel ----
+OWNER_V1_MEDIA = {
+    "music_backend": "ha",
+    "amp_player": "media_player.r_n500_main",
+    "amp_volume": "number.r_n500_main_volume_db",
+    "dlna_player": "media_player.yamaha_r_n500",
+    "amp_plug": "switch.media_plug",
+    "amp_plug_power": "sensor.media_plug_power",
+    "tv": "media_player.bravia",
+    "movie_on": "script.movie_mode",
+    "movie_off": "script.movie_mode_off",
+    "movie_active": "input_boolean.movie_mode_active",
+    "ynca_entry_id": "01M0ZMQXMTWAAW7BXTBCXD1YZR",
+}
+
+
+def test_version_1_media_becomes_two_nodes() -> None:
+    from custom_components.kindle_panel.config import normalize
+
+    old = {"version": 1, "plugs": PLUGS3, "media": dict(OWNER_V1_MEDIA)}
+    cfg = normalize(old)
+    assert cfg["version"] == 2
+    m = cfg["media"]
+    assert m["music_backend"] == "ha"
+    assert m["nodes"] == [
+        {
+            "id": "amp",
+            "type": "receiver",
+            "name": "Yamaha R-N500",
+            "power_device": "media_player.r_n500",
+            "volume": "number.r_n500_main_volume_db",
+            "plug": "switch.media_plug",
+            "plug_power": "sensor.media_plug_power",
+            "stream_output": "select.r_n500_stream_output",
+            "players": ["media_player.ma_amp_dlna", "media_player.ma_amp_airplay"],
+            "dlna_player": "media_player.yamaha_r_n500",
+            "ynca_entry_id": "01M0ZMQXMTWAAW7BXTBCXD1YZR",
+        },
+        {
+            "id": "tv",
+            "type": "tv",
+            "name": "Sony TV",
+            "entity": "media_player.bravia",
+            "movie_on": "script.movie_mode",
+            "movie_off": "script.movie_mode_off",
+            "movie_active": "input_boolean.movie_mode_active",
+        },
+    ]
+    assert m["keys"] == ["music", "amp", "tv", "none"]
+    assert m["output_keys"] == ["media_player.ma_amp_dlna", "none", "none", "none"]
+    assert "amp_player" not in m and old["media"]["amp_player"]  # input untouched
+    assert [s["entity_id"] for s in cfg["scenes"]][-1] == "script.movie_mode"  # Movie scene still found
+    assert normalize(cfg) == cfg  # stable
+    # the app backend keeps the amp's own player as its power device, no MA players
+    app = normalize({"media": {**OWNER_V1_MEDIA, "music_backend": "app"}})["media"]
+    assert app["nodes"][0]["power_device"] == "media_player.r_n500_main" and "players" not in app["nodes"][0]
+    fresh = normalize({})
+    assert fresh["media"]["nodes"] == [] and fresh["media"]["keys"] == ["music", "none", "none", "none"]
+
+
+@pytest.mark.parametrize(
+    "media",
+    [
+        {"nodes": [{"id": "a", "type": "projector", "name": "P", "entity": "media_player.p"}]},
+        {"nodes": [{"id": "a", "type": "receiver", "name": "No device"}]},
+        {"nodes": [{"id": "a", "type": "tv", "name": "T", "entity": "switch.tv"}]},
+        {"nodes": [{"id": "Bad Id", "type": "tv", "name": "T", "entity": "media_player.tv"}]},
+        {"nodes": [TV_NODE, TV_NODE]},
+        {"nodes": [TV_NODE], "keys": ["music", "kitchen"]},
+        {"nodes": [TV_NODE], "keys": ["light.x"]},
+        {"output_keys": ["switch.x"]},
+    ],
+)
+def test_bad_media_nodes_and_keys_are_refused(media) -> None:
+    import voluptuous as vol
+
+    from custom_components.kindle_panel.config import normalize
+
+    with pytest.raises(vol.Invalid):
+        normalize({"media": media})
+
+
+def _ma_player(hass, entity_id: str, name: str) -> None:
+    from homeassistant.helpers import entity_registry as er
+
+    reg = er.async_get(hass)
+    reg.async_get_or_create("media_player", "music_assistant", entity_id, suggested_object_id=entity_id.split(".")[1])
+    hass.states.async_set(entity_id, "idle", {"friendly_name": name})
+
+
+async def test_music_output_is_stored_per_panel(hass, panel) -> None:
+    _ma_player(hass, "media_player.ma_amp_dlna", "R-N500")
+    _ma_player(hass, "media_player.ma_kitchen", "Kitchen")
+    await call(hass, "seed", config=HOUSE)
+    r = await call(hass, "get_config")
+    assert r["music_output"] is None and r["music_output_valid"] is False  # not chosen: the panel opens its picker
+    assert [o["entity_id"] for o in r["outputs"]] == ["media_player.ma_amp_dlna", "media_player.ma_kitchen"]
+    assert r["outputs"][1]["name"] == "Kitchen"
+    # no receiver lists MA players: the picker's F1 is HA's first MA player
+    assert r["config"]["media"]["output_keys"] == ["media_player.ma_amp_dlna", "none", "none", "none"]
+    assert await call(hass, "set_output", entity_id="media_player.ma_kitchen") == {
+        "music_output": "media_player.ma_kitchen"
+    }
+    r = await call(hass, "get_config")
+    assert r["music_output"] == "media_player.ma_kitchen" and r["music_output_valid"] is True
+    from homeassistant.exceptions import ServiceValidationError
+
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "set_output", entity_id="media_player.tv")  # not a Music Assistant player
+    # the player disappears from HA: still stored, but not valid any more (the panel asks again)
+    from homeassistant.helpers import entity_registry as er
+
+    er.async_get(hass).async_remove("media_player.ma_kitchen")
+    r = await call(hass, "get_config")
+    assert r["music_output"] == "media_player.ma_kitchen" and r["music_output_valid"] is False
+
+
+async def test_upgraded_owner_panel_starts_on_the_amp(hass: HomeAssistant) -> None:
+    """A v1 config with music through HA: after the upgrade the panel's output is the amp's DLNA player."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={}, options={"config": {**HOUSE, "version": 1, "media": OWNER_V1_MEDIA}, "seeded": True}
+    )
+    entry.add_to_hass(hass)
+    _ma_player(hass, "media_player.ma_amp_dlna", "R-N500")
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    r = await call(hass, "get_config")
+    assert r["music_output"] == "media_player.ma_amp_dlna" and r["music_output_valid"] is True
+    assert [n["id"] for n in r["config"]["media"]["nodes"]] == ["amp", "tv"]
+
+
+async def test_media_page_edits_nodes_and_keys(hass, panel) -> None:
+    _ma_player(hass, "media_player.ma_amp_dlna", "R-N500")
+    hass.states.async_set("script.movie_mode", "off", {"friendly_name": "Movie mode"})
+    await call(
+        hass,
+        "seed",
+        config={
+            **HOUSE,
+            "media": {"music_backend": "ha", **{k: v for k, v in OWNER_V1_MEDIA.items() if k != "music_backend"}},
+        },
+    )
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "media"})
+    schema = {str(k): k for k in flow["data_schema"].schema}
+    assert list(schema)[:2] == ["music_backend", "nodes"]
+    rows = schema["nodes"].description["suggested_value"]
+    assert rows[0]["entity"] == "media_player.r_n500" and rows[1]["entity"] == "media_player.bravia"
+    keys = {str(k): v for k, v in flow["data_schema"].schema.items()}
+    offered = [o["value"] for o in keys["key_f1"].config["options"]]
+    assert offered[:5] == ["music", "amp", "tv", "all_off", "none"] and "script.movie_mode" in offered
+    assert [o["value"] for o in keys["out_f1"].config["options"]] == ["none", "media_player.ma_amp_dlna"]
+    # rename the TV (with a Hebrew name), drop the amp, swap the keys
+    tv = {**rows[1], "name": "Projector", "name_he": "מקרן", "volume": "number.ignored_for_a_tv"}
+    res = await hass.config_entries.options.async_configure(
+        flow["flow_id"],
+        {
+            "music_backend": "ha",
+            "nodes": [tv],
+            "key_f1": "tv",
+            "key_f2": "script.movie_mode",
+            "key_f3": "none",
+            "key_f4": "music",
+            "out_f1": "none",
+            "out_f2": "media_player.ma_amp_dlna",
+            "out_f3": "none",
+            "out_f4": "none",
+        },
+    )
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    m = (await call(hass, "get_config"))["config"]["media"]
+    assert m["nodes"] == [
+        {
+            "id": "tv",
+            "type": "tv",
+            "name": "Projector",
+            "entity": "media_player.bravia",
+            "movie_on": "script.movie_mode",
+            "movie_off": "script.movie_mode_off",
+            "movie_active": "input_boolean.movie_mode_active",
+        }
+    ]
+    assert m["keys"] == ["tv", "script.movie_mode", "none", "music"]
+    assert m["output_keys"] == ["none", "media_player.ma_amp_dlna", "none", "none"]
+    assert (await call(hass, "get_config"))["config"]["names"]["he"]["Projector"] == "מקרן"
+    # a key naming a node that is gone is refused with the reason
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "media"})
+    res = await hass.config_entries.options.async_configure(
+        flow["flow_id"],
+        {
+            "music_backend": "ha",
+            "nodes": [],
+            "key_f1": "tv",
+            "key_f2": "none",
+            "key_f3": "none",
+            "key_f4": "none",
+            "out_f1": "none",
+            "out_f2": "none",
+            "out_f3": "none",
+            "out_f4": "none",
+        },
+    )
+    assert res["type"] is FlowResultType.FORM and "names no node" in res["description_placeholders"]["error"]

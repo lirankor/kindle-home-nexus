@@ -100,7 +100,7 @@ describe("Panel idle behaviour and persistence", () => {
     // Radio screen (the amp plays NET RADIO): Media tab, F3. A "now playing" view, survives the idle timeout.
     press("PageUp");
     expect(activeTab()).toBe("מדיה");
-    press("F3");
+    press("F1");
     expect(dialog()).toBe("רדיו");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(61_000);
@@ -128,10 +128,8 @@ describe("Panel idle behaviour and persistence", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     press("PageUp");
     expect(activeTab()).toBe("מדיה");
-    await waitFor(() =>
-      expect(screen.getByTitle("פתח את המגבר").textContent).toContain("New Born"),
-    );
-    press("F3"); // SERVER plays → the amp view
+    await waitFor(() => expect(screen.getByTitle("פתח מוזיקה").textContent).toContain("New Born"));
+    press("F1"); // SERVER plays → the amp view
     expect(dialog()).toBe("תצוגת המגבר");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
@@ -201,7 +199,7 @@ describe("Panel idle behaviour and persistence", () => {
     await renderApp();
     vi.useFakeTimers({ shouldAdvanceTime: true });
     press("PageUp");
-    press("F3"); // amp off: the amp view opens (the power-on call is refused here)
+    press("F1"); // amp off: the amp view opens (the power-on call is refused here)
     expect(dialog()).toBe("תצוגת המגבר");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
@@ -268,7 +266,7 @@ describe("Panel idle behaviour and persistence", () => {
     expect(activeTab()).toBe("אורות");
     press("PageUp");
     expect(activeTab()).toBe("מדיה");
-    press("F3"); // NET RADIO plays → the radio screen
+    press("F1"); // NET RADIO plays → the radio screen
     await waitFor(() =>
       expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toMatchObject({
         tab: "Media",
@@ -307,7 +305,7 @@ describe("Panel idle behaviour and persistence", () => {
   it("remembers the radio band and index and restores the dial there", async () => {
     await renderApp();
     press("PageUp");
-    press("F3"); // NET RADIO plays → the radio screen
+    press("F1"); // NET RADIO plays → the radio screen
     await waitFor(() => expect(dialog()).toBe("רדיו"));
     await waitFor(() => expect(document.querySelector(".radio-dial")).not.toBeNull());
     press("ArrowRight"); // tune to station 2 of the local band (demo: no server call needed)
@@ -359,7 +357,7 @@ describe("Panel idle behaviour and persistence", () => {
     );
     await renderApp();
     press("PageUp");
-    press("F3"); // radio screen
+    press("F1"); // radio screen
     press("F3"); // source list, cursor on רדיו
     press("ArrowUp");
     press("ArrowUp");

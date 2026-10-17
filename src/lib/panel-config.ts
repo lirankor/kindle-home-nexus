@@ -82,6 +82,115 @@ export const KEY_ALL_OFF = "all_off";
 export const KEY_NONE = "none";
 export const SOFT_KEY_COUNT = 4;
 
+/** Media tab (bus task 014): typed device nodes. Per type the field holding its main media_player; the type list is
+ *  meant to grow (kindle_panel's NODE_TYPES is the other half of this table). */
+export const NODE_TYPES = {
+  receiver: { entity: "power_device" },
+  tv: { entity: "entity" },
+} as const;
+export type NodeType = keyof typeof NODE_TYPES;
+export type MediaNode = {
+  id: string;
+  type: NodeType;
+  name: string;
+  /** receiver: the media_player with power, inputs (and volume when there is no `volume` number). */
+  power_device?: string | null;
+  volume?: string | null;
+  plug?: string | null;
+  plug_power?: string | null;
+  /** receiver: its DLNA/AirPlay select. */
+  stream_output?: string | null;
+  /** receiver: the Music Assistant players it plays (an output among them wakes the receiver). */
+  players?: string[] | null;
+  /** receiver, app backend only. */
+  dlna_player?: string | null;
+  ynca_entry_id?: string | null;
+  /** tv: the TV's media_player. */
+  entity?: string | null;
+  movie_on?: string | null;
+  movie_off?: string | null;
+  movie_active?: string | null;
+};
+export const nodeEntity = (n: MediaNode): string =>
+  (n[NODE_TYPES[n.type].entity] as string | null) ?? "";
+/** Media tab F1..F4: "none", "all_off", "music" (the music screen), a node id, or a script entity. */
+export const KEY_MUSIC = "music";
+/** kindle_panel <= 0.4.0 (config version 1): flat amp / TV fields, the owner's amp hard-wired in the HA backend. */
+export type LegacyMedia = {
+  music_backend?: "app" | "ha";
+  amp_player?: string | null;
+  amp_volume?: string | null;
+  dlna_player?: string | null;
+  amp_plug?: string | null;
+  amp_plug_power?: string | null;
+  tv?: string | null;
+  movie_on?: string | null;
+  movie_off?: string | null;
+  movie_active?: string | null;
+  ynca_entry_id?: string | null;
+};
+const LEGACY_KEYS = [
+  "amp_player",
+  "amp_volume",
+  "dlna_player",
+  "amp_plug",
+  "amp_plug_power",
+  "tv",
+  "movie_on",
+  "movie_off",
+  "movie_active",
+  "ynca_entry_id",
+] as const;
+export const LEGACY_MA_PLAYERS = ["media_player.ma_amp_dlna", "media_player.ma_amp_airplay"];
+/** Same rules as kindle_panel's config.migrate_media. */
+export function migrateMedia(old: LegacyMedia): PanelConfig["media"] {
+  const ha = old.music_backend === "ha";
+  const nodes: MediaNode[] = [];
+  const power = ha ? "media_player.r_n500" : old.amp_player;
+  if (power) {
+    const amp: MediaNode = {
+      id: "amp",
+      type: "receiver",
+      name: "Yamaha R-N500",
+      power_device: power,
+    };
+    if (old.amp_volume) amp.volume = old.amp_volume;
+    if (old.amp_plug) amp.plug = old.amp_plug;
+    if (old.amp_plug_power) amp.plug_power = old.amp_plug_power;
+    if (old.dlna_player) amp.dlna_player = old.dlna_player;
+    if (old.ynca_entry_id) amp.ynca_entry_id = old.ynca_entry_id;
+    if (ha) {
+      amp.stream_output = "select.r_n500_stream_output";
+      amp.players = [...LEGACY_MA_PLAYERS];
+    }
+    nodes.push(amp);
+  }
+  if (old.tv) {
+    const tv: MediaNode = { id: "tv", type: "tv", name: "Sony TV", entity: old.tv };
+    if (old.movie_on) tv.movie_on = old.movie_on;
+    if (old.movie_off) tv.movie_off = old.movie_off;
+    if (old.movie_active) tv.movie_active = old.movie_active;
+    nodes.push(tv);
+  }
+  return {
+    music_backend: old.music_backend ?? "app",
+    nodes,
+    keys: defaultMediaKeys(nodes),
+    output_keys: padTo4(ha ? [LEGACY_MA_PLAYERS[0]!] : defaultOutputKeys(nodes)),
+  };
+}
+const padTo4 = (k: string[]) => Array.from({ length: SOFT_KEY_COUNT }, (_, i) => k[i] || KEY_NONE);
+export function defaultMediaKeys(nodes: MediaNode[]): string[] {
+  const first = (t: NodeType) => nodes.find((n) => n.type === t)?.id ?? KEY_NONE;
+  return [KEY_MUSIC, first("receiver"), first("tv"), KEY_NONE];
+}
+export function defaultOutputKeys(nodes: MediaNode[]): string[] {
+  return padTo4([nodes.find((n) => n.players?.length)?.players?.[0] ?? KEY_NONE]);
+}
+/** The movie script of the first TV that has one (default scene button "Movie"). */
+export const movieScript = (m: PanelConfig["media"] | undefined) =>
+  m?.nodes?.find((n) => n.movie_on)?.movie_on ?? null;
+
 export const CARD_TYPES = ["outdoor", "indoor", "calendar", "sensor"] as const;
 export const CARD_ICON_NAMES = [
   "thermometer",
@@ -125,16 +234,11 @@ export type PanelConfig = {
   power_keys: string[];
   media: {
     music_backend: "app" | "ha";
-    amp_player?: string | null;
-    amp_volume?: string | null;
-    dlna_player?: string | null;
-    amp_plug?: string | null;
-    amp_plug_power?: string | null;
-    tv?: string | null;
-    movie_on?: string | null;
-    movie_off?: string | null;
-    movie_active?: string | null;
-    ynca_entry_id?: string | null;
+    nodes: MediaNode[];
+    /** Media tab F1..F4, always 4 entries. */
+    keys: string[];
+    /** Output picker F1..F4: an MA media_player or "none", always 4 entries. */
+    output_keys: string[];
   };
   sensors: {
     indoor_temperature?: string | null;
@@ -267,17 +371,11 @@ export const DEFAULT_CONFIG: PanelConfig = {
     KEY_ALL_OFF,
   ],
   media: {
+    // filled below from LEGACY_HOUSE_MEDIA (the same fields kindle_panel migrates)
     music_backend: "app",
-    amp_player: "media_player.r_n500_main",
-    amp_volume: "number.r_n500_main_volume_db",
-    dlna_player: "media_player.yamaha_r_n500",
-    amp_plug: `switch.${TV_PLUG}_outlet`,
-    amp_plug_power: `sensor.${TV_PLUG}_power`,
-    tv: "media_player.bravia_xr_65x90k",
-    movie_on: "script.movie_mode",
-    movie_off: "script.movie_mode_off",
-    movie_active: "input_boolean.movie_mode_active",
-    ynca_entry_id: "01M0ZMQXMTWAAW7BXTBCXD1YZR",
+    nodes: [],
+    keys: [],
+    output_keys: [],
   },
   sensors: {
     indoor_temperature: "sensor.ikea_of_sweden_vindstyrka_temperature",
@@ -302,6 +400,21 @@ export const DEFAULT_CONFIG: PanelConfig = {
     timezone: "Europe/Berlin",
   },
 };
+
+/** This household's media fields as they were before nodes (config version 1). */
+export const LEGACY_HOUSE_MEDIA: LegacyMedia = {
+  amp_player: "media_player.r_n500_main",
+  amp_volume: "number.r_n500_main_volume_db",
+  dlna_player: "media_player.yamaha_r_n500",
+  amp_plug: `switch.${TV_PLUG}_outlet`,
+  amp_plug_power: `sensor.${TV_PLUG}_power`,
+  tv: "media_player.bravia_xr_65x90k",
+  movie_on: "script.movie_mode",
+  movie_off: "script.movie_mode_off",
+  movie_active: "input_boolean.movie_mode_active",
+  ynca_entry_id: "01M0ZMQXMTWAAW7BXTBCXD1YZR",
+};
+DEFAULT_CONFIG.media = migrateMedia({ ...LEGACY_HOUSE_MEDIA, music_backend: "app" });
 
 /** What the browser needs (no service/script ids beyond what it already shows). */
 export type PanelView = Pick<
@@ -383,6 +496,7 @@ export function mergePanelConfig(raw: Partial<PanelConfig> | null | undefined): 
       keys: padKeys(t.keys, toggles),
     };
   }
+  const media = mergeMedia(raw.media);
   const tabs = [...new Set(raw.tabs ?? d.tabs)]
     .filter(
       (t): t is TabId =>
@@ -391,20 +505,20 @@ export function mergePanelConfig(raw: Partial<PanelConfig> | null | undefined): 
     )
     .slice(0, MAX_TABS);
   return {
-    version: raw.version ?? 1,
+    version: 2,
     language: raw.language === "en" || raw.language === "he" ? raw.language : d.language,
     tabs: tabs.length ? tabs : [...d.tabs],
     custom_tabs: customTabs,
     names: raw.names ?? {},
     lights: raw.lights ?? [],
-    scenes: (raw.scenes ?? defaultScenes(raw.media?.movie_on))
+    scenes: (raw.scenes ?? defaultScenes(movieScript(media)))
       .map(migrateScene)
       .filter(validScene)
       .slice(0, MAX_SCENES),
     vacuum: { rooms: [], ...(raw.vacuum ?? {}) },
     plugs,
     power_keys: padKeys(raw.power_keys, plugs),
-    media: { music_backend: "app", ...(raw.media ?? {}) },
+    media,
     sensors: { ...(raw.sensors ?? {}) },
     screensaver: {
       ...d.screensaver,
@@ -416,5 +530,20 @@ export function mergePanelConfig(raw: Partial<PanelConfig> | null | undefined): 
         .slice(0, 3),
     },
     schedule: { ...d.schedule, ...(raw.schedule ?? {}) },
+  };
+}
+
+/** Media as HA answers it (version 2), or a version-1 one migrated the way kindle_panel does. */
+export function mergeMedia(
+  raw: (Partial<PanelConfig["media"]> & LegacyMedia) | undefined,
+): PanelConfig["media"] {
+  const m = raw ?? {};
+  if (!m.nodes && LEGACY_KEYS.some((k) => m[k])) return migrateMedia(m);
+  const nodes = (m.nodes ?? []).filter((n) => n?.id && n.type in NODE_TYPES && nodeEntity(n));
+  return {
+    music_backend: m.music_backend === "ha" ? "ha" : "app",
+    nodes,
+    keys: m.keys ? padTo4(m.keys) : defaultMediaKeys(nodes),
+    output_keys: m.output_keys?.length ? padTo4(m.output_keys) : defaultOutputKeys(nodes),
   };
 }

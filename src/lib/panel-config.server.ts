@@ -5,7 +5,13 @@ import { HomeError, ha, haConfigured } from "./home.server";
 import { applyHomeConfig } from "./home";
 import { parseLang } from "./i18n";
 import { applyMediaConfig } from "./media";
-import { DEFAULT_CONFIG, mergePanelConfig, panelView } from "./panel-config";
+import {
+  DEFAULT_CONFIG,
+  LEGACY_HOUSE_MEDIA,
+  mergePanelConfig,
+  migrateMedia,
+  panelView,
+} from "./panel-config";
 import type { PanelConfig, PanelView } from "./panel-config";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
@@ -14,7 +20,18 @@ import { loadMarks, marksFile } from "./photo.server";
 const TTL_MS = 30_000;
 const MISSING_RETRY_MS = 60_000;
 
-type Loaded = { config: PanelConfig; source: "ha" | "default"; at: number };
+/** A Music Assistant player as kindle_panel lists it (players and MA groups, names from HA). */
+export type MaOutput = { entity_id: string; name: string; state: string };
+type Loaded = {
+  config: PanelConfig;
+  source: "ha" | "default";
+  at: number;
+  /** The panel's music output as stored in HA (kindle_panel.set_output); null = not chosen yet. */
+  musicOutput?: string | null;
+  /** The stored output is one of `outputs` (else the panel asks again). */
+  musicOutputValid?: boolean;
+  outputs?: MaOutput[];
+};
 let current: Loaded | null = null;
 let missingUntil = 0;
 let missingStrikes = 0; // consecutive "kindle_panel not there" answers (HA answers 400 for an unknown service)
@@ -32,7 +49,10 @@ const hhmm = (v: string, fallback: string) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(
 export function defaultFromEnv(): PanelConfig {
   const c = structuredClone(DEFAULT_CONFIG);
   c.language = parseLang(env("UI_LANGUAGE"));
-  c.media.music_backend = env("MUSIC_BACKEND").toLowerCase() === "ha" ? "ha" : "app";
+  c.media = migrateMedia({
+    ...LEGACY_HOUSE_MEDIA,
+    music_backend: env("MUSIC_BACKEND").toLowerCase() === "ha" ? "ha" : "app",
+  });
   c.schedule = {
     // RADIO_DUTY_ENABLED, or the older SLEEP_ENABLED the bridge also honours
     radio_duty: (env("RADIO_DUTY_ENABLED") || env("SLEEP_ENABLED")) !== "0",
@@ -46,7 +66,14 @@ export function defaultFromEnv(): PanelConfig {
   return c;
 }
 
-type GetConfig = { seeded: boolean; marks_seeded: boolean; config: Partial<PanelConfig> };
+type GetConfig = {
+  seeded: boolean;
+  marks_seeded: boolean;
+  config: Partial<PanelConfig>;
+  music_output?: string | null;
+  music_output_valid?: boolean;
+  outputs?: MaOutput[];
+};
 
 async function call<T>(service: string, data: Record<string, unknown> = {}): Promise<T> {
   const r = await ha<{ service_response?: T }>(
@@ -167,7 +194,14 @@ async function load(): Promise<Loaded> {
       }
     }
   }
-  return { config: mergePanelConfig(got.config), source: "ha", at: Date.now() };
+  return {
+    config: mergePanelConfig(got.config),
+    source: "ha",
+    at: Date.now(),
+    musicOutput: got.music_output ?? null,
+    musicOutputValid: got.music_output_valid ?? false,
+    outputs: got.outputs ?? [],
+  };
 }
 
 function apply(l: Loaded) {
@@ -201,3 +235,12 @@ export const panelViewNow = (): PanelView =>
   current ? panelView(current.config, current.source) : panelView(defaultFromEnv(), "default");
 
 export const panelConfigNow = (): Loaded | null => current;
+
+/** The output picker chose `entity`: store it in HA (kindle_panel.set_output) and use it at once. */
+export async function setMusicOutput(entity: string): Promise<void> {
+  await call("set_output", { entity_id: entity });
+  if (current) {
+    current.musicOutput = entity;
+    current.musicOutputValid = (current.outputs ?? []).some((o) => o.entity_id === entity);
+  }
+}

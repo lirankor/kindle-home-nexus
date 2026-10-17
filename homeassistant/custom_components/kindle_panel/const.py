@@ -53,6 +53,49 @@ SCENE_ICONS = ["sun", "moon", "film", "sofa", "bed", "book", "utensils", "star",
 POWER_KEY_COUNT = 4
 POWER_KEY_ALL_OFF = "all_off"
 POWER_KEY_NONE = "none"
+# Media tab = typed device nodes (bus task 014). Per type: the field that names its main entity (and that entity's
+# domain) and the optional fields with their domains. Adding a type here is all the config side needs.
+NODE_TYPES: dict[str, dict] = {
+    "receiver": {
+        "entity": ("power_device", "media_player"),
+        "optional": {
+            "volume": "number",
+            "plug": "switch",
+            "plug_power": "sensor",
+            "stream_output": "select",
+            # the Music Assistant players this receiver plays (an output among them wakes the receiver)
+            "players": "media_player[]",
+            # only for the panel's own (app) music backend
+            "dlna_player": "media_player",
+            "ynca_entry_id": "text",
+        },
+    },
+    "tv": {
+        "entity": ("entity", "media_player"),
+        "optional": {"movie_on": "script", "movie_off": "script", "movie_active": "input_boolean"},
+    },
+}
+MAX_NODES = 6
+# Media tab F1..F4: none, all_off, "music" (the music screen), a node id (that node's controls) or a script.
+MEDIA_KEY_MUSIC = "music"
+# The output picker's F1..F4: none or a Music Assistant media_player (a player or an MA group).
+# kindle_panel <= 0.4.0 (config version 1) had flat amp/tv fields and the owner's amp hard-wired in the HA package and
+# the app: those become an "amp" receiver and a "tv" node, and the panel's output starts as the amp's DLNA player.
+LEGACY_POWER_DEVICE = "media_player.r_n500"
+LEGACY_STREAM_OUTPUT = "select.r_n500_stream_output"
+LEGACY_MA_PLAYERS = ["media_player.ma_amp_dlna", "media_player.ma_amp_airplay"]
+LEGACY_MEDIA_KEYS = (
+    "amp_player",
+    "amp_volume",
+    "dlna_player",
+    "amp_plug",
+    "amp_plug_power",
+    "tv",
+    "movie_on",
+    "movie_off",
+    "movie_active",
+    "ynca_entry_id",
+)
 PHOTO_MODES = ["curate", "all_but_skipped", "kept_only"]
 MUSIC_BACKENDS = ["app", "ha"]
 CARD_TYPES = ["outdoor", "indoor", "calendar", "sensor"]

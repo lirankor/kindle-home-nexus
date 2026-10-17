@@ -150,7 +150,13 @@ describe("panel config from Home Assistant", () => {
       lights: [{ entity_id: "light.only", name: "Only", room: "Hall", icon: "bulb" }],
       vacuum: { ...DEFAULT_CONFIG.vacuum, rooms: DEFAULT_CONFIG.vacuum.rooms.slice(0, 2) },
       plugs: [],
-      media: { ...DEFAULT_CONFIG.media, amp_player: "media_player.r_n500" },
+      media: {
+        ...DEFAULT_CONFIG.media,
+        nodes: [
+          { id: "amp", type: "receiver", name: "Amp", power_device: "media_player.r_n500" },
+          { id: "tv", type: "tv", name: "TV", entity: "media_player.tv", movie_on: "script.m" },
+        ],
+      },
     };
     marksSeeded = true;
     const { ensurePanelConfig, panelViewNow } = await import("./panel-config.server");
@@ -162,7 +168,42 @@ describe("panel config from Home Assistant", () => {
     expect(ROOMS).toHaveLength(2);
     expect(PLUGS).toHaveLength(0);
     expect(AMP.player).toBe("media_player.r_n500");
+    expect(AMP.tv).toBe("media_player.tv");
+    expect(AMP.movieOn).toBe("script.m");
     expect(panelViewNow().source).toBe("ha");
+  });
+
+  it("migrates a version-1 media block to nodes the way kindle_panel does (bus task 014)", async () => {
+    const { mergePanelConfig, LEGACY_HOUSE_MEDIA } = await import("./panel-config");
+    const v1 = { ...DEFAULT_CONFIG, media: { ...LEGACY_HOUSE_MEDIA, music_backend: "ha" } };
+    const m = mergePanelConfig(v1 as never).media;
+    expect(m.nodes.map((n) => [n.id, n.type])).toEqual([
+      ["amp", "receiver"],
+      ["tv", "tv"],
+    ]);
+    expect(m.nodes[0]).toMatchObject({
+      power_device: "media_player.r_n500",
+      stream_output: "select.r_n500_stream_output",
+      players: ["media_player.ma_amp_dlna", "media_player.ma_amp_airplay"],
+      volume: "number.r_n500_main_volume_db",
+    });
+    expect(m.nodes[1]).toMatchObject({
+      entity: "media_player.bravia_xr_65x90k",
+      movie_on: "script.movie_mode",
+    });
+    expect(m.keys).toEqual(["music", "amp", "tv", "none"]);
+    expect(m.output_keys).toEqual(["media_player.ma_amp_dlna", "none", "none", "none"]);
+    // the app backend keeps the receiver's own player, no MA players
+    const app = mergePanelConfig({
+      ...v1,
+      media: { ...LEGACY_HOUSE_MEDIA, music_backend: "app" },
+    } as never);
+    expect(app.media.nodes[0]?.power_device).toBe("media_player.r_n500_main");
+    expect(app.media.nodes[0]?.players).toBeUndefined();
+    // the Movie scene button still finds the TV's movie script
+    expect(mergePanelConfig({ ...v1, scenes: undefined } as never).scenes.at(-1)?.entity_id).toBe(
+      "script.movie_mode",
+    );
   });
 
   it("runs on the built-in setup when kindle_panel is not installed", async () => {

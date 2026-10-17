@@ -3,7 +3,8 @@ import type { HaState } from "./home.server";
 import { AMP, RADIO_LISTS } from "./media";
 import type { MusicTrack } from "./media";
 import {
-  BRIDGE,
+  musicOutputFrom,
+  outputFields,
   panelSource,
   performMediaActionHa,
   playSelectionHa,
@@ -17,11 +18,14 @@ import {
   queueFromHa,
   readMediaSnapshotHa,
   stationByName,
+  streamOptionFor,
   withRadio,
 } from "./media-ha.server";
 import type { HaMusicState } from "./media-ha.server";
 import { buildMediaSnapshot } from "./media.server";
 
+/** The owner's receiver (yamaha_netbridge), as HA's music_state reports it for the house default output. */
+const BRIDGE = "media_player.r_n500";
 const jf = (id: string) => id.padStart(32, "0"); // Jellyfin-style 32-hex ids
 const track = (title: string, id: string) => ({
   title,
@@ -67,6 +71,8 @@ const music = (over: Partial<HaMusicState> = {}): HaMusicState => ({
   },
   radio: null,
   player: "media_player.ma_amp_dlna",
+  outputPlayer: "media_player.ma_amp_dlna",
+  powerDevice: BRIDGE,
   output: "dlna",
   ...over,
 });
@@ -227,6 +233,58 @@ describe("snapshot through the panel's own builder", () => {
     const snap = buildMediaSnapshot(projectStates(states, s), {});
     expect(snap.amp.on).toBe(false);
     expect(snap.nowPlaying.kind).toBe("none");
+  });
+});
+
+describe("the panel's music output (bus task 014)", () => {
+  const amp = {
+    id: "amp",
+    type: "receiver" as const,
+    name: "Yamaha R-N500",
+    power_device: BRIDGE,
+    stream_output: "select.r_n500_stream_output",
+    players: ["media_player.ma_amp_dlna", "media_player.ma_amp_airplay"],
+  };
+  it("an output among a receiver's players brings that receiver along", () => {
+    const o = musicOutputFrom("media_player.ma_amp_airplay", [amp]);
+    expect(o).toEqual({
+      player: "media_player.ma_amp_airplay",
+      powerDevice: BRIDGE,
+      streamOutput: "select.r_n500_stream_output",
+      players: ["media_player.ma_amp_dlna", "media_player.ma_amp_airplay"],
+    });
+    expect(outputFields(o)).toEqual({
+      player: "media_player.ma_amp_airplay",
+      power_device: BRIDGE,
+      stream_output: "select.r_n500_stream_output",
+    });
+  });
+  it("any other MA player or group: no receiver, no wake step", () => {
+    const o = musicOutputFrom("media_player.ma_kitchen_group", [amp]);
+    expect(o?.powerDevice).toBeNull();
+    expect(outputFields(o)).toEqual({
+      player: "media_player.ma_kitchen_group",
+      power_device: "",
+      stream_output: "",
+    });
+    expect(musicOutputFrom(null, [amp])).toBeNull();
+    expect(outputFields(null)).toEqual({}); // none chosen: HA's house default
+  });
+  it("the stream select option is the one named in the player's entity id", () => {
+    expect(streamOptionFor("media_player.ma_amp_airplay", ["dlna", "airplay"])).toBe("airplay");
+    expect(streamOptionFor("media_player.ma_amp_dlna", ["dlna", "airplay"])).toBe("dlna");
+    expect(streamOptionFor("media_player.ma_kitchen", ["dlna", "airplay"])).toBeNull();
+  });
+  it("an output without a receiver shows Music Assistant's screens (SERVER) and reads the player itself", () => {
+    const k = "media_player.ma_kitchen";
+    const s = music({ player: k, outputPlayer: k, powerDevice: null, output: null });
+    const states = new Map([[k, st(k, "playing", { volume_level: 0.3 })]]);
+    const snap = buildMediaSnapshot(projectStates(states, s, musicOutputFrom(k, [amp])), {
+      queue: queueFromHa(s),
+    });
+    expect(snap.amp.on).toBe(true);
+    expect(snap.amp.source).toBe("SERVER");
+    expect(snap.nowPlaying.title).toBe("Hotel California");
   });
 });
 

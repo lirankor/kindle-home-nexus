@@ -16,6 +16,7 @@ import type {
   RadioStationView,
 } from "./media";
 import { makeT } from "./i18n";
+import { localName } from "./home";
 import type { Key, Lang, TFn } from "./i18n";
 
 /** dB to show: the number entity when known, else derived from the 0..1 level, else null. */
@@ -96,6 +97,31 @@ export function applyMediaOptimistic(s: MediaSnapshot, action: MediaAction): Med
     queue: s.queue ? { ...s.queue } : null,
   };
   switch (action.type) {
+    case "node": {
+      next.nodes = (s.nodes ?? []).map((n) => {
+        if (n.id !== action.id) return n;
+        const m = { ...n };
+        if (action.op === "power") {
+          m.on = action.on;
+          m.state = action.on ? "on" : "off";
+        } else if (action.op === "volume" && m.volumeDb !== null)
+          m.volumeDb = m.volumeDb + action.delta * AMP.volumeStepDb;
+        else if (action.op === "source") m.source = action.source;
+        else if (action.op === "stream") m.stream = action.option;
+        else if (action.op === "movie") m.movieActive = action.on;
+        return m;
+      });
+      break;
+    }
+    case "output":
+      if (s.output)
+        next.output = {
+          ...s.output,
+          entity: action.entity,
+          valid: true,
+          name: s.output.outputs.find((o) => o.entity_id === action.entity)?.name ?? action.entity,
+        };
+      break;
     case "amp.power":
       next.amp.on = action.on;
       next.amp.state = action.on ? "on" : "off";
@@ -351,6 +377,19 @@ export function mediaActionLabel(action: MediaAction, lang: Lang, after?: MediaS
       return t(action.op === "play" ? "act.radioPlay" : "act.radioStop");
     case "all_off":
       return t("act.allOff");
+    case "output":
+      return t("act.output", {
+        name:
+          after?.output?.outputs.find((o) => o.entity_id === action.entity)?.name ?? action.entity,
+      });
+    case "node": {
+      const n = after?.nodes?.find((x) => x.id === action.id);
+      const name = n ? nodeLabel(lang, n.name) : action.id;
+      if (action.op === "power") return t(action.on ? "act.nodeOn" : "act.nodeOff", { name });
+      if (action.op === "volume") return t("act.volume", { db: formatDb(n?.volumeDb ?? null) });
+      if (action.op === "movie") return t(action.on ? "act.movieOn" : "act.movieOff");
+      return t("act.done");
+    }
     case "queue.jump":
       return t("act.track", { n: action.index + 1 });
     case "queue":
@@ -380,4 +419,13 @@ export type AmpPowerSlot = "open" | "powerOn" | "powering";
 export function ampPowerSlot(s: MediaSnapshot | null, running: boolean): AmpPowerSlot {
   if (!s || s.amp.on) return "open";
   return running ? "powering" : "powerOn";
+}
+
+/** A node's display name: its Hebrew name from the panel config (names.he), else the two household defaults in the
+ *  app's own words, else the name as configured. */
+export function nodeLabel(lang: Lang, name: string): string {
+  const own = localName(lang, name);
+  if (own !== name) return own;
+  const t = makeT(lang);
+  return name === "Sony TV" ? t("media.tvName") : name === "Yamaha R-N500" ? t("media.amp") : name;
 }

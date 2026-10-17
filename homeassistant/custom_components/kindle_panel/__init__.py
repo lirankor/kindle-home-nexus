@@ -6,6 +6,8 @@
 * Screensaver photos come from HA (Immich favourites through HA's Immich connection, or any media-browser folder);
   the panel's F1 keep / F4 skip decisions are stored here (`pick_photo`, `mark_photo`).
 * Music Assistant queues the HA integration does not pass on: `get_queue` (the whole queue) and `play_index`.
+* The panel's music output (one MA player or MA group per panel, picked on the panel): `set_output`, stored here;
+  `get_config` answers it with every MA player HA has (`music_output`, `outputs`).
 The panel only ever talks to Home Assistant.
 """
 
@@ -27,18 +29,21 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.storage import Store
 
-from .config import effective_sources, normalize
+from .config import effective_sources, needs_media_migration, normalize
 from .const import (
     CONF_MA_ENTRY,
     DOMAIN,
     EVENT_CONFIG_UPDATED,
     IMMICH_DOMAIN,
+    LEGACY_MA_PLAYERS,
     MA_DOMAIN,
     OPT_CONFIG,
     OPT_EDITED,
     OPT_SEEDED,
     PAGE_KEYS,
+    POWER_KEY_NONE,
 )
 from .photos import MarkStore, PhotoLibrary, pick
 
@@ -68,6 +73,7 @@ SEED_SCHEMA = vol.Schema(
     }
 )
 PICK_SCHEMA = vol.Schema({vol.Optional("previous_id"): vol.Any(None, cv.string)})
+SET_OUTPUT_SCHEMA = vol.Schema({vol.Required(ATTR_ENTITY_ID): vol.All(cv.entity_id, cv.entity_domain("media_player"))})
 MARK_SCHEMA = vol.Schema(
     {
         vol.Required("photo_id"): vol.All(cv.string, vol.Length(min=1, max=512)),
@@ -76,10 +82,38 @@ MARK_SCHEMA = vol.Schema(
 )
 
 
+class OutputStore:
+    """The panel's music output (an MA media_player), persisted in .storage; None = not chosen yet."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self._store: Store[dict[str, Any]] = Store(hass, 1, f"{DOMAIN}.music_output")
+        self.output: str | None = None
+
+    async def async_load(self) -> None:
+        self.output = (await self._store.async_load() or {}).get("output")
+
+    async def async_set(self, output: str | None) -> None:
+        self.output = output
+        await self._store.async_save({"output": output})
+
+
+def ma_players(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """Every Music Assistant media_player HA has (players and MA groups), names from HA, in entity id order."""
+    out = []
+    for e in sorted(er.async_get(hass).entities.values(), key=lambda x: x.entity_id):
+        if e.platform != MA_DOMAIN or e.domain != "media_player" or e.disabled_by is not None:
+            continue
+        st = hass.states.get(e.entity_id)
+        name = (st.name if st else None) or e.name or e.original_name or e.entity_id
+        out.append({"entity_id": e.entity_id, "name": name, "state": st.state if st else "unavailable"})
+    return out
+
+
 @dataclass
 class PanelRuntime:
     marks: MarkStore
     library: PhotoLibrary
+    output: OutputStore
 
 
 type KindlePanelConfigEntry = ConfigEntry[PanelRuntime]
@@ -154,7 +188,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
         hass.config_entries.async_update_entry(entry, options={**entry.options, OPT_SEEDED: True})
     marks = MarkStore(hass)
     await marks.async_load()
-    rt = PanelRuntime(marks=marks, library=PhotoLibrary(hass))
+    output = OutputStore(hass)
+    await output.async_load()
+    if (
+        output.output is None
+        and needs_media_migration(legacy)
+        and (legacy.get("media") or {}).get("music_backend") == "ha"
+    ):
+        # kindle_panel <= 0.4.0 played to the owner's amp (DLNA player) hard-wired: that stays the panel's output
+        await output.async_set(LEGACY_MA_PLAYERS[0])
+    rt = PanelRuntime(marks=marks, library=PhotoLibrary(hass), output=output)
     entry.runtime_data = rt
 
     async def get_queue(call: ServiceCall) -> ServiceResponse:
@@ -192,10 +235,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
 
     async def get_config(call: ServiceCall) -> ServiceResponse:
         cfg = normalize(entry.options.get(OPT_CONFIG))
+        outputs = ma_players(hass)
+        ids = [o["entity_id"] for o in outputs]
+        keys = cfg["media"]["output_keys"]
+        if keys[0] == POWER_KEY_NONE and all(k == POWER_KEY_NONE for k in keys) and ids:
+            cfg["media"]["output_keys"] = [ids[0], *keys[1:]]  # no receiver lists players: F1 = HA's first MA player
         return {
             "seeded": bool(entry.options.get(OPT_SEEDED)),
             "marks_seeded": rt.marks.seeded,
             "config": cfg,
+            # the panel's music output; null (or not in `outputs` any more) = the panel opens its output picker
+            "music_output": rt.output.output,
+            "music_output_valid": rt.output.output in ids,
+            "outputs": outputs,
             # what pick_photo uses: an empty source list means Immich favourites
             "effective_sources": effective_sources(cfg["screensaver"]["sources"]),
         }
@@ -262,6 +314,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
         async_dispatcher_send(hass, SIGNAL_MARKS)
         return {"kept": len(rt.marks.kept), "skipped": len(rt.marks.skipped)}
 
+    async def set_output(call: ServiceCall) -> ServiceResponse:
+        eid = call.data[ATTR_ENTITY_ID]
+        if eid not in [o["entity_id"] for o in ma_players(hass)]:
+            raise ServiceValidationError(f"{eid} is not a Music Assistant player")
+        await rt.output.async_set(eid)
+        hass.bus.async_fire(EVENT_CONFIG_UPDATED, {"entry_id": entry.entry_id, "music_output": eid})
+        return {"music_output": eid}
+
     async def get_marks(call: ServiceCall) -> ServiceResponse:
         return {"kept": dict(rt.marks.kept), "skipped": dict(rt.marks.skipped)}
 
@@ -272,6 +332,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
     hass.services.async_register(DOMAIN, "pick_photo", pick_photo, PICK_SCHEMA, SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "mark_photo", mark_photo, MARK_SCHEMA, SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "get_marks", get_marks, None, SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "set_output", set_output, SET_OUTPUT_SCHEMA, SupportsResponse.OPTIONAL)
 
     entry.async_on_unload(entry.add_update_listener(_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -292,6 +353,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "pick_photo",
         "mark_photo",
         "get_marks",
+        "set_output",
     ):
         hass.services.async_remove(DOMAIN, svc)
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
