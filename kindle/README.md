@@ -74,7 +74,7 @@ rollout test. `nexus.sh status` shows the radio state, the current window and th
 Button map: 5-way = up/down/left/right/select, upper side buttons = prev tab,
 lower side buttons = next tab, Back = escape, Menu = menu, Home = home, keyboard = keyboard.
 
-**Connecting icon:** `connecting.png` (200×200, made by `scripts/make-connecting-icon.mjs`) is drawn in the middle
-of the screen the instant a key is pressed while the radio is off, until the reconnect redraw replaces it. It's
-copied with the folder. Without it, or with an `eips` that can't place an image, the client shows a
-`Connecting...` text line. See `docs/battery-saver-plan.md`.
+**Connecting icon:** `connecting.png` (a full 600×800 frame, white with the 200×200 icon in the middle, made by
+`scripts/make-connecting-icon.mjs`) is drawn with plain `eips -g` the instant a key is pressed while the radio is off,
+until the reconnect redraw replaces it. Full frame because this Kindle 4's `eips -g` ignores `-x`/`-y`. It's copied
+with the folder. Without it, or with an `eips` that fails to draw it, the client shows a `Connecting...` text line. See `docs/battery-saver-plan.md`.

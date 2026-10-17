@@ -85,20 +85,21 @@ more, which is what the 2 s settle covers; there is no completion flag in sysfs 
 With the radio off, a key press takes ~6 s, up to `WIFI_WAIT`, before the bridge even hears of it. The owner asked
 for an indication on the device. The bridge can't draw while the radio is off, so the Kindle draws it itself:
 - On a key press while the radio is off (`radio_up key`), the client switches the radio on and at once draws
-  `connecting.png`. That's a 200×200 icon (a Wi-Fi symbol on a black tile, no text, so any language) kept next to
+  `connecting.png`. That's a full 600×800 white frame with a 200×200 icon in the middle (a Wi-Fi symbol on a black
+  tile, no text, so any language) kept next to
   `nexus.sh` in `/mnt/us/nexus/`.
-- It's drawn in the middle of the screen (`eips -g … -x 200 -y 300`, partial update). The full redraw after the
-  reconnect clears it.
+- It's drawn with plain `eips -g /mnt/us/nexus/connecting.png` (no `-x`/`-y`: this Kindle 4's eips, firmware 4.1.4,
+  draws nothing with them and still exits 0, report 008 / Q16; hence the full frame with the icon already centred).
+  The full redraw after the reconnect replaces it.
 - No network is involved, so it works whatever the bridge or the screen. An earlier version had the bridge prepare a
   "connecting" frame before the radio went off; it was replaced, owner's call, because it needed a download before
   every window and failed on any screen without the badge.
 - **Fallbacks:**
-  - Icon missing, or this firmware's `eips` refuses `-x`/`-y`: the text line `Connecting...`.
+  - Picture missing, or `eips -g` fails: the text line `Connecting...`.
   - The radio does not come back within `WIFI_WAIT`: `No Wi-Fi yet, still trying (HH:MM)`.
 - Scheduled wakes, where nobody is waiting, draw nothing.
-- **Unverified on the device:** that this Kindle 4's `eips` places an image with `-x`/`-y`. If it ignores them, the
-  icon lands top-left: still visible, and `CONNECTING_X`/`CONNECTING_Y` in the device config can't fix that.
-  Check it once: `eips -g /mnt/us/nexus/connecting.png -x 200 -y 300`.
+- Checked on the device (task 009): `eips -g` without `-x`/`-y` draws the frame top-left = the whole screen, so the
+  icon is in the middle. `CONNECTING_X`/`CONNECTING_Y` are gone.
 - Icon source: `scripts/make-connecting-icon.mjs`.
 - Test: `sh kindle/tests/connecting-test.sh` (stubs for eips and lipc).
 

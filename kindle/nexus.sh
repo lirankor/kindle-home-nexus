@@ -20,7 +20,7 @@ RADIOOFF=/tmp/nexus.radio_off  # exists while the Wi-Fi radio is switched off, h
 WINDOW=/tmp/nexus.window   # "<end epoch> <window s>" of the current radio-off window: cron.sh widens its stale threshold with it
 BATSTAMP=/tmp/nexus.last_bat   # epoch of the last battery report (once a minute)
 DRAWING=/tmp/nexus.drawing     # exists while eips runs: a draw cut short (restart, kill) is redone in full next cycle
-CONN=$DIR/connecting.png       # 200x200 icon drawn in the middle the instant a key wakes the radio (deployed with nexus.sh)
+CONN=$DIR/connecting.png       # 600x800 frame (icon centred) drawn the instant a key wakes the radio (deployed with nexus.sh)
 GOV=/sys/devices/system/cpu/cpu0/cpufreq
 URL="$BRIDGE_URL/$BRIDGE_TOKEN"
 T=${FETCH_TIMEOUT:-15}
@@ -124,10 +124,11 @@ radio_down() { # radio_down <secs> <label> : switch the radio off until the next
   return 1
 }
 # The bridge cannot reach us while the radio is off, so a key press would show nothing for the ~6 s the radio needs.
-# We draw a small icon from our own storage in the middle of the screen (partial update) the instant the key comes
-# in; the full redraw after the reconnect clears it. No network, so it works whatever the bridge or the screen.
+# We draw a picture from our own storage the instant the key comes in: a full 600x800 frame with the icon in the
+# middle, because this Kindle 4's eips (firmware 4.1.4) ignores -x/-y for -g (with them it draws nothing and still
+# exits 0). The full redraw after the reconnect replaces it. No network, so it works whatever the bridge or the screen.
 show_connecting() {
-  if [ -s $CONN ] && eips -g $CONN -x ${CONNECTING_X:-200} -y ${CONNECTING_Y:-300} >/dev/null 2>&1; then return 0; fi
+  if [ -s $CONN ] && eips -g $CONN >/dev/null 2>&1; then return 0; fi
   eips 1 38 "Connecting..." 2>/dev/null   # icon missing or this eips cannot place an image: a text line
 }
 radio_up() { # radio_up <why> : bring the radio back and wait (bounded) for the association; always returns 0
