@@ -229,23 +229,22 @@ function NodeScreen({ panel, status }: { panel: MediaPanel; status: string }) {
         </p>
       </header>
       <div className="tv-glyph" data-on={n.on}>
-        <Icon size={150} strokeWidth={1.1} />
+        <Icon size={120} strokeWidth={1.1} />
       </div>
       <p className="modal-look">
         {n.on ? `${t("media.source")} · ${n.source ?? t("node.noSource")}` : "\u00a0"}
       </p>
       <p className="modal-look node-volume">
         {n.on && n.volumeDb !== null ? (
-          <Ltr>
-            {t("media.volume")} {formatDb(n.volumeDb)} dB
-          </Ltr>
+          <>
+            {t("media.volume")} <Ltr>{formatDb(n.volumeDb)} dB</Ltr>
+          </>
         ) : n.on && n.volume !== null ? (
           `${t("media.volume")} ${Math.round(n.volume * 100)}%`
         ) : (
           "\u00a0"
         )}
       </p>
-      {n.stream && <p className="modal-look">{t("node.stream", { v: n.stream.toUpperCase() })}</p>}
       <p className="modal-hint">{t("node.hint")}</p>
     </FullModal>
   );
