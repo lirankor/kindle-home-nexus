@@ -15,6 +15,8 @@ RADIO_DUTY=1                              # KILL SWITCH: 0 = radio always on (ne
 MIN_DOZE=60                               # do not bother switching the radio off for less than this (s)
 MAX_DOZE=7800                             # ... or for longer than this (s): the 2-hourly night window plus headroom
 KEY_HOLD=300                              # a hardware button within the last N s keeps the radio up (same 5 min as the app's screensaver)
+CONNECTING_COL=18                         # "Connecting..." label on a key wake: column (0-49) and row (0-39), default = middle
+CONNECTING_ROW=20
 WIFI_WAIT=30                              # max s to wait for wifid CONNECTED after switching the radio back on (6 s measured)
 RADIO_FAIL_HOLD=900                       # radio refused to re-associate: leave it on and stop duty cycling for N s
 EINK_SETTLE=2                             # s to let the e-ink controller finish the (full) draw before anything else happens

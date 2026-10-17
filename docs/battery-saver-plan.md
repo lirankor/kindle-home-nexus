@@ -84,23 +84,20 @@ more, which is what the 2 s settle covers; there is no completion flag in sysfs 
 
 With the radio off, a key press takes ~6 s, up to `WIFI_WAIT`, before the bridge even hears of it. The owner asked
 for an indication on the device. The bridge can't draw while the radio is off, so the Kindle draws it itself:
-- On a key press while the radio is off (`radio_up key`), the client switches the radio on and at once draws
-  `connecting.png`. That's a full 600×800 white frame with a 200×200 icon in the middle (a Wi-Fi symbol on a black
-  tile, no text, so any language) kept next to
-  `nexus.sh` in `/mnt/us/nexus/`.
-- It's drawn with plain `eips -g /mnt/us/nexus/connecting.png` (no `-x`/`-y`: this Kindle 4's eips, firmware 4.1.4,
-  draws nothing with them and still exits 0, report 008 / Q16; hence the full frame with the icon already centred).
-  The full redraw after the reconnect replaces it.
+- On a key press while the radio is off (`radio_up key`), the client switches the radio on and at once draws the
+  text label `Connecting...` in the middle of the screen with `eips <col> <row> "text"`, over whatever is showing. The
+  full redraw after the reconnect replaces it.
+- Why text and not a picture (measured on the device with framebuffer dumps, 2026-10-17, Q16): this Kindle 4's eips
+  (firmware 4.1.4) has no overlay for images. `eips -g` wipes the whole screen white and then draws the image top-left;
+  a PNG with an alpha channel comes out as a blank white screen; `-x`/`-y` draw nothing and still exit 0. A text draw
+  touches only the text's own cells (12×20 px each on a 50×40 grid). The full-frame icon that task 009 deployed was
+  therefore replaced: the owner found the white screen with a centred icon too aggressive.
 - No network is involved, so it works whatever the bridge or the screen. An earlier version had the bridge prepare a
   "connecting" frame before the radio went off; it was replaced, owner's call, because it needed a download before
   every window and failed on any screen without the badge.
-- **Fallbacks:**
-  - Picture missing, or `eips -g` fails: the text line `Connecting...`.
-  - The radio does not come back within `WIFI_WAIT`: `No Wi-Fi yet, still trying (HH:MM)`.
+- `CONNECTING_COL` / `CONNECTING_ROW` (kindle/config, default 18 / 20) move the label.
+- **Fallback:** the radio does not come back within `WIFI_WAIT`: `No Wi-Fi yet, still trying (HH:MM)`.
 - Scheduled wakes, where nobody is waiting, draw nothing.
-- Checked on the device (task 009): `eips -g` without `-x`/`-y` draws the frame top-left = the whole screen, so the
-  icon is in the middle. `CONNECTING_X`/`CONNECTING_Y` are gone.
-- Icon source: `scripts/make-connecting-icon.mjs`.
 - Test: `sh kindle/tests/connecting-test.sh` (stubs for eips and lipc).
 
 ### Watchdog
