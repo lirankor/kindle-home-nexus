@@ -502,6 +502,15 @@ class KindlePanelOptionsFlow(OptionsFlow):
                     "icon": row.get("icon") or "star",
                 }
             c["custom_tabs"] = blocks
+            # a deleted tab takes its Hebrew names along (unless another row still uses them)
+            gone = {
+                n for t, b in old.items() if t not in blocks for n in (b["title"], *(x["name"] for x in b["toggles"]))
+            }
+            still = _row_names(c)
+            c["names"] = {
+                **c["names"],
+                "he": {k: v for k, v in c["names"].get("he", {}).items() if k not in gone or k in still},
+            }
             # a new tab shows up at the end of the tab bar; a deleted one leaves it (normalize drops its entry)
             c["tabs"] = [*c["tabs"], *[f"{CUSTOM_PREFIX}{t}" for t in blocks if t not in old]]
             edit = user_input.get("edit")

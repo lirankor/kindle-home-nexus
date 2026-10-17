@@ -671,6 +671,8 @@ async def test_custom_tab_pages(hass, panel) -> None:
     assert res["type"] is FlowResultType.CREATE_ENTRY
     cfg = (await call(hass, "get_config"))["config"]
     assert cfg["custom_tabs"] == {} and cfg["tabs"] == ["lights"]
+    assert "Garden" not in cfg["names"]["he"] and "Pump" not in cfg["names"]["he"]  # its Hebrew names went too
+    assert cfg["names"]["he"]["Main light"] == "אור ראשי"
 
 
 async def test_hebrew_name_per_row(hass, panel) -> None:
