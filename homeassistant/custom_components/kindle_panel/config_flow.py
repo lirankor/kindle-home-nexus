@@ -67,8 +67,12 @@ def _entity(domain: str | list[str]) -> sel.EntitySelector:
     return sel.EntitySelector(sel.EntitySelectorConfig(domain=domain))
 
 
-def _select(options: list[str], key: str, multiple: bool = False) -> sel.SelectSelector:
-    return sel.SelectSelector(sel.SelectSelectorConfig(options=options, translation_key=key, multiple=multiple))
+def _select(options: list[str], key: str, multiple: bool = False, reorder: bool = False) -> sel.SelectSelector:
+    # reorder needs multiple; HA renders it as a dropdown with draggable chips (list mode shows plain checkboxes)
+    cfg: dict[str, Any] = {"options": options, "translation_key": key, "multiple": multiple}
+    if reorder:
+        cfg.update(reorder=True, mode=sel.SelectSelectorMode.DROPDOWN)
+    return sel.SelectSelector(sel.SelectSelectorConfig(**cfg))
 
 
 def _num(lo: float, hi: float, step: float = 1, unit: str | None = None) -> sel.NumberSelector:
@@ -191,7 +195,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
             vol.Schema(
                 {
                     vol.Required("language", default=c["language"]): _select(LANGUAGES, "language"),
-                    vol.Required("tabs", default=c["tabs"]): _select(TABS, "tab", multiple=True),
+                    vol.Required("tabs", default=c["tabs"]): _select(TABS, "tab", multiple=True, reorder=True),
                     _opt("indoor_temperature", s.get("indoor_temperature")): _entity("sensor"),
                     _opt("indoor_humidity", s.get("indoor_humidity")): _entity("sensor"),
                     _opt("weather", s.get("weather")): _entity("weather"),
