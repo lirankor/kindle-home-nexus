@@ -70,6 +70,15 @@ const SOURCE_ICONS: Record<string, typeof Radio> = {
   TUNER: RadioTower,
 };
 const sourceIcon = (source: AmpSource) => SOURCE_ICONS[source] ?? Cable;
+/** Input rows that fit above the footer (74 px each); the window follows the cursor through longer lists. */
+const SOURCE_ROWS_SHOWN = 6;
+const sourceWindow = <T,>(rows: T[], cursor: number): T[] => {
+  const first = Math.max(
+    0,
+    Math.min(cursor - (SOURCE_ROWS_SHOWN - 1), rows.length - SOURCE_ROWS_SHOWN),
+  );
+  return rows.slice(first, first + SOURCE_ROWS_SHOWN);
+};
 const mmss = (ms: number) => {
   const s = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -269,7 +278,7 @@ function NodeSourceList({ panel, status }: { panel: MediaPanel; status: string }
         <p>{nodeLabel(lang, n.name)}</p>
       </header>
       <div className="source-rows" role="listbox" aria-label={t("source.title")}>
-        {n.sources.slice(Math.max(0, cursor - 6), Math.max(0, cursor - 6) + 7).map((src) => {
+        {sourceWindow(n.sources, cursor).map((src) => {
           const index = n.sources.indexOf(src);
           const current = n.on && n.source === src;
           return (
@@ -572,37 +581,35 @@ function SourceList({ panel, status }: { panel: MediaPanel; status: string }) {
         <p>{t("media.amp")}</p>
       </header>
       <div className="source-rows" role="listbox" aria-label={t("source.title")}>
-        {panel.sourceRows
-          .slice(Math.max(0, cursor - 6), Math.max(0, cursor - 6) + 7)
-          .map((source) => {
-            const index = panel.sourceRows.indexOf(source);
-            const Icon = sourceIcon(source);
-            const current = s?.amp.on && s.amp.source === source;
-            return (
-              <Button
-                key={source}
-                variant="eink"
-                className="source-row"
-                role="option"
-                aria-selected={index === cursor}
-                aria-pressed={index === cursor}
-                data-current={current ?? false}
-                onClick={() => {
-                  panel.setCursor(index);
-                  panel.applySource(source);
-                }}
-              >
-                <span className="source-row-icon">
-                  <Icon size={30} strokeWidth={1.6} />
-                </span>
-                <span className="source-row-text">
-                  <strong>{sourceLabel(panel, source)}</strong>
-                  <span>{tryT(panel.lang, `source.${source}.detail`) ?? "\u00a0"}</span>
-                </span>
-                {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
-              </Button>
-            );
-          })}
+        {sourceWindow(panel.sourceRows, cursor).map((source) => {
+          const index = panel.sourceRows.indexOf(source);
+          const Icon = sourceIcon(source);
+          const current = s?.amp.on && s.amp.source === source;
+          return (
+            <Button
+              key={source}
+              variant="eink"
+              className="source-row"
+              role="option"
+              aria-selected={index === cursor}
+              aria-pressed={index === cursor}
+              data-current={current ?? false}
+              onClick={() => {
+                panel.setCursor(index);
+                panel.applySource(source);
+              }}
+            >
+              <span className="source-row-icon">
+                <Icon size={30} strokeWidth={1.6} />
+              </span>
+              <span className="source-row-text">
+                <strong>{sourceLabel(panel, source)}</strong>
+                <span>{tryT(panel.lang, `source.${source}.detail`) ?? "\u00a0"}</span>
+              </span>
+              {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
+            </Button>
+          );
+        })}
       </div>
       <p className="modal-hint">{t("source.hint")}</p>
     </FullModal>

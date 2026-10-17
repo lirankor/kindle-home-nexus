@@ -154,8 +154,8 @@ describe("Media tab and amp view", () => {
       "AirPlay",
       "TUNER",
       "PHONO",
-      "Bluetooth & TV", // CD, renamed by the node's inputs row
-    ]);
+    ]); // six rows fit above the footer; the window follows the cursor
+    expect(list.textContent).not.toContain("Bluetooth & TV");
     expect(list.querySelector('[aria-selected="true"]')?.textContent).toContain("NET RADIO");
     press("ArrowDown");
     press("ArrowDown");
@@ -429,12 +429,15 @@ describe("Media tab and amp view", () => {
       "AirPlay",
       "TUNER",
       "PHONO",
-      "בלוטות׳ וטלוויזיה",
     ]);
     // Cursor starts on the current source (PHONO = row 6).
     expect(rows[5]).toHaveAttribute("aria-selected", "true");
-    press("ArrowDown");
-    expect(screen.getAllByRole("option")[6]).toHaveAttribute("aria-selected", "true");
+    press("ArrowDown"); // the window moves on: CD, renamed by the node's inputs row
+    const shown = screen.getAllByRole("option");
+    expect(shown.map((r) => r.querySelector("strong")?.textContent).at(-1)).toBe(
+      "בלוטות׳ וטלוויזיה",
+    );
+    expect(shown.at(-1)).toHaveAttribute("aria-selected", "true");
     press("Enter");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
