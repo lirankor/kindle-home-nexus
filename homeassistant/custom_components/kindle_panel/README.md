@@ -2,13 +2,42 @@
 
 The Home Assistant side of the kindle-home-nexus e-ink panel. Everything the panel shows is configured under
 Settings → Devices & services → Kindle Panel → Configure: language, tabs (built-in and custom), lights and their scene
-buttons, vacuum, plugs and their F1–F4 keys, media, screensaver, battery-saver schedule.
+buttons, vacuum, plugs and their F1–F4 keys, media devices and keys, screensaver, battery-saver schedule.
+
+## Media tab: your devices, and a music screen with its own output
+
+Since 0.5.0 the Media tab is a list of **media devices** (Configure → *Media tab and music* → *Media devices*). Each row
+has an id (a-z, 0-9, `_`; keep it once chosen), a type, a name (and an optional Hebrew name) and the entities of that
+type:
+
+* **Receiver / amplifier**: *Entity* = its media player (power and inputs). Optional: a volume number, a plug (and its
+  power sensor), its DLNA/AirPlay stream-output select, and the **Music Assistant players it plays**. On the panel: on /
+  off, volume (up / down), input list, stream output.
+* **TV**: *Entity* = the TV's media player. Optional: movie-mode on / off scripts and the movie-mode boolean. On the
+  panel: on / off, volume, input list, movie mode.
+
+The **F1–F4 keys of the Media tab** each open the music screen, open one device's controls, run a script, switch all
+media off, or do nothing. A new panel starts with F1 = music, F2 = the first receiver, F3 = the first TV.
+
+**Music** is a screen of its own (radio, library, playlist, now playing, transport, volume) that plays through Music
+Assistant to **one output per panel**, chosen on the panel itself: the music screen's Output key opens a list of every
+Music Assistant player Home Assistant has (names from Home Assistant). Up / down and select choose it, Back closes the
+list without a change, and the picker's F1–F4 are quick keys to the outputs set under *F1–F4 in the output picker*.
+The list opens by itself when the panel has no output yet (or its output is gone from Home Assistant). One output at a
+time by design: **to play in several rooms, make a group in Music Assistant**; the group shows up as one more player.
+
+When the chosen output is one of a receiver's Music Assistant players, the panel's music turns that receiver on first,
+its volume keys act on the receiver, and its stream-output select is set to match (the option named in the player's
+entity id, e.g. `dlna` / `airplay`). Any other output plays as it is (volume on the player itself). The choice is
+stored per panel in Home Assistant (`kindle_panel.set_output`; `kindle_panel.get_config` answers `music_output` and
+the list `outputs`). Configs saved before 0.5.0 are migrated: the amplifier fields become a receiver `amp`, the TV fields
+a TV `tv`, and a panel that played through Home Assistant keeps the amplifier's DLNA player as its output.
 
 ## Scene buttons are Home Assistant scenes
 
 The panel has no scenes of its own (since 0.4.0). The Lights tab's F1–F3 each run an HA **scene** (`scene.turn_on`) or
 **script** (`script.turn_on`); F4 switches the panel's lights off. A new panel starts with three buttons:
-`scene.bright` (Bright), `scene.evening` (Evening) and the movie-mode script set under Media (Movie). Create the two scenes
+`scene.bright` (Bright), `scene.evening` (Evening) and the movie-mode script of the first TV device (Movie). Create the two scenes
 once, in Settings → Scenes (or paste them into `scenes.yaml`), with your own lights:
 
 ```yaml
