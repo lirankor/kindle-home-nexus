@@ -88,8 +88,9 @@ async function localMarks(): Promise<Record<string, string> | null> {
   return Object.fromEntries(m.marked.map((x) => [x.id, x.at]));
 }
 
-/** HA is running and has no kindle_panel config entry. The entries list needs an admin token (the panel's token is
- *  one); without it, HA running with no kindle_panel component loaded counts as removed. */
+/** HA is running and has no kindle_panel config entry. Any valid token may list config entries (HA 2026.2); if that
+ *  list is refused, HA running without the kindle_panel component loaded counts as removed (only true after a
+ *  restart). */
 async function panelRemoved(): Promise<boolean> {
   try {
     const entries = await ha<unknown[]>(
