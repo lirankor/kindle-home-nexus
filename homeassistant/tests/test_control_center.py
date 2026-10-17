@@ -561,3 +561,141 @@ async def test_power_page_maps_the_keys(hass, panel) -> None:
     cfg = (await call(hass, "get_config"))["config"]
     assert cfg["power_keys"] == ["switch.plug_1", "switch.plug_3", "switch.plug_2", "none"]
     assert [s.get("builtin") or s.get("entity_id") for s in cfg["scenes"]] == ["bright", "evening"]  # lights untouched
+
+
+# ---------------------------------------------------------------- task 012: custom tabs + Hebrew name per row
+
+
+def test_custom_tabs_config() -> None:
+    import voluptuous as vol
+
+    from custom_components.kindle_panel.config import normalize
+
+    toggles = [{"entity_id": f"input_boolean.t{i}", "name": f"T{i}"} for i in (1, 2)]
+    cfg = normalize(
+        {
+            "tabs": ["lights", "custom:garden", "custom:gone", "lights", "power"],
+            "custom_tabs": {"garden": {"title": "Garden", "toggles": toggles}, "hidden": {"title": "Hidden"}},
+        }
+    )
+    assert cfg["tabs"] == ["lights", "custom:garden", "power"]  # no duplicates, no tab without its block
+    garden = cfg["custom_tabs"]["garden"]
+    assert garden["icon"] == "star" and garden["toggles"][0]["icon"] == "plug"
+    assert garden["keys"] == ["input_boolean.t1", "input_boolean.t2", "none", "all_off"]  # like the Power tab
+    assert cfg["custom_tabs"]["hidden"]["keys"] == ["none", "none", "none", "all_off"]  # hidden, kept
+    assert normalize(cfg) == cfg
+    assert normalize({})["custom_tabs"] == {} and normalize({})["tabs"] == ["lights", "vacuum", "power", "media"]
+    bad = [
+        {"custom_tabs": {"Bad Id": {"title": "x"}}},
+        {"custom_tabs": {"a": {"title": "x", "toggles": [{"entity_id": "sensor.t", "name": "t"}]}}},
+        {"custom_tabs": {"a": {"title": "x", "toggles": [*toggles, *toggles, toggles[0]]}}},  # 5 > 4
+        {"tabs": ["custom:a"], "custom_tabs": {}},  # no tab left
+        {
+            "tabs": ["lights", "vacuum", "power", "media", *[f"custom:c{i}" for i in range(3)]],
+            "custom_tabs": {f"c{i}": {"title": "c"} for i in range(3)},
+        },  # 7 > 6
+    ]
+    for b in bad:
+        with pytest.raises(vol.Invalid):
+            normalize(b)
+
+
+async def test_custom_tab_pages(hass, panel) -> None:
+    hass.states.async_set("script.water", "off", {"friendly_name": "Water"})
+    await call(hass, "seed", config=HOUSE)
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "custom_tabs"})
+    assert flow["step_id"] == "custom_tabs"
+    res = await hass.config_entries.options.async_configure(
+        flow["flow_id"],
+        {"custom_tabs": [{"id": "garden", "title": "Garden", "title_he": "גינה", "icon": "leaf"}], "edit": "garden"},
+    )
+    assert res["type"] is FlowResultType.FORM and res["step_id"] == "custom_tab"
+    assert res["description_placeholders"]["title"] == "Garden"
+    res = await hass.config_entries.options.async_configure(
+        res["flow_id"],
+        {
+            "toggles": [
+                {"entity_id": "input_boolean.pump", "name": "Pump", "name_he": "משאבה", "icon": "zap"},
+                {"entity_id": "light.garden", "name": "Garden light", "icon": "bulb"},
+            ]
+        },
+    )
+    assert res["type"] is FlowResultType.FORM and res["step_id"] == "custom_tab_keys"
+    keys = {str(k): k for k in res["data_schema"].schema if str(k).startswith("key_f")}
+    assert [keys[f"key_f{i}"].default() for i in (1, 2, 3, 4)] == [
+        "input_boolean.pump",
+        "light.garden",
+        "none",
+        "all_off",
+    ]
+    offered = [o["value"] for o in res["data_schema"].schema[keys["key_f1"]].config["options"]]
+    assert offered == ["input_boolean.pump", "light.garden", "all_off", "none", "script.water"]
+    res = await hass.config_entries.options.async_configure(
+        res["flow_id"],
+        {
+            "key_f1": "input_boolean.pump",
+            "key_f2": "script.water",
+            "key_f3": "all_off",
+            "key_f4": "none",
+        },
+    )
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    cfg = (await call(hass, "get_config"))["config"]
+    assert cfg["tabs"] == ["lights", "vacuum", "power", "media", "custom:garden"]  # new tab added at the end
+    g = cfg["custom_tabs"]["garden"]
+    assert g["title"] == "Garden" and g["icon"] == "leaf"
+    assert [t["entity_id"] for t in g["toggles"]] == ["input_boolean.pump", "light.garden"]
+    assert g["keys"] == ["input_boolean.pump", "script.water", "all_off", "none"]
+    assert cfg["names"]["he"]["Garden"] == "גינה" and cfg["names"]["he"]["Pump"] == "משאבה"
+    assert "name_he" not in g["toggles"][0]
+
+    # the tabs list hides it (setup kept) and offers it again
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "general"})
+    tabs_field = next(k for k in flow["data_schema"].schema if str(k) == "tabs")
+    options = flow["data_schema"].schema[tabs_field].config["fields"]["tab"]["selector"]["select"]["options"]
+    assert {"value": "custom:garden", "label": "Custom: Garden"} in options
+    res = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"language": "he", "tabs": [{"tab": "custom:garden"}, {"tab": "lights"}]}
+    )
+    cfg = (await call(hass, "get_config"))["config"]
+    assert cfg["tabs"] == ["custom:garden", "lights"]
+    assert cfg["names"]["he"]["Garden"] == "גינה"  # row names survive the General page's box
+    assert cfg["names"]["he"]["Main light"] == "אור ראשי"
+
+    # deleting the row deletes the tab and its tab-bar entry
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "custom_tabs"})
+    res = await hass.config_entries.options.async_configure(flow["flow_id"], {"custom_tabs": []})
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    cfg = (await call(hass, "get_config"))["config"]
+    assert cfg["custom_tabs"] == {} and cfg["tabs"] == ["lights"]
+
+
+async def test_hebrew_name_per_row(hass, panel) -> None:
+    await call(hass, "seed", config={**HOUSE, "names": {"he": {"Main light": "אור ראשי", "Living room": "סלון"}}})
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "lights"})
+    lights_field = next(k for k in flow["data_schema"].schema if str(k) == "lights")
+    assert lights_field.description["suggested_value"][0]["name_he"] == "אור ראשי"
+    row = {**HOUSE["lights"][0], "name_he": "מנורה"}
+    res = await hass.config_entries.options.async_configure(
+        flow["flow_id"],
+        {
+            "lights": [row],
+            "scenes": [{"runs": "builtin:bright", "name": "Bright", "icon": "sun"}],
+            "evening_light": "light.main_light",
+            "evening_pct": 40,
+            "warm_kelvin": 2200,
+        },
+    )
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    cfg = (await call(hass, "get_config"))["config"]
+    assert cfg["names"]["he"] == {"Main light": "מנורה", "Living room": "סלון"}
+    assert "name_he" not in cfg["lights"][0]
+    # General shows only the names without a row (a light's room label here)
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "general"})
+    box = next(k for k in flow["data_schema"].schema if str(k) == "names_he")
+    assert box.description["suggested_value"] == {"Living room": "סלון"}

@@ -47,7 +47,11 @@ import {
   BookOpen,
   Star,
   Sparkles,
+  Lamp,
+  Fan,
+  Tv,
 } from "lucide-react";
+import { DeviceRow } from "@/components/device-row";
 import { Button } from "@/components/ui/button";
 import {
   DeviceActions,
@@ -59,6 +63,7 @@ import { LightModal, PickerModal, PlugModal, pickerValues } from "@/components/l
 import { MediaCards, MediaModal } from "@/components/media-screens";
 import { useMediaPanel } from "@/lib/media-panel";
 import { loadPanelState, persistableScreen, savePanelState, type TabName } from "@/lib/panel-state";
+import { isCustomTab } from "@/lib/panel-config";
 import type { PanelView, TabId } from "@/lib/panel-config";
 import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
 import { useFullRefresh } from "@/lib/eink";
@@ -70,6 +75,7 @@ import type { Key } from "@/lib/i18n";
 import screensaverPhoto from "@/assets/screensaver-preview.jpg";
 import {
   COLORS,
+  CUSTOM_TABS,
   LIGHTS,
   applyHomeConfig,
   localName,
@@ -117,15 +123,16 @@ export const Route = createFileRoute("/")({
   component: HomeControl,
 });
 
-type TabEntry = { name: "Lights" | "Vacuum" | "Power" | "Media"; icon: typeof Lightbulb };
-const ALL_TABS: Record<TabId, TabEntry> = {
+/** A tab of the bar; custom tabs carry their (English) title, shown through the names mechanism. */
+type TabEntry = { name: TabName; icon: typeof Lightbulb; title?: string };
+const ALL_TABS: Record<Exclude<TabId, `custom:${string}`>, TabEntry> = {
   lights: { name: "Lights", icon: Lightbulb },
   vacuum: { name: "Vacuum", icon: Bot },
   power: { name: "Power", icon: Plug },
   media: { name: "Media", icon: Music2 },
 };
 /** Tabs in the configured order (panel config: tabs); rewritten in place when a new config arrives. */
-const tabs: TabEntry[] = (["lights", "vacuum", "power", "media"] as TabId[]).map(
+const tabs: TabEntry[] = (["lights", "vacuum", "power", "media"] as const).map(
   (id) => ALL_TABS[id],
 );
 type IconComponent = (props: { size?: number; strokeWidth?: number }) => ReactNode;
@@ -167,7 +174,19 @@ function applyPanel(panel: PanelView | undefined) {
   if (key === appliedPanel) return;
   appliedPanel = key;
   applyHomeConfig(panel);
-  tabs.splice(0, tabs.length, ...panel.tabs.map((id) => ALL_TABS[id]));
+  tabs.splice(
+    0,
+    tabs.length,
+    ...panel.tabs.map((id): TabEntry => {
+      if (!isCustomTab(id)) return ALL_TABS[id];
+      const custom = panel.custom_tabs[id.slice("custom:".length)];
+      return {
+        name: id,
+        icon: TOGGLE_ICONS[custom?.icon ?? ""] ?? Star,
+        title: custom?.title ?? id,
+      };
+    }),
+  );
   screensaverIdleMs = panel.screensaver.idle_minutes * 60 * 1000;
 }
 const weatherIcons: Record<string, typeof Sun> = {
@@ -200,6 +219,19 @@ const SCENE_ICONS: Record<string, typeof Sun> = {
   star: Star,
   sparkles: Sparkles,
   power: Power,
+};
+/** Custom tab and toggle icons (panel config: custom_tabs[].icon, toggles[].icon). */
+const TOGGLE_ICONS: Record<string, typeof Sun> = {
+  plug: Plug,
+  bulb: Lightbulb,
+  lamp: Lamp,
+  fan: Fan,
+  power: Power,
+  tv: Tv,
+  zap: Zap,
+  leaf: Leaf,
+  home: Home,
+  star: Star,
 };
 /** Keeps numbers and units in reading order inside right-to-left text. */
 const Ltr = ({ children }: { children: ReactNode }) => <bdi dir="ltr">{children}</bdi>;
@@ -674,6 +706,40 @@ function HomeControl() {
           ];
 
   const plugOn = (index: number) => data.plugs[index]?.on ?? false;
+  /** The open custom tab (tab name `custom:<id>`), its live state, and its F1..F4 (the same key model as Power). */
+  const customId = isCustomTab(tab) ? tab.slice("custom:".length) : "";
+  const custom = customId ? CUSTOM_TABS[customId] : undefined;
+  const customState = data.custom?.[customId];
+  const customOn = (index: number) => customState?.on[index] ?? false;
+  const customActions = (): (DeviceAction | null)[] => {
+    if (!custom) return [];
+    const ids = custom.toggles.map((x) => x.entity_id);
+    return custom.keys.map((key) => {
+      const target = softKeyTarget(key, ids);
+      if (!target) return null;
+      if (target.kind === "all_off")
+        return {
+          label: t("power.allOff"),
+          icon: Power,
+          onClick: () => act({ type: "custom.off", tab: customId }),
+        };
+      if (target.kind === "run") {
+        const name = customState?.names[target.entity] ?? target.entity;
+        return {
+          label: localName(lang, name),
+          icon: target.entity.startsWith("scene.") ? Sparkles : Play,
+          onClick: () => act({ type: "custom.run", tab: customId, entity: target.entity, name }),
+        };
+      }
+      const row = custom.toggles[target.index]!;
+      return {
+        label: localName(lang, row.name),
+        icon: TOGGLE_ICONS[row.icon] ?? Plug,
+        pressed: customOn(target.index),
+        onClick: () => act({ type: "custom.toggle", tab: customId, entity: row.entity_id }),
+      };
+    });
+  };
   const cleaning = data.vacuum.state === "cleaning";
   const actions: (DeviceAction | null)[] =
     tab === "Lights"
@@ -730,7 +796,7 @@ function HomeControl() {
                   key,
                   PLUGS.map((p) => p.id),
                 );
-                if (!target) return null;
+                if (!target || target.kind === "run") return null; // the Power page offers no scripts
                 if (target.kind === "all_off")
                   return {
                     label: t("power.allOff"),
@@ -750,7 +816,9 @@ function HomeControl() {
                 };
               }),
             ]
-          : media.actions;
+          : tab === "Media"
+            ? media.actions
+            : customActions();
 
   keyHandler.current = (event) => {
     const footer = media.screen ? media.modalActions : modal ? modalActions : actions;
@@ -952,8 +1020,17 @@ function HomeControl() {
     <LangContext.Provider value={lang}>
       <div className="screen-stage">
         <div className="kindle-screen" ref={screen}>
-          <nav className="device-tabs" aria-label={t("nav.label")}>
-            {tabs.map(({ name, icon: Icon }) => (
+          <nav
+            className="device-tabs"
+            aria-label={t("nav.label")}
+            data-count={tabs.length}
+            style={
+              tabs.length === 4
+                ? undefined
+                : { gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }
+            }
+          >
+            {tabs.map(({ name, icon: Icon, title }) => (
               <Button
                 key={name}
                 variant="eink"
@@ -966,7 +1043,9 @@ function HomeControl() {
                 }}
               >
                 <Icon />
-                {t(`tab.${name}`)}
+                {title !== undefined
+                  ? localName(lang, title)
+                  : t(`tab.${name as "Lights" | "Vacuum" | "Power" | "Media"}`)}
               </Button>
             ))}
             {battery && !battery.charging && <BatteryBadge battery={battery} variant="tabs" />}
@@ -1104,32 +1183,23 @@ function HomeControl() {
                           if (!plug) return null;
                           const name = localName(lang, meta.name);
                           return (
-                            <Button
-                              variant="eink"
-                              className="power-row"
+                            <DeviceRow
                               key={meta.id}
-                              data-on={plug.on}
+                              icon={Plug}
+                              name={name}
+                              on={plug.on}
                               title={t("lights.open", { name })}
                               onClick={() => openModal("plug", index)}
-                            >
-                              <span className={`device-icon ${plug.on ? "on" : ""}`}>
-                                <Plug size={32} />
-                              </span>
-                              <span className="device-info">
-                                <strong>{name}</strong>
-                                <span className="light-state">
-                                  {t("power.today", {
-                                    state: plug.on ? t("state.on") : t("state.off"),
-                                    wh: wh(plug.energyWh),
-                                  })}
-                                </span>
-                              </span>
-                              <strong className="watt-reading">
+                              state={t("power.today", {
+                                state: plug.on ? t("state.on") : t("state.off"),
+                                wh: wh(plug.energyWh),
+                              })}
+                              reading={
                                 <Ltr>
                                   {fmt(plug.power)} <small>W</small>
                                 </Ltr>
-                              </strong>
-                            </Button>
+                              }
+                            />
                           );
                         })}
                       </div>
@@ -1146,6 +1216,44 @@ function HomeControl() {
               </>
             )}
             {tab === "Media" && <MediaCards panel={media} />}
+            {custom && (
+              <>
+                <div className="section-heading">
+                  <div>
+                    <h1>{localName(lang, custom.title)}</h1>
+                    <p>
+                      {t("custom.count", {
+                        n: custom.toggles.filter((_, i) => customOn(i)).length,
+                        total: custom.toggles.length,
+                      })}
+                    </p>
+                  </div>
+                  {(() => {
+                    const Icon = TOGGLE_ICONS[custom.icon] ?? Star;
+                    return <Icon size={25} />;
+                  })()}
+                </div>
+                <div className="power-readings">
+                  {custom.toggles.map((row, index) => {
+                    const name = localName(lang, row.name);
+                    const on = customOn(index);
+                    return (
+                      <DeviceRow
+                        key={row.entity_id}
+                        icon={TOGGLE_ICONS[row.icon] ?? Plug}
+                        name={name}
+                        on={on}
+                        state={on ? t("state.on") : t("state.off")}
+                        title={name}
+                        onClick={() =>
+                          act({ type: "custom.toggle", tab: customId, entity: row.entity_id })
+                        }
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </main>
           <div className="demo-status" role="status">
             {status}

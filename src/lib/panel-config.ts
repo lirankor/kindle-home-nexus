@@ -9,7 +9,30 @@
 import type { Lang } from "./i18n";
 
 export const TAB_IDS = ["lights", "vacuum", "power", "media"] as const;
-export type TabId = (typeof TAB_IDS)[number];
+/** A built-in tab, or a custom tab `custom:<id>` (its setup in `custom_tabs[<id>]`). */
+export type TabId = (typeof TAB_IDS)[number] | `custom:${string}`;
+export const CUSTOM_PREFIX = "custom:";
+export const CUSTOM_ID = /^[a-z0-9_]{1,24}$/;
+export const MAX_TABS = 6;
+export const MAX_TOGGLES = 4;
+export const TOGGLE_ICON_NAMES = [
+  "plug",
+  "bulb",
+  "lamp",
+  "fan",
+  "power",
+  "tv",
+  "zap",
+  "leaf",
+  "home",
+  "star",
+] as const;
+/** A row of a custom tab: a switch, light, input_boolean or fan; Enter switches it. */
+export type CustomToggle = { entity_id: string; name: string; icon: string };
+/** A custom tab: its title (English; Hebrew from names), icon, up to 4 toggles and F1..F4 (soft-key strings). */
+export type CustomTab = { title: string; icon: string; toggles: CustomToggle[]; keys: string[] };
+export const isCustomTab = (t: string): t is `custom:${string}` =>
+  t.startsWith(CUSTOM_PREFIX) && CUSTOM_ID.test(t.slice(CUSTOM_PREFIX.length));
 export const LIGHT_ICON_NAMES = ["lamp_ceiling", "spot", "strip", "lamp", "bulb"] as const;
 export const ROOM_ICON_NAMES = [
   "shower",
@@ -89,6 +112,7 @@ export type PanelConfig = {
   version: number;
   language: Lang;
   tabs: TabId[];
+  custom_tabs: Record<string, CustomTab>;
   names: Partial<Record<Lang, Record<string, string>>>;
   lights: PanelLight[];
   scenes: SceneButton[];
@@ -151,6 +175,7 @@ export const DEFAULT_CONFIG: PanelConfig = {
   version: 1,
   language: "he",
   tabs: ["lights", "vacuum", "power", "media"],
+  custom_tabs: {},
   names: {
     en: {},
     he: {
@@ -285,12 +310,21 @@ export const DEFAULT_CONFIG: PanelConfig = {
 /** What the browser needs (no service/script ids beyond what it already shows). */
 export type PanelView = Pick<
   PanelConfig,
-  "language" | "tabs" | "names" | "lights" | "scenes" | "vacuum" | "plugs" | "power_keys"
+  | "language"
+  | "tabs"
+  | "custom_tabs"
+  | "names"
+  | "lights"
+  | "scenes"
+  | "vacuum"
+  | "plugs"
+  | "power_keys"
 > & { source: "ha" | "default"; screensaver: Omit<PanelConfig["screensaver"], "unsplash_key"> };
 
 export const panelView = (c: PanelConfig, source: "ha" | "default"): PanelView => ({
   language: c.language,
   tabs: c.tabs,
+  custom_tabs: c.custom_tabs,
   names: c.names,
   lights: c.lights,
   scenes: c.scenes,
@@ -311,7 +345,7 @@ export function defaultScenes(movieOn: string | null | undefined): SceneButton[]
   return rows;
 }
 
-/** F1..F3 the first three plugs, F4 all off: the Power tab as it always was. */
+/** F1..F3 the first three entities of a tab's list, F4 all off: the Power tab as it always was (custom tabs too). */
 export function defaultPowerKeys(plugs: { entity_id: string }[]): string[] {
   const keys = plugs.slice(0, SOFT_KEY_COUNT - 1).map((p) => p.entity_id);
   while (keys.length < SOFT_KEY_COUNT - 1) keys.push(KEY_NONE);
@@ -329,14 +363,33 @@ export function mergePanelConfig(raw: Partial<PanelConfig> | null | undefined): 
   const d = DEFAULT_CONFIG;
   if (!raw) return structuredClone(d);
   const plugs = (raw.plugs ?? []).map((p) => ({ ...p, energy_to_wh: p.energy_to_wh ?? 1 }));
-  const keys = raw.power_keys ?? defaultPowerKeys(plugs);
-  const tabs = (raw.tabs ?? d.tabs).filter((t): t is TabId =>
-    (TAB_IDS as readonly string[]).includes(t),
-  );
+  const padKeys = (k: string[] | undefined, rows: { entity_id: string }[]) => {
+    const keys = k ?? defaultPowerKeys(rows);
+    return Array.from({ length: SOFT_KEY_COUNT }, (_, i) => keys[i] || KEY_NONE);
+  };
+  const customTabs: Record<string, CustomTab> = {};
+  for (const [id, t] of Object.entries(raw.custom_tabs ?? {})) {
+    if (!CUSTOM_ID.test(id) || !t?.title) continue;
+    const toggles = (t.toggles ?? []).slice(0, MAX_TOGGLES);
+    customTabs[id] = {
+      title: t.title,
+      icon: t.icon ?? "star",
+      toggles,
+      keys: padKeys(t.keys, toggles),
+    };
+  }
+  const tabs = [...new Set(raw.tabs ?? d.tabs)]
+    .filter(
+      (t): t is TabId =>
+        (TAB_IDS as readonly string[]).includes(t) ||
+        (isCustomTab(t) && t.slice(CUSTOM_PREFIX.length) in customTabs),
+    )
+    .slice(0, MAX_TABS);
   return {
     version: raw.version ?? 1,
     language: raw.language === "en" || raw.language === "he" ? raw.language : d.language,
     tabs: tabs.length ? tabs : [...d.tabs],
+    custom_tabs: customTabs,
     names: raw.names ?? {},
     lights: raw.lights ?? [],
     scenes: (raw.scenes ?? defaultScenes(raw.media?.movie_on))
@@ -345,7 +398,7 @@ export function mergePanelConfig(raw: Partial<PanelConfig> | null | undefined): 
     evening: { ...d.evening, entity_id: null, ...(raw.evening ?? {}) },
     vacuum: { rooms: [], ...(raw.vacuum ?? {}) },
     plugs,
-    power_keys: Array.from({ length: SOFT_KEY_COUNT }, (_, i) => keys[i] || KEY_NONE),
+    power_keys: padKeys(raw.power_keys, plugs),
     media: { music_backend: "app", ...(raw.media ?? {}) },
     sensors: { ...(raw.sensors ?? {}) },
     screensaver: {

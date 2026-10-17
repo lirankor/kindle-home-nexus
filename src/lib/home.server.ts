@@ -1,6 +1,7 @@
 // Server-only: talks to Home Assistant and Immich. Env vars are read at request
 // time from process.env and never reach the browser.
 import {
+  CUSTOM_TABS,
   EVENING,
   LIGHTS,
   MEDIA,
@@ -13,8 +14,10 @@ import {
   VACUUM,
   COLOR_MODES,
   nearestColor,
+  customTab,
   nearestShade,
   sceneKey,
+  softKeyTarget,
 } from "@/lib/home";
 import {
   addMark,
@@ -152,7 +155,25 @@ export function buildSnapshot(states: Map<string, HaState>): Snapshot {
       humidity: num(states.get(SENSORS.indoorHumidity)),
     },
     ...(SAVER_CARDS.some((c) => c.type === "sensor") ? { cards: cardReadings(states) } : {}),
+    ...(Object.keys(CUSTOM_TABS).length ? { custom: customReadings(states) } : {}),
   };
+}
+
+function customReadings(states: Map<string, HaState>) {
+  const out: NonNullable<Snapshot["custom"]> = {};
+  for (const [id, tab] of Object.entries(CUSTOM_TABS)) {
+    const ids = tab.toggles.map((t) => t.entity_id);
+    const names: Record<string, string> = {};
+    for (const key of tab.keys) {
+      const target = softKeyTarget(key, ids);
+      if (target?.kind !== "run") continue;
+      const name = (states.get(key)?.attributes as { friendly_name?: unknown } | undefined)
+        ?.friendly_name;
+      names[key] = typeof name === "string" ? name : key;
+    }
+    out[id] = { on: ids.map((e) => states.get(e)?.state === "on"), names };
+  }
+  return out;
 }
 
 function cardReadings(states: Map<string, HaState>) {
@@ -249,6 +270,17 @@ export async function performAction(a: Action): Promise<void> {
       break;
     case "media":
       await service("media_player", a.op, { entity_id: a.entity });
+      break;
+    case "custom.toggle":
+      await service("homeassistant", "toggle", { entity_id: a.entity });
+      break;
+    case "custom.off": {
+      const ids = customTab(a.tab)?.toggles.map((t) => t.entity_id) ?? [];
+      if (ids.length) await service("homeassistant", "turn_off", { entity_id: ids });
+      break;
+    }
+    case "custom.run":
+      await service(a.entity.split(".")[0]!, "turn_on", { entity_id: a.entity });
       break;
   }
 }

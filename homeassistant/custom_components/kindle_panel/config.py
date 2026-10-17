@@ -17,12 +17,17 @@ from homeassistant.helpers import config_validation as cv
 from .const import (
     CARD_ICONS,
     CARD_TYPES,
+    CUSTOM_ID,
+    CUSTOM_PREFIX,
     DEFAULT_CARDS,
     DEFAULT_UNSPLASH_QUERY,
     LANGUAGES,
     LIGHT_ICONS,
     MAX_CARDS,
+    MAX_CUSTOM_TABS,
     MAX_SCENES,
+    MAX_TABS,
+    MAX_TOGGLES,
     MUSIC_BACKENDS,
     PHOTO_FALLBACKS,
     PHOTO_MODES,
@@ -35,6 +40,8 @@ from .const import (
     SOURCE_IMMICH_FAVORITES,
     SOURCE_MEDIA,
     TABS,
+    TOGGLE_DOMAINS,
+    TOGGLE_ICONS,
 )
 
 CONFIG_VERSION = 1
@@ -106,6 +113,45 @@ def _power_key(v: Any) -> str:
     return cv.entity_id(v)
 
 
+def _tab(v: Any) -> str:
+    s = str(v)
+    if s in TABS:
+        return s
+    if s.startswith(CUSTOM_PREFIX) and re.match(CUSTOM_ID, s[len(CUSTOM_PREFIX) :]):
+        return s
+    raise vol.Invalid(f"unknown tab {s!r}")
+
+
+def _custom_id(v: Any) -> str:
+    s = str(v).strip()
+    if not re.match(CUSTOM_ID, s):
+        raise vol.Invalid(f"a custom tab id is 1-24 of a-z, 0-9, _ (not {s!r})")
+    return s
+
+
+KEYS = vol.Any(None, vol.All(cv.ensure_list, [_power_key], vol.Length(max=POWER_KEY_COUNT)))
+TOGGLE = vol.Schema(
+    {
+        vol.Required("entity_id"): vol.All(cv.entity_id, cv.entity_domain(TOGGLE_DOMAINS)),
+        vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=40)),
+        vol.Optional("icon", default="plug"): vol.In(TOGGLE_ICONS),
+    }
+)
+CUSTOM_TAB = vol.Schema(
+    {
+        vol.Required("title"): vol.All(cv.string, vol.Length(min=1, max=24)),
+        vol.Optional("icon", default="star"): vol.In(TOGGLE_ICONS),
+        vol.Optional("toggles", default=[]): vol.All([TOGGLE], vol.Length(max=MAX_TOGGLES)),
+        # F1..F4: a toggle of this tab, a scene or script, all_off (every toggle of this tab off) or none
+        vol.Optional("keys"): KEYS,
+    }
+)
+
+
+def _custom_tabs(v: dict[str, Any]) -> dict[str, Any]:
+    return {_custom_id(k): CUSTOM_TAB(t) for k, t in v.items()}
+
+
 def _card(v: Any) -> dict[str, Any]:
     card = CARD_BASE(v)
     if card["type"] == "sensor" and not card.get("entity_id"):
@@ -136,7 +182,8 @@ CONFIG_SCHEMA = vol.Schema(
     {
         vol.Optional("version", default=CONFIG_VERSION): int,
         vol.Optional("language", default="en"): vol.In(LANGUAGES),
-        vol.Optional("tabs", default=list(TABS)): vol.All(cv.ensure_list, [vol.In(TABS)], vol.Length(min=1)),
+        vol.Optional("tabs", default=list(TABS)): vol.All(cv.ensure_list, [_tab], vol.Length(min=1)),
+        vol.Optional("custom_tabs", default={}): vol.All(dict, _custom_tabs, vol.Length(max=MAX_CUSTOM_TABS)),
         vol.Optional("names", default={}): {vol.In(LANGUAGES): {cv.string: cv.string}},
         vol.Optional("lights", default=[]): [LIGHT],
         # No defaults here: normalize() derives them from the rest (today's buttons and keys) while the key is absent.
@@ -157,9 +204,7 @@ CONFIG_SCHEMA = vol.Schema(
             }
         ),
         vol.Optional("plugs", default=[]): [PLUG],
-        vol.Optional("power_keys"): vol.Any(
-            None, vol.All(cv.ensure_list, [_power_key], vol.Length(max=POWER_KEY_COUNT))
-        ),
+        vol.Optional("power_keys"): KEYS,
         vol.Optional("media", default={}): vol.Schema(
             {
                 vol.Optional("music_backend", default="app"): vol.In(MUSIC_BACKENDS),
@@ -223,9 +268,16 @@ def default_scenes(cfg: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def default_power_keys(plugs: list[dict[str, Any]]) -> list[str]:
-    """F1..F3 the first three plugs, F4 all plugs off: the Power tab as it always was."""
+    """F1..F3 the first three entities of a tab's list, F4 all of them off: the Power tab as it always was (custom
+    tabs start the same way)."""
     keys = [p["entity_id"] for p in plugs[: POWER_KEY_COUNT - 1]]
     return [*keys, *[POWER_KEY_NONE] * (POWER_KEY_COUNT - 1 - len(keys)), POWER_KEY_ALL_OFF]
+
+
+def _keys(keys: list[str] | None, rows: list[dict[str, Any]]) -> list[str]:
+    if keys is None:
+        return default_power_keys(rows)
+    return [*keys, *[POWER_KEY_NONE] * (POWER_KEY_COUNT - len(keys))]
 
 
 def normalize(config: dict[str, Any] | None) -> dict[str, Any]:
@@ -233,11 +285,19 @@ def normalize(config: dict[str, Any] | None) -> dict[str, Any]:
     cfg = CONFIG_SCHEMA(copy.deepcopy(config or {}))
     if cfg.get("scenes") is None:
         cfg["scenes"] = default_scenes(cfg)
-    keys = cfg.get("power_keys")
-    if keys is None:
-        cfg["power_keys"] = default_power_keys(cfg["plugs"])
-    else:
-        cfg["power_keys"] = [*keys, *[POWER_KEY_NONE] * (POWER_KEY_COUNT - len(keys))]
+    cfg["power_keys"] = _keys(cfg.get("power_keys"), cfg["plugs"])
+    for tab in cfg["custom_tabs"].values():
+        tab["keys"] = _keys(tab.get("keys"), tab["toggles"])
+    # Tabs: no duplicates, no custom tab without its block (a block without a tab entry is a hidden tab, kept).
+    tabs: list[str] = []
+    for t in cfg["tabs"]:
+        if t not in tabs and (not t.startswith(CUSTOM_PREFIX) or t[len(CUSTOM_PREFIX) :] in cfg["custom_tabs"]):
+            tabs.append(t)
+    if not tabs:
+        raise vol.Invalid("the panel needs at least one tab")
+    if len(tabs) > MAX_TABS:
+        raise vol.Invalid(f"at most {MAX_TABS} tabs fit on the screen")
+    cfg["tabs"] = tabs
     return cfg
 
 

@@ -10,7 +10,7 @@ import {
   defaultPowerKeys,
   defaultScenes,
 } from "./panel-config";
-import type { PanelView, SceneButton } from "./panel-config";
+import type { CustomTab, PanelView, SceneButton } from "./panel-config";
 
 // Display-name overrides per language, keyed by the English name used below (from the panel config: names).
 // Entities without an entry keep their English name.
@@ -100,15 +100,21 @@ export const isMovieScene = (s: SceneButton) =>
   !s.builtin && !!s.entity_id && s.entity_id === SCRIPTS.movie;
 /** Power tab soft keys F1..F4 (panel config: power_keys): a plug's entity id, "all_off" or "none". */
 export const POWER_KEYS: string[] = [];
-export type SoftKeyTarget = { kind: "toggle"; index: number } | { kind: "all_off" } | null;
-/** One soft-key string against a tab's entity list: toggle that entity, everything off, or a blank key. Shared by
- *  the Power tab (and, by design, the custom tabs of task 012). */
+export type SoftKeyTarget =
+  { kind: "toggle"; index: number } | { kind: "all_off" } | { kind: "run"; entity: string } | null;
+/** One soft-key string against a tab's entity list: toggle that entity, everything off, run a scene / script, or
+ *  a blank key. Shared by the Power tab (which only ever offers plugs, all off, nothing) and the custom tabs. */
 export function softKeyTarget(key: string, ids: readonly string[]): SoftKeyTarget {
   if (key === KEY_ALL_OFF) return { kind: "all_off" };
   if (key === KEY_NONE || !key) return null;
   const index = ids.indexOf(key);
-  return index >= 0 ? { kind: "toggle", index } : null;
+  if (index >= 0) return { kind: "toggle", index };
+  return /^(scene|script)\.[a-z0-9_]+$/.test(key) ? { kind: "run", entity: key } : null;
 }
+/** Custom tabs by id (panel config: custom_tabs). Rewritten in place by applyHomeConfig. */
+export const CUSTOM_TABS: Record<string, CustomTab> = {};
+export const customTab = (id: string): CustomTab | undefined =>
+  Object.hasOwn(CUSTOM_TABS, id) ? CUSTOM_TABS[id] : undefined;
 /** The Evening scene (panel config: evening). */
 export const EVENING = { entity: "", pct: 40, kelvin: 2200 };
 
@@ -124,6 +130,7 @@ export function applyHomeConfig(c: {
   lights: { entity_id: string; name: string; room?: string; icon?: string }[];
   scenes?: SceneButton[];
   power_keys?: string[];
+  custom_tabs?: Record<string, CustomTab>;
   vacuum: {
     entity_id?: string | null;
     battery_entity?: string | null;
@@ -198,6 +205,8 @@ export function applyHomeConfig(c: {
   }
   SCENES.splice(0, SCENES.length, ...(c.scenes ?? defaultScenes(SCRIPTS.movie)).slice(0, 3));
   POWER_KEYS.splice(0, POWER_KEYS.length, ...(c.power_keys ?? defaultPowerKeys(c.plugs)));
+  for (const id of Object.keys(CUSTOM_TABS)) delete CUSTOM_TABS[id];
+  Object.assign(CUSTOM_TABS, structuredClone(c.custom_tabs ?? {}));
   if (c.screensaver?.cards)
     SAVER_CARDS.splice(0, SAVER_CARDS.length, ...c.screensaver.cards.slice(0, 3));
   if (c.evening) {
@@ -227,6 +236,8 @@ export type Snapshot = {
   media: MediaState[];
   weather: { condition: string | null; temp: number | null };
   indoor: { temp: number | null; humidity: number | null };
+  /** Custom tabs by id: each toggle's on state (in row order) and the names of the scenes / scripts on its keys. */
+  custom?: Record<string, { on: boolean[]; names: Record<string, string> }>;
   /** Readings for the screensaver's sensor cards, by entity id. */
   cards?: Record<string, { value: string | null; unit: string | null }>;
 };
@@ -253,6 +264,9 @@ export type Action =
   | { type: "room.toggle"; entity: string }
   | { type: "rooms.clear" }
   | { type: "switch.toggle"; entity: string }
+  | { type: "custom.toggle"; tab: string; entity: string }
+  | { type: "custom.off"; tab: string }
+  | { type: "custom.run"; tab: string; entity: string; name?: string }
   | { type: "media"; entity: string; op: MediaOp };
 export type ActionResult = { ok: boolean; error?: string; snapshot?: Snapshot | null };
 
@@ -293,8 +307,17 @@ export function demoSnapshot(): Snapshot {
     media: MEDIA.map(() => ({ state: "unavailable", volume: null, source: null })),
     weather: { condition: "sunny", temp: 19.1 },
     indoor: { temp: 22, humidity: 63 },
+    custom: customSnapshot((i) => i === 0),
   };
 }
+
+const customSnapshot = (on: (i: number) => boolean) =>
+  Object.fromEntries(
+    Object.entries(CUSTOM_TABS).map(([id, t]) => [
+      id,
+      { on: t.toggles.map((_, i) => on(i)), names: {} as Record<string, string> },
+    ]),
+  );
 
 // Shown when HA is configured but not reachable yet: no invented readings.
 export function emptySnapshot(): Snapshot {
@@ -313,6 +336,7 @@ export function emptySnapshot(): Snapshot {
     media: MEDIA.map(() => ({ state: "unavailable", volume: null, source: null })),
     weather: { condition: null, temp: null },
     indoor: { temp: null, humidity: null },
+    custom: customSnapshot(() => false),
   };
 }
 
@@ -356,6 +380,14 @@ export function actionLabel(a: Action, lang: Lang): string {
       return t("act.switch", { name: label(lang, PLUGS, a.entity) });
     case "media":
       return t("act.media", { name: label(lang, MEDIA, a.entity), op: t(`op.${a.op}`) });
+    case "custom.toggle": {
+      const row = customTab(a.tab)?.toggles.find((x) => x.entity_id === a.entity);
+      return t("act.switch", { name: localName(lang, row?.name ?? a.entity) });
+    }
+    case "custom.off":
+      return t("act.customOff", { name: localName(lang, customTab(a.tab)?.title ?? a.tab) });
+    case "custom.run":
+      return t("act.scene", { scene: localName(lang, a.name ?? a.entity) });
   }
 }
 
@@ -436,6 +468,23 @@ export function applyOptimistic(s: Snapshot, a: Action): Snapshot {
       if (p) next.plugs[i] = { ...p, on: !p.on, power: p.on ? 0 : p.power };
       break;
     }
+    case "custom.toggle": {
+      const i = customTab(a.tab)?.toggles.findIndex((x) => x.entity_id === a.entity) ?? -1;
+      const on = next.custom?.[a.tab]?.on;
+      if (on && i >= 0)
+        next.custom = {
+          ...next.custom,
+          [a.tab]: { ...next.custom![a.tab]!, on: on.map((v, k) => (k === i ? !v : v)) },
+        };
+      break;
+    }
+    case "custom.off": {
+      const cur = next.custom?.[a.tab];
+      if (cur) next.custom = { ...next.custom, [a.tab]: { ...cur, on: cur.on.map(() => false) } };
+      break;
+    }
+    case "custom.run":
+      break;
     case "media": {
       const i = MEDIA.findIndex((m) => m.id === a.entity);
       const m = next.media[i];

@@ -18,11 +18,19 @@ PAGE_KEYS = {
     "media": ("media",),
     "screensaver": ("screensaver",),
     "schedule": ("schedule",),
+    "custom_tabs": ("custom_tabs",),
 }
 
 EVENT_CONFIG_UPDATED = f"{DOMAIN}_config_updated"
 
-TABS = ["lights", "vacuum", "power", "media"]
+TABS = ["lights", "vacuum", "power", "media"]  # the built-in tabs; custom tabs are "custom:<id>" entries
+CUSTOM_PREFIX = "custom:"
+CUSTOM_ID = r"^[a-z0-9_]{1,24}$"
+MAX_TABS = 6  # the tab bar is 600 px wide
+MAX_CUSTOM_TABS = 4
+MAX_TOGGLES = 4  # rows that fit on one screen above the footer
+TOGGLE_DOMAINS = ["switch", "light", "input_boolean", "fan"]
+TOGGLE_ICONS = ["plug", "bulb", "lamp", "fan", "power", "tv", "zap", "leaf", "home", "star"]
 LANGUAGES = ["he", "en"]
 LIGHT_ICONS = ["lamp_ceiling", "spot", "strip", "lamp", "bulb"]
 ROOM_ICONS = [

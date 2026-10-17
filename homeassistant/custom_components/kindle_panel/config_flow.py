@@ -14,11 +14,12 @@ from homeassistant.config_entries import (
 from homeassistant.core import callback
 from homeassistant.helpers import selector as sel
 
-from .config import effective_sources, normalize
+from .config import default_power_keys, effective_sources, normalize
 from .const import (
     CARD_ICONS,
     CARD_TYPES,
     CONF_MA_ENTRY,
+    CUSTOM_PREFIX,
     DOMAIN,
     LANGUAGES,
     LIGHT_ICONS,
@@ -35,7 +36,8 @@ from .const import (
     SCENE_ICONS,
     SOURCE_IMMICH_FAVORITES,
     SOURCE_MEDIA,
-    TABS,
+    TOGGLE_DOMAINS,
+    TOGGLE_ICONS,
 )
 from .photos import discover_sources
 
@@ -75,18 +77,88 @@ def _select(options: list[str], key: str, multiple: bool = False) -> sel.SelectS
     return sel.SelectSelector(sel.SelectSelectorConfig(options=options, translation_key=key, multiple=multiple))
 
 
+TAB_LABELS = {"lights": "Lights", "vacuum": "Vacuum", "power": "Power", "media": "Media"}
+
+
 def _tab_rows(tabs: list[str]) -> list[dict[str, str]]:
     """The tab order as list-editor rows: HA 2026.8's select selector has no reorder, the object list editor has drag handles."""
     return [{"tab": t} for t in tabs]
 
 
-def _tabs_from_rows(rows: Any, fallback: list[str]) -> list[str]:
+def _tabs_from_rows(rows: Any, known: list[str], fallback: list[str]) -> list[str]:
     out: list[str] = []
     for row in rows or []:
         t = row.get("tab") if isinstance(row, dict) else None
-        if t in TABS and t not in out:
+        if t in known and t not in out:
             out.append(t)
     return out or fallback
+
+
+# ---- Hebrew names: one optional column per row (stored in names.he, keyed by the English name, as before)
+
+
+def _he(cfg: dict[str, Any], name: str | None) -> str | None:
+    return cfg["names"].get("he", {}).get(name or "") or None
+
+
+def _with_he(cfg: dict[str, Any], rows: list[dict[str, Any]], key: str = "name") -> list[dict[str, Any]]:
+    """Rows for a list editor, each with its Hebrew name (empty fields are left out)."""
+    out = []
+    for row in rows:
+        r = dict(row)
+        if he := _he(cfg, r.get(key)):
+            r[f"{key}_he"] = he
+        out.append(r)
+    return out
+
+
+def _take_he(cfg: dict[str, Any], rows: Any, key: str = "name") -> list[dict[str, Any]]:
+    """Rows without their Hebrew column; the Hebrew names go to names.he (an emptied field removes the entry)."""
+    he = dict(cfg["names"].get("he", {}))
+    out = []
+    for row in rows or []:
+        r = {k: v for k, v in dict(row).items() if v not in (None, "")}
+        value = str(r.pop(f"{key}_he", "") or "").strip()
+        name = str(r.get(key) or "").strip()
+        if name:
+            if value:
+                he[name] = value
+            else:
+                he.pop(name, None)
+        out.append(r)
+    cfg["names"] = {**cfg["names"], "he": he}
+    return out
+
+
+def _row_names(cfg: dict[str, Any]) -> set[str]:
+    """English names that have a row (and so a Hebrew column) somewhere in the options."""
+    names = {x["name"] for key in ("lights", "plugs", "scenes") for x in cfg[key]}
+    names |= {r["name"] for r in cfg["vacuum"]["rooms"]}
+    for tab in cfg["custom_tabs"].values():
+        names.add(tab["title"])
+        names |= {t["name"] for t in tab["toggles"]}
+    return names
+
+
+NAME_HE = {"label": "Hebrew name", "selector": {"text": {}}}
+
+
+def _runs_options(hass: Any) -> dict[str, str]:
+    """Every HA scene and script, for a scene button or a soft key."""
+    out: dict[str, str] = {}
+    for st in sorted(hass.states.async_all(["scene", "script"]), key=lambda x: x.entity_id):
+        kind = "Scene" if st.domain == "scene" else "Script"
+        out[st.entity_id] = f"{kind}: {st.name} ({st.entity_id})"
+    return out
+
+
+def _key_select(choices: dict[str, str]) -> sel.SelectSelector:
+    return sel.SelectSelector(
+        sel.SelectSelectorConfig(
+            options=[sel.SelectOptionDict(value=k, label=v) for k, v in choices.items()],
+            mode=sel.SelectSelectorMode.DROPDOWN,
+        )
+    )
 
 
 def _num(lo: float, hi: float, step: float = 1, unit: str | None = None) -> sel.NumberSelector:
@@ -190,6 +262,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
         self._cfg: dict[str, Any] | None = None
         self._found: dict[str, str] | None = None  # photo sources, listed once per visit
         self._error: str | None = None
+        self._tab_id: str | None = None  # the custom tab being edited
 
     @property
     def cfg(self) -> dict[str, Any]:
@@ -208,12 +281,12 @@ class KindlePanelOptionsFlow(OptionsFlow):
         edited = sorted({*self.config_entry.options.get(OPT_EDITED, []), page})
         return self.async_create_entry(data={**self.config_entry.options, OPT_CONFIG: cfg, OPT_EDITED: edited})
 
-    def _form(self, step_id: str, schema: vol.Schema) -> ConfigFlowResult:
+    def _form(self, step_id: str, schema: vol.Schema, **placeholders: str) -> ConfigFlowResult:
         return self.async_show_form(
             step_id=step_id,
             data_schema=schema,
             errors={"base": "invalid_config"} if self._error else None,
-            description_placeholders={"error": self._error or ""},
+            description_placeholders={"error": self._error or "", **placeholders},
         )
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
@@ -225,6 +298,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 "vacuum",
                 "power",
                 "media",
+                "custom_tabs",
                 "screensaver",
                 "schedule",
             ],
@@ -232,14 +306,22 @@ class KindlePanelOptionsFlow(OptionsFlow):
 
     async def async_step_general(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         c = self.cfg
+        tab_labels = {
+            **TAB_LABELS,
+            **{f"{CUSTOM_PREFIX}{k}": f"Custom: {v['title']}" for k, v in c["custom_tabs"].items()},
+        }
+        covered = _row_names(c)
         if user_input is not None:
             c["language"] = user_input["language"]
-            c["tabs"] = _tabs_from_rows(user_input.get("tabs"), c["tabs"])
+            c["tabs"] = _tabs_from_rows(user_input.get("tabs"), list(tab_labels), c["tabs"])
             c["sensors"] = {k: user_input.get(k) for k in ("indoor_temperature", "indoor_humidity", "weather")}
-            c["names"] = {**c.get("names", {}), "he": user_input.get("names_he") or {}}
+            # Names with a row keep what their row says; the box holds the others (light rooms, media devices, ...).
+            kept = {k: v for k, v in c["names"].get("he", {}).items() if k in covered}
+            c["names"] = {**c.get("names", {}), "he": {**kept, **(user_input.get("names_he") or {})}}
             if (done := self._save("general")) is not None:
                 return done
         s = c["sensors"]
+        others = {k: v for k, v in c["names"].get("he", {}).items() if k not in covered}
         return self._form(
             "general",
             vol.Schema(
@@ -250,7 +332,9 @@ class KindlePanelOptionsFlow(OptionsFlow):
                             "tab": {
                                 "label": "Tab",
                                 "required": True,
-                                "selector": {"select": {"options": TABS, "translation_key": "tab"}},
+                                "selector": {
+                                    "select": {"options": [{"value": k, "label": v} for k, v in tab_labels.items()]}
+                                },
                             }
                         },
                         "tab",
@@ -258,7 +342,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                     _opt("indoor_temperature", s.get("indoor_temperature")): _entity("sensor"),
                     _opt("indoor_humidity", s.get("indoor_humidity")): _entity("sensor"),
                     _opt("weather", s.get("weather")): _entity("weather"),
-                    _opt("names_he", c["names"].get("he")): sel.ObjectSelector(),
+                    _opt("names_he", others): sel.ObjectSelector(),
                 }
             ),
         )
@@ -266,8 +350,8 @@ class KindlePanelOptionsFlow(OptionsFlow):
     async def async_step_lights(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         c = self.cfg
         if user_input is not None:
-            c["lights"] = user_input.get("lights") or []
-            c["scenes"] = _scenes_from_rows(user_input.get("scenes"))
+            c["lights"] = _take_he(c, user_input.get("lights"))
+            c["scenes"] = _scenes_from_rows(_take_he(c, user_input.get("scenes")))
             c["evening"] = {
                 "entity_id": user_input.get("evening_light"),
                 "brightness_pct": int(user_input.get("evening_pct", 40)),
@@ -277,24 +361,22 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 return done
         ev = c["evening"]
         # What a scene button can run: the built-in scenes, every HA scene and script (configured ones stay listed).
-        runs = {f"{BUILTIN}{k}": v for k, v in BUILTIN_LABELS.items()}
-        for st in sorted(self.hass.states.async_all(["scene", "script"]), key=lambda x: x.entity_id):
-            kind = "Scene" if st.domain == "scene" else "Script"
-            runs[st.entity_id] = f"{kind}: {st.name} ({st.entity_id})"
-        rows = _scene_rows(c["scenes"])
+        runs = {f"{BUILTIN}{k}": v for k, v in BUILTIN_LABELS.items()} | _runs_options(self.hass)
+        rows = _with_he(c, _scene_rows(c["scenes"]))
         for row in rows:
             runs.setdefault(row["runs"], row["runs"])
         return self._form(
             "lights",
             vol.Schema(
                 {
-                    _opt("lights", c["lights"]): _list(
+                    _opt("lights", _with_he(c, c["lights"])): _list(
                         {
                             "entity_id": {
                                 "required": True,
                                 "selector": {"entity": {"domain": "light"}},
                             },
                             "name": {"required": True, "selector": {"text": {}}},
+                            "name_he": NAME_HE,
                             "room": {"selector": {"text": {}}},
                             "icon": {"selector": {"select": {"options": LIGHT_ICONS}}},
                         },
@@ -313,11 +395,8 @@ class KindlePanelOptionsFlow(OptionsFlow):
                                     }
                                 },
                             },
-                            "name": {
-                                "label": "Name (English; Hebrew from General → Hebrew names)",
-                                "required": True,
-                                "selector": {"text": {}},
-                            },
+                            "name": {"label": "Name", "required": True, "selector": {"text": {}}},
+                            "name_he": NAME_HE,
                             "icon": {"label": "Icon", "selector": {"select": {"options": SCENE_ICONS}}},
                         },
                         "name",
@@ -336,7 +415,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 "entity_id": user_input.get("entity_id"),
                 "battery_entity": user_input.get("battery_entity"),
                 "rooms_script": user_input.get("rooms_script"),
-                "rooms": user_input.get("rooms") or [],
+                "rooms": _take_he(c, user_input.get("rooms")),
             }
             if (done := self._save("vacuum")) is not None:
                 return done
@@ -348,13 +427,14 @@ class KindlePanelOptionsFlow(OptionsFlow):
                     _opt("entity_id", v.get("entity_id")): _entity("vacuum"),
                     _opt("battery_entity", v.get("battery_entity")): _entity("sensor"),
                     _opt("rooms_script", v.get("rooms_script")): _entity("script"),
-                    _opt("rooms", v.get("rooms")): _list(
+                    _opt("rooms", _with_he(c, v.get("rooms") or [])): _list(
                         {
                             "entity_id": {
                                 "required": True,
                                 "selector": {"entity": {"domain": ["input_boolean", "switch"]}},
                             },
                             "name": {"required": True, "selector": {"text": {}}},
+                            "name_he": NAME_HE,
                             "icon": {"selector": {"select": {"options": ROOM_ICONS}}},
                         },
                         "name",
@@ -366,7 +446,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
     async def async_step_power(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         c = self.cfg
         if user_input is not None:
-            c["plugs"] = user_input.get("plugs") or []
+            c["plugs"] = _take_he(c, user_input.get("plugs"))
             c["power_keys"] = [user_input.get(_power_key_field(i)) or POWER_KEY_NONE for i in range(POWER_KEY_COUNT)]
             if (done := self._save("power")) is not None:
                 return done
@@ -376,23 +456,19 @@ class KindlePanelOptionsFlow(OptionsFlow):
         choices[POWER_KEY_NONE] = "Nothing"
         for key in c["power_keys"]:
             choices.setdefault(key, f"{key} (not in the plug list)")
-        key_select = sel.SelectSelector(
-            sel.SelectSelectorConfig(
-                options=[sel.SelectOptionDict(value=k, label=v) for k, v in choices.items()],
-                mode=sel.SelectSelectorMode.DROPDOWN,
-            )
-        )
+        key_select = _key_select(choices)
         return self._form(
             "power",
             vol.Schema(
                 {
-                    _opt("plugs", c["plugs"]): _list(
+                    _opt("plugs", _with_he(c, c["plugs"])): _list(
                         {
                             "entity_id": {
                                 "required": True,
                                 "selector": {"entity": {"domain": "switch"}},
                             },
                             "name": {"required": True, "selector": {"text": {}}},
+                            "name_he": NAME_HE,
                             "power_entity": {"selector": {"entity": {"domain": "sensor"}}},
                             "energy_entity": {"selector": {"entity": {"domain": "sensor"}}},
                             "energy_to_wh": {
@@ -410,6 +486,131 @@ class KindlePanelOptionsFlow(OptionsFlow):
                     **{vol.Required(_power_key_field(i), default=k): key_select for i, k in enumerate(c["power_keys"])},
                 }
             ),
+        )
+
+    async def async_step_custom_tabs(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Create, rename and delete custom tabs; their order and presence on the screen is the tabs list (General)."""
+        c = self.cfg
+        if user_input is not None:
+            old = c["custom_tabs"]
+            blocks: dict[str, Any] = {}
+            for row in _take_he(c, user_input.get("custom_tabs"), "title"):
+                tid = str(row.get("id") or "").strip()
+                blocks[tid] = {
+                    **old.get(tid, {"toggles": []}),
+                    "title": row.get("title") or tid,
+                    "icon": row.get("icon") or "star",
+                }
+            c["custom_tabs"] = blocks
+            # a new tab shows up at the end of the tab bar; a deleted one leaves it (normalize drops its entry)
+            c["tabs"] = [*c["tabs"], *[f"{CUSTOM_PREFIX}{t}" for t in blocks if t not in old]]
+            edit = user_input.get("edit")
+            if edit and edit in blocks:
+                try:  # the toggles page saves both pages together
+                    self._cfg = normalize(c)
+                except vol.Invalid as err:
+                    self._error = str(err)
+                else:
+                    self._error = None
+                    self._tab_id = edit
+                    return await self.async_step_custom_tab()
+            elif (done := self._save("custom_tabs")) is not None:
+                return done
+        rows = _with_he(
+            c, [{"id": k, "title": v["title"], "icon": v["icon"]} for k, v in c["custom_tabs"].items()], "title"
+        )
+        return self._form(
+            "custom_tabs",
+            vol.Schema(
+                {
+                    _opt("custom_tabs", rows): _list(
+                        {
+                            "id": {
+                                "label": "Id (a-z, 0-9, _; keep it once chosen)",
+                                "required": True,
+                                "selector": {"text": {}},
+                            },
+                            "title": {"label": "Title", "required": True, "selector": {"text": {}}},
+                            "title_he": {"label": "Hebrew title", "selector": {"text": {}}},
+                            "icon": {"label": "Icon", "selector": {"select": {"options": TOGGLE_ICONS}}},
+                        },
+                        "title",
+                    ),
+                    vol.Optional("edit"): sel.SelectSelector(
+                        sel.SelectSelectorConfig(
+                            options=[
+                                sel.SelectOptionDict(value=k, label=v["title"]) for k, v in c["custom_tabs"].items()
+                            ],
+                            mode=sel.SelectSelectorMode.DROPDOWN,
+                            custom_value=True,  # the id of a tab created on this very page
+                        )
+                    ),
+                }
+            ),
+        )
+
+    def _custom_tab(self) -> dict[str, Any] | None:
+        tid = self._tab_id
+        return self.cfg["custom_tabs"].get(tid) if tid else None
+
+    async def async_step_custom_tab(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """One custom tab, first page: its toggles (the keys page after it offers them)."""
+        c = self.cfg
+        if (tab := self._custom_tab()) is None:
+            return self.async_abort(reason="custom_tab_gone")
+        if user_input is not None:
+            untouched = tab.get("keys") == default_power_keys(tab["toggles"])
+            tab["toggles"] = _take_he(c, user_input.get("toggles"))
+            if untouched:  # keys still at their default follow the toggles
+                tab.pop("keys", None)
+            try:
+                self._cfg = normalize(c)
+            except vol.Invalid as err:
+                self._error = str(err)
+            else:
+                self._error = None
+                return await self.async_step_custom_tab_keys()
+        return self._form(
+            "custom_tab",
+            vol.Schema(
+                {
+                    _opt("toggles", _with_he(c, tab["toggles"])): _list(
+                        {
+                            "entity_id": {
+                                "label": "Entity",
+                                "required": True,
+                                "selector": {"entity": {"domain": TOGGLE_DOMAINS}},
+                            },
+                            "name": {"label": "Name", "required": True, "selector": {"text": {}}},
+                            "name_he": NAME_HE,
+                            "icon": {"label": "Icon", "selector": {"select": {"options": TOGGLE_ICONS}}},
+                        },
+                        "name",
+                    ),
+                }
+            ),
+            title=tab["title"],
+        )
+
+    async def async_step_custom_tab_keys(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """One custom tab, second page: what F1..F4 do. Saves the custom tab pages of this visit."""
+        if (tab := self._custom_tab()) is None:
+            return self.async_abort(reason="custom_tab_gone")
+        if user_input is not None:
+            tab["keys"] = [user_input.get(_power_key_field(i)) or POWER_KEY_NONE for i in range(POWER_KEY_COUNT)]
+            if (done := self._save("custom_tabs")) is not None:
+                return done
+        choices = {t["entity_id"]: f"Toggle: {t['name']}" for t in tab["toggles"]}
+        choices[POWER_KEY_ALL_OFF] = "All toggles of this tab off"
+        choices[POWER_KEY_NONE] = "Nothing"
+        choices |= _runs_options(self.hass)
+        for key in tab["keys"]:
+            choices.setdefault(key, f"{key} (not available)")
+        key_select = _key_select(choices)
+        return self._form(
+            "custom_tab_keys",
+            vol.Schema({vol.Required(_power_key_field(i), default=k): key_select for i, k in enumerate(tab["keys"])}),
+            title=tab["title"],
         )
 
     async def async_step_media(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

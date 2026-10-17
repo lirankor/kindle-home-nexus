@@ -255,3 +255,28 @@ describe("scene buttons and Power tab keys (task 011)", () => {
     expect(mergePanelConfig({ scenes: [] }).scenes).toEqual([]);
   });
 });
+
+describe("custom tabs (task 012)", () => {
+  it("none by default; a tab entry needs its block; keys start like the Power tab", () => {
+    expect(mergePanelConfig(DEFAULT_CONFIG).custom_tabs).toEqual({});
+    const c = mergePanelConfig({
+      tabs: ["custom:garden", "lights", "custom:gone", "custom:Bad", "lights"],
+      custom_tabs: {
+        garden: {
+          title: "Garden",
+          icon: "leaf",
+          toggles: [{ entity_id: "input_boolean.pump", name: "Pump", icon: "zap" }],
+        } as never,
+        Bad: { title: "x", icon: "star", toggles: [], keys: [] },
+      },
+    });
+    expect(c.tabs).toEqual(["custom:garden", "lights"]);
+    expect(Object.keys(c.custom_tabs)).toEqual(["garden"]);
+    expect(c.custom_tabs["garden"]!.keys).toEqual([
+      "input_boolean.pump",
+      "none",
+      "none",
+      "all_off",
+    ]);
+  });
+});

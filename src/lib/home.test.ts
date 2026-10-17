@@ -70,5 +70,46 @@ describe("scene labels and soft keys", () => {
     expect(softKeyTarget("all_off", ids)).toEqual({ kind: "all_off" });
     expect(softKeyTarget("none", ids)).toBeNull();
     expect(softKeyTarget("switch.gone", ids)).toBeNull();
+    expect(softKeyTarget("script.water", ids)).toEqual({ kind: "run", entity: "script.water" });
+    expect(softKeyTarget("scene.reading", ids)).toEqual({ kind: "run", entity: "scene.reading" });
+  });
+});
+
+describe("custom tabs", () => {
+  it("toggle and all off are optimistic, a script is not; labels use the names", () => {
+    applyHomeConfig({
+      ...DEFAULT_CONFIG,
+      names: { he: { Pump: "משאבה", Garden: "גינה" } },
+      custom_tabs: {
+        garden: {
+          title: "Garden",
+          icon: "leaf",
+          toggles: [
+            { entity_id: "input_boolean.pump", name: "Pump", icon: "zap" },
+            { entity_id: "light.garden", name: "Garden light", icon: "bulb" },
+          ],
+          keys: ["input_boolean.pump", "script.water", "all_off", "none"],
+        },
+      },
+    });
+    const s0 = demoSnapshot();
+    expect(s0.custom?.["garden"]?.on).toEqual([true, false]);
+    const s1 = applyOptimistic(s0, {
+      type: "custom.toggle",
+      tab: "garden",
+      entity: "light.garden",
+    });
+    expect(s1.custom?.["garden"]?.on).toEqual([true, true]);
+    expect(s0.custom?.["garden"]?.on).toEqual([true, false]);
+    const s2 = applyOptimistic(s1, { type: "custom.off", tab: "garden" });
+    expect(s2.custom?.["garden"]?.on).toEqual([false, false]);
+    const s3 = applyOptimistic(s1, { type: "custom.run", tab: "garden", entity: "script.water" });
+    expect(s3.custom).toEqual(s1.custom);
+    expect(
+      actionLabel({ type: "custom.toggle", tab: "garden", entity: "input_boolean.pump" }, "he"),
+    ).toContain("משאבה");
+    expect(actionLabel({ type: "custom.off", tab: "garden" }, "he")).toContain("גינה");
+    applyHomeConfig(DEFAULT_CONFIG);
+    expect(demoSnapshot().custom).toEqual({});
   });
 });

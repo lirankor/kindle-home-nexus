@@ -5,7 +5,11 @@ import { MUSIC_TABS } from "./media";
 import type { MusicTab } from "./media";
 
 export const TAB_NAMES = ["Lights", "Vacuum", "Power", "Media"] as const;
-export type TabName = (typeof TAB_NAMES)[number];
+/** A built-in tab, or a custom tab by its config entry (`custom:<id>`). */
+export type TabName = (typeof TAB_NAMES)[number] | `custom:${string}`;
+export const isTabName = (v: unknown): v is TabName =>
+  (TAB_NAMES as readonly unknown[]).includes(v) ||
+  (typeof v === "string" && /^custom:[a-z0-9_]{1,24}$/.test(v));
 export const PERSISTED_MEDIA_SCREENS = ["now", "source", "radio", "music"] as const;
 export type PersistedMediaScreen = (typeof PERSISTED_MEDIA_SCREENS)[number];
 /** Radio screen: the band the dial shows and the remembered needle index per band. */
@@ -56,7 +60,7 @@ export function loadPanelState(): PanelState | null {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
     const { tab, mediaScreen, radio, music } = parsed as Record<string, unknown>;
-    if (!(TAB_NAMES as readonly unknown[]).includes(tab)) return null;
+    if (!isTabName(tab)) return null;
     const screen = (PERSISTED_MEDIA_SCREENS as readonly unknown[]).includes(mediaScreen)
       ? (mediaScreen as PersistedMediaScreen)
       : null;

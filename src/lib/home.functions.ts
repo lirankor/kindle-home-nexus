@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { parseLang } from "@/lib/i18n";
 import { isNight, nightWindowFromEnv, photoMinutesFromEnv } from "@/lib/night-window";
-import { LIGHTS, MEDIA, MEDIA_OPS, PLUGS, ROOMS, SCENES, sceneKey } from "@/lib/home";
+import { LIGHTS, MEDIA, MEDIA_OPS, PLUGS, ROOMS, SCENES, customTab, sceneKey } from "@/lib/home";
 import type { Action, ActionResult, Snapshot, SnapshotResult } from "@/lib/home";
 import { ensurePanelConfig, panelViewNow } from "@/lib/panel-config.server";
 import {
@@ -21,6 +21,7 @@ import { MarkRouter } from "./photo.server";
 /** Shape only; whether the entity is one of the configured ones is checked in the handler (the configuration
  *  comes from Home Assistant and can change at runtime). */
 const entityId = z.string().regex(/^[a-z_]+\.[a-z0-9_]+$/);
+const customId = z.string().regex(/^[a-z0-9_]{1,24}$/);
 /** The configured entity an action targets, or null when the action is not entity-specific. */
 function actionEntityKnown(a: Action): boolean {
   switch (a.type) {
@@ -35,6 +36,13 @@ function actionEntityKnown(a: Action): boolean {
       return PLUGS.some((p) => p.id === a.entity);
     case "scene":
       return SCENES.some((s) => sceneKey(s) === a.key);
+    case "custom.toggle":
+      return !!customTab(a.tab)?.toggles.some((t) => t.entity_id === a.entity);
+    case "custom.off":
+      return !!customTab(a.tab);
+    case "custom.run":
+      // only a scene / script that is on one of this tab's keys
+      return /^(scene|script)\./.test(a.entity) && !!customTab(a.tab)?.keys.includes(a.entity);
     case "media":
       return MEDIA.some((m) => m.id === a.entity);
     default:
@@ -66,6 +74,14 @@ const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("room.toggle"), entity: entityId }),
   z.object({ type: z.literal("rooms.clear") }),
   z.object({ type: z.literal("switch.toggle"), entity: entityId }),
+  z.object({ type: z.literal("custom.toggle"), tab: customId, entity: entityId }),
+  z.object({ type: z.literal("custom.off"), tab: customId }),
+  z.object({
+    type: z.literal("custom.run"),
+    tab: customId,
+    entity: entityId,
+    name: z.string().max(80).optional(),
+  }),
   z.object({ type: z.literal("media"), entity: entityId, op: z.enum(MEDIA_OPS) }),
 ]);
 
