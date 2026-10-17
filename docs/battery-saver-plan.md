@@ -80,6 +80,21 @@ is a complete PNG drawn with a full refresh), and a draw cut short (`/tmp/nexus.
 redone in full. Measured: `eips -f -g` returns in **0.08–0.13 s** — it only submits the update, the controller needs about a second
 more, which is what the 2 s settle covers; there is no completion flag in sysfs on this device to wait on.
 
+### Showing that a key press is being handled (2026-10-17)
+
+With the radio off, a key press takes ~6 s, up to `WIFI_WAIT`, before the bridge even hears of it. The owner asked
+for an indication on the device. The bridge can't draw while the radio is off, so the Kindle draws it itself:
+- **Before switching the radio off** (`prepare_connecting`), the client fetches `/connecting.png`: the frame on the
+  panel with a black "מתחבר… / Connecting…" badge with a Wi-Fi icon at the top centre. It's an empty answer when
+  unchanged, so it's usually free.
+- **On a key press while the radio is off** (`radio_up key`), the client switches the radio on and at once draws the
+  stored frame with a partial update. The full redraw after the reconnect then clears it.
+- **Fallbacks:**
+  - No stored frame: the text line `Connecting...`.
+  - The radio does not come back within `WIFI_WAIT`: `No Wi-Fi yet, still trying (HH:MM)`.
+- Scheduled wakes, where nobody is waiting, draw nothing.
+- Test: `sh kindle/tests/connecting-test.sh` (stubs for eips, lipc and wget).
+
 ### Watchdog
 `cron.sh` cannot use a flat 180 s any more: no fetch can succeed while the radio is off. `nexus.sh` writes
 `/tmp/nexus.window` = `"<end epoch> <window s>"` before switching the radio off and `cron.sh` uses

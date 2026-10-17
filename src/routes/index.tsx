@@ -44,6 +44,7 @@ import {
   Gauge,
   Zap,
   Leaf,
+  Wifi,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -828,6 +829,12 @@ function HomeControl() {
               }
             />
             {battery && <BatteryBadge battery={battery} variant="photo" />}
+            {/* Only drawn by the bridge (html[data-eink-connecting]) into the frame the Kindle shows the instant a
+                key wakes its Wi-Fi radio (battery saver), while it reconnects. */}
+            <div className="eink-connecting" aria-hidden="true">
+              <Wifi size={30} strokeWidth={2.25} />
+              {t("photo.connecting")}
+            </div>
             <div
               className="photo-caption"
               style={

@@ -97,7 +97,9 @@ check "non-numeric end epoch -> config threshold -> restart" "restart"
 reset; stamp 400; echo $(( $(now) - 100 )) > $W/tmp/nexus.wd_restart; run
 check "stale but a restart 100s ago (guard) -> nothing" ""
 
-reset; echo 1 > $W/dir/nexus.pid; run
+# a pid that really is gone (pid 1 is not: kill -0 1 succeeds for root)
+sh -c 'exit 0' & DEAD=$!; wait $DEAD
+reset; echo $DEAD > $W/dir/nexus.pid; run
 check "pid dead -> start" "start"
 
 reset; echo 1 > $W/dir/nexus.pid; touch $W/dir/DISABLED; run

@@ -20,6 +20,7 @@ RADIOOFF=/tmp/nexus.radio_off  # exists while the Wi-Fi radio is switched off, h
 WINDOW=/tmp/nexus.window   # "<end epoch> <window s>" of the current radio-off window: cron.sh widens its stale threshold with it
 BATSTAMP=/tmp/nexus.last_bat   # epoch of the last battery report (once a minute)
 DRAWING=/tmp/nexus.drawing     # exists while eips runs: a draw cut short (restart, kill) is redone in full next cycle
+CONN=/tmp/nexus.connecting.png # the frame on the panel + a "connecting" badge, drawn the instant a key wakes the radio
 GOV=/sys/devices/system/cpu/cpu0/cpufreq
 URL="$BRIDGE_URL/$BRIDGE_TOKEN"
 T=${FETCH_TIMEOUT:-15}
@@ -122,12 +123,28 @@ radio_down() { # radio_down <secs> <label> : switch the radio off until the next
   log "could not switch the radio off, leaving it on"
   return 1
 }
+# The bridge cannot reach us while the radio is off, so a key press shows nothing for the ~6 s the radio needs.
+# Before switching it off we fetch the frame on the panel with a "connecting" badge (bridge /connecting.png; it
+# answers empty when that frame did not change) and draw it ourselves the instant a key comes in.
+prepare_connecting() {
+  rm -f $CONN.tmp
+  if get $CONN.tmp "/connecting.png?etag=$(cat $CONN.md5 2>/dev/null)"; then
+    if [ -s $CONN.tmp ]; then mv $CONN.tmp $CONN && md5sum $CONN | cut -c1-32 > $CONN.md5; fi
+  else
+    rm -f $CONN $CONN.md5   # no badge for this screen (or the bridge failed): the text line instead
+  fi
+  rm -f $CONN.tmp
+}
+show_connecting() { # partial update (fast); the full redraw after the reconnect clears it
+  if [ -s $CONN ]; then eips -g $CONN 2>/dev/null; else eips 1 38 "Connecting..." 2>/dev/null; fi
+}
 radio_up() { # radio_up <why> : bring the radio back and wait (bounded) for the association; always returns 0
   [ -f $RADIOOFF ] || return 0
   rm -f $RADIOOFF
   rm -f $LAST; RECONNECTED=1   # force a full redraw after every reconnect: never leave a ghosted frame
   t0=$(date +%s)
   lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
+  [ "$1" = "key" ] && show_connecting   # someone is waiting: show it while the radio associates
   i=0
   while [ $i -lt $WIFI_WAIT ]; do
     [ "$(radio_state)" = "CONNECTED" ] && break
@@ -140,6 +157,7 @@ radio_up() { # radio_up <why> : bring the radio back and wait (bounded) for the 
     return 0
   fi
   # Never leave the panel offline: keep the radio up and stop duty cycling for a while.
+  [ "$1" = "key" ] && eips 1 38 "No Wi-Fi yet, still trying ($(date +%H:%M))" 2>/dev/null
   DUTY_UNTIL=$(( RADIO_UP_AT + RADIO_FAIL_HOLD ))
   log "radio still $(radio_state) after ${i}s ($1): leaving it on, no duty cycling for ${RADIO_FAIL_HOLD}s"
   return 0
@@ -205,6 +223,7 @@ cycle() { # one scheduled update: radio up if needed, battery + frame, then deci
   sleep $EINK_SETTLE
   sync
   if [ -n "$(duty_blocked)" ]; then arm $s; return; fi   # a button arrived while we drew
+  prepare_connecting
   if radio_down $secs "$label"; then arm $secs; else arm $s; fi
 }
 
@@ -227,7 +246,7 @@ run() {
   set_governor "${CPU_GOVERNOR-ondemand}"
   radio_force_on
   eips -c
-  rm -f $FIFO $LAST $RADIOOFF $WINDOW $DRAWING; mkfifo $FIFO
+  rm -f $FIFO $LAST $RADIOOFF $WINDOW $DRAWING $CONN $CONN.md5; mkfifo $FIFO
   ok   # the watchdog's stale clock starts now, not at an unknown time in the past
   reader /dev/input/event0 0 > $FIFO &
   R0=$!
