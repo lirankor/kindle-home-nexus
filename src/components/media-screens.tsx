@@ -70,8 +70,8 @@ const SOURCE_ICONS: Record<string, typeof Radio> = {
   TUNER: RadioTower,
 };
 const sourceIcon = (source: AmpSource) => SOURCE_ICONS[source] ?? Cable;
-/** Input rows that fit above the footer (74 px each); the window follows the cursor through longer lists. */
-const SOURCE_ROWS_SHOWN = 6;
+/** Input rows that fit above the footer with the hint line (74 px each); the window follows the cursor. */
+const SOURCE_ROWS_SHOWN = 5;
 const sourceWindow = <T,>(rows: T[], cursor: number): T[] => {
   const first = Math.max(
     0,
@@ -97,7 +97,8 @@ function nowPlayingLines(panel: MediaPanel, s: MediaSnapshot | null): [string, s
   if (!s.amp.on)
     return [
       t("amp.off"),
-      t("amp.offHint"),
+      // music through HA: no power key, playing wakes the output's receiver (task 015)
+      t(s.output ? "amp.offHintPlay" : "amp.offHint"),
       s.amp.available ? "" : s.plugOn ? t("amp.noAnswer") : t("amp.unavailable"),
     ];
   const n = s.nowPlaying;

@@ -153,13 +153,15 @@ describe("Media tab and amp view", () => {
       "SERVER",
       "AirPlay",
       "TUNER",
-      "PHONO",
-    ]); // six rows fit above the footer; the window follows the cursor
+    ]); // five rows fit above the footer and the hint; the window follows the cursor
     expect(list.textContent).not.toContain("Bluetooth & TV");
     expect(list.querySelector('[aria-selected="true"]')?.textContent).toContain("NET RADIO");
     press("ArrowDown");
     press("ArrowDown");
     press("ArrowDown");
+    expect(
+      screen.getByRole("listbox").querySelector('[aria-selected="true"]')?.textContent,
+    ).toContain("TUNER");
     press("Enter");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
@@ -317,6 +319,7 @@ describe("Media tab and amp view", () => {
       "Output",
       "\u00a0",
     ]);
+    expect(now.textContent).toContain("Playing something turns it on"); // no "right-hand button" hint
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(mocks.startAmpPowerOn).not.toHaveBeenCalled();
     expect(mocks.runMediaAction).not.toHaveBeenCalled();
@@ -422,16 +425,15 @@ describe("Media tab and amp view", () => {
     const list = screen.getByRole("listbox", { name: "מקור" });
     const rows = list.querySelectorAll('[role="option"]');
     // The receiver's inputs in its own order (its node's live source_list), names from the node's rows (task 015).
+    // Five rows at a time, the window around the cursor (it starts on the current source, PHONO).
     expect(Array.from(rows).map((r) => r.querySelector("strong")?.textContent)).toEqual([
-      "Spotify",
       "NET RADIO",
       "SERVER",
       "AirPlay",
       "TUNER",
       "PHONO",
     ]);
-    // Cursor starts on the current source (PHONO = row 6).
-    expect(rows[5]).toHaveAttribute("aria-selected", "true");
+    expect(rows[4]).toHaveAttribute("aria-selected", "true");
     press("ArrowDown"); // the window moves on: CD, renamed by the node's inputs row
     const shown = screen.getAllByRole("option");
     expect(shown.map((r) => r.querySelector("strong")?.textContent).at(-1)).toBe(
@@ -448,7 +450,7 @@ describe("Media tab and amp view", () => {
     expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
     press("F3");
     // The snapshot still says PHONO (the mock returned no new one), so the cursor is on PHONO.
-    expect(screen.getAllByRole("option")[5]).toHaveAttribute("aria-selected", "true");
+    expect(screen.getAllByRole("option")[4]).toHaveAttribute("aria-selected", "true");
     // Cancel returns to where the list was opened from.
     press("F1");
     expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
