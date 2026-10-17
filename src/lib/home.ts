@@ -89,15 +89,11 @@ export type CardConfig = {
 export const SAVER_CARDS: CardConfig[] = [];
 /** Lights tab scene buttons in screen order (panel config: scenes), F1..F3. */
 export const SCENES: SceneButton[] = [];
-/** What a scene button is called in an action: "builtin:<name>" or the HA scene/script entity id. */
-export const sceneKey = (s: SceneButton) =>
-  s.builtin ? `builtin:${s.builtin}` : (s.entity_id ?? "");
 /** A scene button's label: the configured Hebrew name, else the app's own word for Bright / Evening / Movie. */
 export const sceneLabel = (lang: Lang, name: string) =>
   NAME_OVERRIDES[lang][name] ?? tryT(lang, `scene.${name}`) ?? name;
 /** The movie-mode script runs (the Media tab shows movie mode at once, as the Movie button always did). */
-export const isMovieScene = (s: SceneButton) =>
-  !s.builtin && !!s.entity_id && s.entity_id === SCRIPTS.movie;
+export const isMovieScene = (s: SceneButton) => !!s.entity_id && s.entity_id === SCRIPTS.movie;
 /** Power tab soft keys F1..F4 (panel config: power_keys): a plug's entity id, "all_off" or "none". */
 export const POWER_KEYS: string[] = [];
 export type SoftKeyTarget =
@@ -115,15 +111,6 @@ export function softKeyTarget(key: string, ids: readonly string[]): SoftKeyTarge
 export const CUSTOM_TABS: Record<string, CustomTab> = {};
 export const customTab = (id: string): CustomTab | undefined =>
   Object.hasOwn(CUSTOM_TABS, id) ? CUSTOM_TABS[id] : undefined;
-/** The Evening scene (panel config: evening). */
-export const EVENING = { entity: "", pct: 40, kelvin: 2200 };
-
-const eveningIndex = () =>
-  Math.max(
-    0,
-    LIGHTS.findIndex((l) => l.id === EVENING.entity),
-  );
-
 /** Write a panel config into the constants above, in place (server: from HA; browser: from the snapshot). */
 export function applyHomeConfig(c: {
   names: Partial<Record<Lang, Record<string, string>>>;
@@ -156,7 +143,6 @@ export function applyHomeConfig(c: {
     indoor_humidity?: string | null;
     weather?: string | null;
   };
-  evening?: { entity_id?: string | null; brightness_pct: number; warm_kelvin: number };
   screensaver?: { cards?: CardConfig[] };
 }) {
   NAME_OVERRIDES.en = { ...(c.names.en ?? {}) };
@@ -209,11 +195,6 @@ export function applyHomeConfig(c: {
   Object.assign(CUSTOM_TABS, structuredClone(c.custom_tabs ?? {}));
   if (c.screensaver?.cards)
     SAVER_CARDS.splice(0, SAVER_CARDS.length, ...c.screensaver.cards.slice(0, 3));
-  if (c.evening) {
-    EVENING.entity = c.evening.entity_id ?? LIGHTS[0]?.id ?? "";
-    EVENING.pct = c.evening.brightness_pct;
-    EVENING.kelvin = c.evening.warm_kelvin;
-  }
 }
 applyHomeConfig(DEFAULT_CONFIG);
 
@@ -258,7 +239,7 @@ export type Action =
   | { type: "light.kelvin"; entity: string; kelvin: number }
   | { type: "light.color"; entity: string; color: (typeof COLORS)[number] }
   | { type: "lights.off" }
-  | { type: "scene"; key: string }
+  | { type: "scene"; entity: string }
   | { type: "movie.end" }
   | { type: "vacuum"; op: "start" | "pause" | "dock" | "locate" }
   | { type: "room.toggle"; entity: string }
@@ -365,8 +346,8 @@ export function actionLabel(a: Action, lang: Lang): string {
     case "lights.off":
       return t("act.lightsOff");
     case "scene": {
-      const row = SCENES.find((x) => sceneKey(x) === a.key);
-      return t("act.scene", { scene: row ? sceneLabel(lang, row.name) : a.key });
+      const row = SCENES.find((x) => x.entity_id === a.entity);
+      return t("act.scene", { scene: row ? sceneLabel(lang, row.name) : a.entity });
     }
     case "movie.end":
       return t("act.movieEnd");
@@ -432,18 +413,9 @@ export function applyOptimistic(s: Snapshot, a: Action): Snapshot {
       next.lights.forEach((_, i) => patchLight(i, { on: false }));
       break;
     case "scene": {
-      // Only the built-in scenes are predictable; an HA scene or script shows its result with the next snapshot.
-      const row = SCENES.find((x) => sceneKey(x) === a.key);
+      // An HA scene or script shows its result with the next snapshot; only movie mode is marked at once.
+      const row = SCENES.find((x) => x.entity_id === a.entity);
       if (row && isMovieScene(row)) next.movieActive = true;
-      else if (row?.builtin === "bright")
-        next.lights.forEach((_, i) => patchLight(i, { on: true, level: 100 }));
-      else if (row?.builtin === "evening")
-        next.lights.forEach((_, i) =>
-          patchLight(i, {
-            on: i === eveningIndex(),
-            level: i === eveningIndex() ? EVENING.pct : (next.lights[i]?.level ?? 0),
-          }),
-        );
       break;
     }
     case "movie.end":

@@ -20,26 +20,22 @@ describe("applyOptimistic", () => {
     expect(after.lights[1]?.on).toBe(true);
     expect(before.lights[1]?.on).toBe(false);
   });
-  it("evening leaves only the main light on at 40%", () => {
-    const s = applyOptimistic(demoSnapshot(), { type: "scene", key: "builtin:evening" });
-    expect(s.lights.map((l) => l.on)).toEqual([true, false, false, false]);
-    expect(s.lights[0]?.level).toBe(40);
-  });
-  it("bright turns every light on at 100%; the movie script only marks movie mode", () => {
-    const bright = applyOptimistic(demoSnapshot(), { type: "scene", key: "builtin:bright" });
-    expect(bright.lights.every((l) => l.on && l.level === 100)).toBe(true);
-    const movie = applyOptimistic(demoSnapshot(), { type: "scene", key: "script.movie_mode" });
+  it("scene buttons are HA scenes: nothing guessed, only the movie script marks movie mode", () => {
+    const bright = applyOptimistic(demoSnapshot(), { type: "scene", entity: "scene.bright" });
+    expect(bright.lights).toEqual(demoSnapshot().lights);
+    const movie = applyOptimistic(demoSnapshot(), { type: "scene", entity: "script.movie_mode" });
     expect(movie.movieActive).toBe(true);
     expect(movie.lights).toEqual(demoSnapshot().lights);
+    expect(actionLabel({ type: "scene", entity: "scene.evening" }, "he")).toContain("ערב");
   });
   it("an HA scene is not guessed", () => {
     applyHomeConfig({
       ...DEFAULT_CONFIG,
       scenes: [{ entity_id: "scene.reading", name: "Reading", icon: "book" }],
     });
-    const s = applyOptimistic(demoSnapshot(), { type: "scene", key: "scene.reading" });
+    const s = applyOptimistic(demoSnapshot(), { type: "scene", entity: "scene.reading" });
     expect(s.lights).toEqual(demoSnapshot().lights);
-    expect(actionLabel({ type: "scene", key: "scene.reading" }, "en")).toContain("Reading");
+    expect(actionLabel({ type: "scene", entity: "scene.reading" }, "en")).toContain("Reading");
     applyHomeConfig(DEFAULT_CONFIG);
   });
   it("toggles and clears rooms", () => {

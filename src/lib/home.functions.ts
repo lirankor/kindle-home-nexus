@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { parseLang } from "@/lib/i18n";
 import { isNight, nightWindowFromEnv, photoMinutesFromEnv } from "@/lib/night-window";
-import { LIGHTS, MEDIA, MEDIA_OPS, PLUGS, ROOMS, SCENES, customTab, sceneKey } from "@/lib/home";
+import { LIGHTS, MEDIA, MEDIA_OPS, PLUGS, ROOMS, SCENES, customTab } from "@/lib/home";
 import type { Action, ActionResult, Snapshot, SnapshotResult } from "@/lib/home";
 import { ensurePanelConfig, panelViewNow } from "@/lib/panel-config.server";
 import {
@@ -35,7 +35,7 @@ function actionEntityKnown(a: Action): boolean {
     case "switch.toggle":
       return PLUGS.some((p) => p.id === a.entity);
     case "scene":
-      return SCENES.some((s) => sceneKey(s) === a.key);
+      return SCENES.some((s) => s.entity_id === a.entity);
     case "custom.toggle":
       return !!customTab(a.tab)?.toggles.some((t) => t.entity_id === a.entity);
     case "custom.off":
@@ -68,7 +68,7 @@ const actionSchema = z.discriminatedUnion("type", [
     color: z.enum(["White", "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Pink"]),
   }),
   z.object({ type: z.literal("lights.off") }),
-  z.object({ type: z.literal("scene"), key: z.string().min(1).max(255) }),
+  z.object({ type: z.literal("scene"), entity: entityId }),
   z.object({ type: z.literal("movie.end") }),
   z.object({ type: z.literal("vacuum"), op: z.enum(["start", "pause", "dock", "locate"]) }),
   z.object({ type: z.literal("room.toggle"), entity: entityId }),

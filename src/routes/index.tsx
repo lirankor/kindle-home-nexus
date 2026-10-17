@@ -85,7 +85,6 @@ import {
   SAVER_CARDS,
   SCENES,
   isMovieScene,
-  sceneKey,
   sceneLabel,
   softKeyTarget,
   SHADES,
@@ -603,8 +602,8 @@ function HomeControl() {
   };
   const applyScene = (row: SceneButton) => {
     // Scripts (movie mode, …) are actions, not states: their button never stays pressed.
-    setScene(row.entity_id?.startsWith("script.") || isMovieScene(row) ? "" : sceneKey(row));
-    act({ type: "scene", key: sceneKey(row) });
+    setScene(row.entity_id.startsWith("script.") || isMovieScene(row) ? "" : row.entity_id);
+    act({ type: "scene", entity: row.entity_id });
   };
   const locate = () => {
     setLocating(true);
@@ -751,7 +750,7 @@ function HomeControl() {
               ? {
                   label: sceneLabel(lang, row.name),
                   icon: SCENE_ICONS[row.icon] ?? Star,
-                  pressed: scene === sceneKey(row),
+                  pressed: scene === row.entity_id,
                   onClick: () => applyScene(row),
                 }
               : null;

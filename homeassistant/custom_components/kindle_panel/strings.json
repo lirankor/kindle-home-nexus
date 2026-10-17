@@ -47,14 +47,10 @@
         "title": "Lights",
         "data": {
           "lights": "Lights (in screen order)",
-          "scenes": "Scene buttons (in screen order: F1, F2, F3)",
-          "evening_light": "Built-in Evening: light",
-          "evening_pct": "Built-in Evening: brightness",
-          "warm_kelvin": "Built-in Evening: colour temperature"
+          "scenes": "Scene buttons (in screen order: F1, F2, F3)"
         },
         "data_description": {
-          "scenes": "Up to 3 buttons on the Lights tab (F4 stays 'All off'). Each runs an HA scene or script, or a built-in scene: Bright (every light on, 100 %) or Evening (the light below dimmed and warm, the others off). The names Bright, Evening and Movie show in Hebrew by themselves; other names take their Hebrew from General → Hebrew names.",
-          "evening_light": "Only used by a built-in Evening button."
+          "scenes": "Up to 3 buttons on the Lights tab (F4 stays 'All off'). Each runs an HA scene or script (make scenes in Settings → Scenes). The names Bright, Evening and Movie show in Hebrew by themselves; any other name takes its Hebrew from the row's Hebrew name."
         }
       },
       "vacuum": {

@@ -219,36 +219,20 @@ CARD_LABELS = {
 }
 
 
-BUILTIN = "builtin:"  # entity ids never contain a colon
-BUILTIN_LABELS = {
-    "bright": "Built in: Bright (every panel light on, 100 %)",
-    "evening": "Built in: Evening (the evening light dimmed, the others off)",
-}
-
-
 def _scene_rows(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Stored scene buttons as list-editor rows: one "runs" choice for a built-in scene or an HA scene/script."""
-    return [
-        {
-            "runs": f"{BUILTIN}{s['builtin']}" if s.get("builtin") else s["entity_id"],
-            "name": s["name"],
-            "icon": s.get("icon", "star"),
-        }
-        for s in scenes
-    ]
+    """Stored scene buttons as list-editor rows ("runs": the HA scene or script)."""
+    return [{"runs": s["entity_id"], "name": s["name"], "icon": s.get("icon", "star")} for s in scenes]
 
 
 def _scenes_from_rows(rows: Any) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for row in rows or []:
-        runs = str(row.get("runs") or "")
-        scene: dict[str, Any] = {"name": (row.get("name") or "").strip(), "icon": row.get("icon") or "star"}
-        if runs.startswith(BUILTIN):
-            scene["builtin"] = runs[len(BUILTIN) :]
-        else:
-            scene["entity_id"] = runs  # empty or wrong: normalize() refuses it and the page shows why
-        out.append(scene)
-    return out
+    return [
+        {
+            "entity_id": str(row.get("runs") or ""),  # empty or wrong: normalize() refuses it and the page shows why
+            "name": (row.get("name") or "").strip(),
+            "icon": row.get("icon") or "star",
+        }
+        for row in rows or []
+    ]
 
 
 def _power_key_field(i: int) -> str:
@@ -352,16 +336,10 @@ class KindlePanelOptionsFlow(OptionsFlow):
         if user_input is not None:
             c["lights"] = _take_he(c, user_input.get("lights"))
             c["scenes"] = _scenes_from_rows(_take_he(c, user_input.get("scenes")))
-            c["evening"] = {
-                "entity_id": user_input.get("evening_light"),
-                "brightness_pct": int(user_input.get("evening_pct", 40)),
-                "warm_kelvin": int(user_input.get("warm_kelvin", 2200)),
-            }
             if (done := self._save("lights")) is not None:
                 return done
-        ev = c["evening"]
-        # What a scene button can run: the built-in scenes, every HA scene and script (configured ones stay listed).
-        runs = {f"{BUILTIN}{k}": v for k, v in BUILTIN_LABELS.items()} | _runs_options(self.hass)
+        # What a scene button can run: every HA scene and script (configured ones stay listed).
+        runs = _runs_options(self.hass)
         rows = _with_he(c, _scene_rows(c["scenes"]))
         for row in rows:
             runs.setdefault(row["runs"], row["runs"])
@@ -401,9 +379,6 @@ class KindlePanelOptionsFlow(OptionsFlow):
                         },
                         "name",
                     ),
-                    _opt("evening_light", ev.get("entity_id")): _entity("light"),
-                    vol.Optional("evening_pct", default=ev["brightness_pct"]): _num(1, 100, 1, "%"),
-                    vol.Optional("warm_kelvin", default=ev["warm_kelvin"]): _num(1500, 7000, 100, "K"),
                 }
             ),
         )

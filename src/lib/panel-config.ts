@@ -57,7 +57,6 @@ export type PanelPlug = {
 };
 /** Lights tab scene buttons (F1..F3; F4 stays "all off"). */
 export const MAX_SCENES = 3;
-export const SCENE_BUILTINS = ["bright", "evening"] as const;
 export const SCENE_ICON_NAMES = [
   "sun",
   "moon",
@@ -70,11 +69,10 @@ export const SCENE_ICON_NAMES = [
   "sparkles",
   "power",
 ] as const;
-/** A scene button: an HA scene or script (`entity_id`), or a built-in scene (`builtin`). The name is English; its
- *  Hebrew comes from `names` (Bright / Evening / Movie also from the app's own translations). */
+/** A scene button: an HA scene or script. The name is English; its Hebrew comes from `names` (Bright / Evening / Movie
+ *  also from the app's own translations). The panel has no scenes of its own (owner, 2026-10-17). */
 export type SceneButton = {
-  entity_id?: string | null;
-  builtin?: (typeof SCENE_BUILTINS)[number] | null;
+  entity_id: string;
   name: string;
   icon: string;
 };
@@ -116,7 +114,6 @@ export type PanelConfig = {
   names: Partial<Record<Lang, Record<string, string>>>;
   lights: PanelLight[];
   scenes: SceneButton[];
-  evening: { entity_id?: string | null; brightness_pct: number; warm_kelvin: number };
   vacuum: {
     entity_id?: string | null;
     battery_entity?: string | null;
@@ -221,11 +218,10 @@ export const DEFAULT_CONFIG: PanelConfig = {
     },
   ],
   scenes: [
-    { builtin: "bright", name: "Bright", icon: "sun" },
-    { builtin: "evening", name: "Evening", icon: "moon" },
+    { entity_id: "scene.bright", name: "Bright", icon: "sun" },
+    { entity_id: "scene.evening", name: "Evening", icon: "moon" },
     { entity_id: "script.movie_mode", name: "Movie", icon: "film" },
   ],
-  evening: { entity_id: "light.main_light", brightness_pct: 40, warm_kelvin: 2200 },
   vacuum: {
     entity_id: "vacuum.roborock_qrevo_edge_series",
     battery_entity: "sensor.roborock_qrevo_edge_series_battery",
@@ -335,11 +331,12 @@ export const panelView = (c: PanelConfig, source: "ha" | "default"): PanelView =
   source,
 });
 
-/** The scene buttons the panel always had (HA's kindle_panel derives the same while none are saved). */
+/** The default scene buttons: the HA scenes Bright and Evening and the movie-mode script (kindle_panel derives the same
+ *  while none are saved). */
 export function defaultScenes(movieOn: string | null | undefined): SceneButton[] {
   const rows: SceneButton[] = [
-    { builtin: "bright", name: "Bright", icon: "sun" },
-    { builtin: "evening", name: "Evening", icon: "moon" },
+    { entity_id: "scene.bright", name: "Bright", icon: "sun" },
+    { entity_id: "scene.evening", name: "Evening", icon: "moon" },
   ];
   if (movieOn) rows.push({ entity_id: movieOn, name: "Movie", icon: "film" });
   return rows;
@@ -352,11 +349,19 @@ export function defaultPowerKeys(plugs: { entity_id: string }[]): string[] {
   return [...keys, KEY_ALL_OFF];
 }
 
+/** kindle_panel <= 0.3.0 had built-in Bright / Evening rows; they now run these HA scenes. */
+const LEGACY_BUILTIN_SCENES: Record<string, string> = {
+  bright: "scene.bright",
+  evening: "scene.evening",
+};
+const migrateScene = (s: SceneButton & { builtin?: string | null }): SceneButton => {
+  const { builtin, ...row } = s;
+  return builtin && !row.entity_id && LEGACY_BUILTIN_SCENES[builtin]
+    ? { ...row, entity_id: LEGACY_BUILTIN_SCENES[builtin] }
+    : row;
+};
 const validScene = (s: SceneButton) =>
-  !!s.name &&
-  (s.builtin
-    ? (SCENE_BUILTINS as readonly string[]).includes(s.builtin) && !s.entity_id
-    : /^(scene|script)\./.test(s.entity_id ?? ""));
+  !!s.name && /^(scene|script)\.[a-z0-9_]+$/.test(s.entity_id ?? "");
 
 /** A config from HA, missing parts filled from the defaults' shape (HA normalises it already; this guards old ones). */
 export function mergePanelConfig(raw: Partial<PanelConfig> | null | undefined): PanelConfig {
@@ -393,9 +398,9 @@ export function mergePanelConfig(raw: Partial<PanelConfig> | null | undefined): 
     names: raw.names ?? {},
     lights: raw.lights ?? [],
     scenes: (raw.scenes ?? defaultScenes(raw.media?.movie_on))
+      .map(migrateScene)
       .filter(validScene)
       .slice(0, MAX_SCENES),
-    evening: { ...d.evening, entity_id: null, ...(raw.evening ?? {}) },
     vacuum: { rooms: [], ...(raw.vacuum ?? {}) },
     plugs,
     power_keys: padKeys(raw.power_keys, plugs),

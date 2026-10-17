@@ -12,7 +12,7 @@ OPT_EDITED = "edited"  # options pages saved in the HA UI; a (late) seed never o
 # options page -> the config keys it owns
 PAGE_KEYS = {
     "general": ("language", "tabs", "sensors", "names"),
-    "lights": ("lights", "scenes", "evening"),
+    "lights": ("lights", "scenes"),
     "vacuum": ("vacuum",),
     "power": ("plugs", "power_keys"),
     "media": ("media",),
@@ -44,9 +44,10 @@ ROOM_ICONS = [
     "sofa",
     "room",
 ]
-# Lights tab scene buttons (F1..F3, F4 stays "all off"): an HA scene / script, or one of the panel's built-in scenes.
+# Lights tab scene buttons (F1..F3, F4 stays "all off"): each runs an HA scene or script (the panel has no scenes of its own).
 MAX_SCENES = 3
-SCENE_BUILTINS = ["bright", "evening"]
+# kindle_panel <= 0.3.0 had built-in Bright / Evening rows; saved ones now run these HA scenes (see the README).
+LEGACY_BUILTIN_SCENES = {"bright": "scene.bright", "evening": "scene.evening"}
 SCENE_ICONS = ["sun", "moon", "film", "sofa", "bed", "book", "utensils", "star", "sparkles", "power"]
 # Power tab soft keys F1..F4: a plug (its switch entity id), all plugs off, or nothing.
 POWER_KEY_COUNT = 4

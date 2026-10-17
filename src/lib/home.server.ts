@@ -2,7 +2,6 @@
 // time from process.env and never reach the browser.
 import {
   CUSTOM_TABS,
-  EVENING,
   LIGHTS,
   MEDIA,
   PLUGS,
@@ -16,7 +15,6 @@ import {
   nearestColor,
   customTab,
   nearestShade,
-  sceneKey,
   softKeyTarget,
 } from "@/lib/home";
 import {
@@ -219,28 +217,12 @@ export async function performAction(a: Action): Promise<void> {
       await service("light", "turn_off", { entity_id: LIGHTS.map((l) => l.id) });
       break;
     case "scene": {
-      const row = SCENES.find((x) => sceneKey(x) === a.key);
+      const row = SCENES.find((x) => x.entity_id === a.entity);
       if (!row) throw new HomeError("Unknown scene");
-      if (row.builtin === "bright")
-        await service("light", "turn_on", {
-          entity_id: LIGHTS.map((l) => l.id),
-          brightness_pct: 100,
-        });
-      else if (row.builtin === "evening") {
-        // The evening light (panel config, default: the first light) dimmed and warm, every other light off.
-        const keep = EVENING.entity || LIGHTS[0]?.id;
-        if (keep)
-          await service("light", "turn_on", {
-            entity_id: keep,
-            brightness_pct: EVENING.pct,
-            color_temp_kelvin: EVENING.kelvin,
-          });
-        const rest = LIGHTS.map((l) => l.id).filter((id) => id !== keep);
-        if (rest.length) await service("light", "turn_off", { entity_id: rest });
-      } else if (row.entity_id?.startsWith("scene."))
-        await service("scene", "turn_on", { entity_id: row.entity_id });
-      // turn_on: do not wait for the script to finish
-      else await service("script", "turn_on", { entity_id: row.entity_id });
+      // turn_on: a script is started, not waited for
+      await service(row.entity_id.startsWith("scene.") ? "scene" : "script", "turn_on", {
+        entity_id: row.entity_id,
+      });
       break;
     }
     case "movie.end":

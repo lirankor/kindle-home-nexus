@@ -188,9 +188,6 @@ async def test_options_pages_edit_the_config(hass, panel) -> None:
         flow["flow_id"],
         {
             "lights": lights,
-            "evening_light": "light.main_light",
-            "evening_pct": 40,
-            "warm_kelvin": 2200,
         },
     )
     assert res["type"] is FlowResultType.CREATE_ENTRY
@@ -457,14 +454,14 @@ def test_scene_and_key_defaults_reproduce_the_old_screen() -> None:
 
     cfg = normalize({"plugs": PLUGS3, "media": {"movie_on": "script.movie_mode"}})
     assert cfg["scenes"] == [
-        {"builtin": "bright", "name": "Bright", "icon": "sun"},
-        {"builtin": "evening", "name": "Evening", "icon": "moon"},
+        {"entity_id": "scene.bright", "name": "Bright", "icon": "sun"},
+        {"entity_id": "scene.evening", "name": "Evening", "icon": "moon"},
         {"entity_id": "script.movie_mode", "name": "Movie", "icon": "film"},
     ]
     assert cfg["power_keys"] == ["switch.plug_1", "switch.plug_2", "switch.plug_3", "all_off"]
     # fewer plugs, no movie script: the gaps stay empty, F4 is still "all off"
     one = normalize({"plugs": PLUGS3[:1]})
-    assert [s.get("builtin") for s in one["scenes"]] == ["bright", "evening"]
+    assert [s["entity_id"] for s in one["scenes"]] == ["scene.bright", "scene.evening"]
     assert one["power_keys"] == ["switch.plug_1", "none", "none", "all_off"]
     # saved values are kept as saved; an empty scene list stays empty; short key lists are padded
     kept = normalize({"plugs": PLUGS3, "scenes": [], "power_keys": ["all_off"]})
@@ -476,9 +473,9 @@ def test_scene_and_key_defaults_reproduce_the_old_screen() -> None:
     "scenes",
     [
         [{"name": "Nothing to run"}],
-        [{"entity_id": "scene.a", "builtin": "bright", "name": "Both"}],
         [{"entity_id": "light.main_light", "name": "Not a scene"}],
         [{"builtin": "disco", "name": "Unknown built-in"}],
+        [{"entity_id": "scene.a", "name": "Extra", "colour": "red"}],
         [{"entity_id": f"scene.s{i}", "name": f"S{i}"} for i in range(4)],  # F4 stays "all off"
     ],
 )
@@ -500,24 +497,23 @@ async def test_lights_page_edits_the_scene_buttons(hass, panel) -> None:
     schema = {str(k): v for k, v in flow["data_schema"].schema.items()}
     fields = schema["scenes"].config["fields"]
     offered = [o["value"] for o in fields["runs"]["selector"]["select"]["options"]]
-    assert offered[:2] == ["builtin:bright", "builtin:evening"]
-    assert "script.movie_mode" in offered and "scene.reading" in offered
+    assert offered == ["scene.reading", "script.movie_mode", "scene.bright", "scene.evening"]  # configured stay listed
     current = next(k for k in flow["data_schema"].schema if str(k) == "scenes").description["suggested_value"]
-    assert [r["runs"] for r in current] == ["builtin:bright", "builtin:evening", "script.movie_mode"]
+    assert [r["runs"] for r in current] == ["scene.bright", "scene.evening", "script.movie_mode"]
 
     rows = [
         {"runs": "scene.reading", "name": "Reading", "icon": "book"},
-        {"runs": "builtin:evening", "name": "Evening", "icon": "moon"},
+        {"runs": "script.movie_mode", "name": "Movie", "icon": "film"},
     ]
-    base = {"lights": HOUSE["lights"], "evening_light": "light.main_light", "evening_pct": 30, "warm_kelvin": 2400}
+    base = {"lights": HOUSE["lights"]}
     res = await hass.config_entries.options.async_configure(flow["flow_id"], {**base, "scenes": rows})
     assert res["type"] is FlowResultType.CREATE_ENTRY
     cfg = (await call(hass, "get_config"))["config"]
     assert cfg["scenes"] == [
         {"entity_id": "scene.reading", "name": "Reading", "icon": "book"},
-        {"builtin": "evening", "name": "Evening", "icon": "moon"},
+        {"entity_id": "script.movie_mode", "name": "Movie", "icon": "film"},
     ]
-    assert cfg["evening"] == {"entity_id": "light.main_light", "brightness_pct": 30, "warm_kelvin": 2400}
+    assert "evening" not in cfg
     assert cfg["power_keys"] == ["switch.tv_plug", "none", "none", "all_off"]  # other page untouched
 
     # only the offered choices pass the form (HA validates the nested select) ...
@@ -560,7 +556,7 @@ async def test_power_page_maps_the_keys(hass, panel) -> None:
     assert res["type"] is FlowResultType.CREATE_ENTRY
     cfg = (await call(hass, "get_config"))["config"]
     assert cfg["power_keys"] == ["switch.plug_1", "switch.plug_3", "switch.plug_2", "none"]
-    assert [s.get("builtin") or s.get("entity_id") for s in cfg["scenes"]] == ["bright", "evening"]  # lights untouched
+    assert [s["entity_id"] for s in cfg["scenes"]] == ["scene.bright", "scene.evening"]  # lights untouched
 
 
 # ---------------------------------------------------------------- task 012: custom tabs + Hebrew name per row
@@ -686,10 +682,7 @@ async def test_hebrew_name_per_row(hass, panel) -> None:
         flow["flow_id"],
         {
             "lights": [row],
-            "scenes": [{"runs": "builtin:bright", "name": "Bright", "icon": "sun"}],
-            "evening_light": "light.main_light",
-            "evening_pct": 40,
-            "warm_kelvin": 2200,
+            "scenes": [{"runs": "scene.bright", "name": "Bright", "icon": "sun"}],
         },
     )
     assert res["type"] is FlowResultType.CREATE_ENTRY
@@ -701,3 +694,21 @@ async def test_hebrew_name_per_row(hass, panel) -> None:
     flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "general"})
     box = next(k for k in flow["data_schema"].schema if str(k) == "names_he")
     assert box.description["suggested_value"] == {"Living room": "סלון"}
+
+
+def test_configs_with_built_in_scenes_still_load() -> None:
+    """kindle_panel <= 0.3.0 saved built-in Bright / Evening rows and an `evening` block (task 013)."""
+    from custom_components.kindle_panel.config import normalize
+
+    old = {
+        "scenes": [
+            {"builtin": "bright", "name": "Bright", "icon": "sun"},
+            {"builtin": "evening", "name": "Evening", "icon": "moon"},
+            {"entity_id": "script.movie_mode", "name": "Movie", "icon": "film"},
+        ],
+        "evening": {"entity_id": "light.main_light", "brightness_pct": 40, "warm_kelvin": 2200},
+    }
+    cfg = normalize(old)
+    assert [s["entity_id"] for s in cfg["scenes"]] == ["scene.bright", "scene.evening", "script.movie_mode"]
+    assert "evening" not in cfg and "builtin" not in cfg["scenes"][0]
+    assert old["scenes"][0] == {"builtin": "bright", "name": "Bright", "icon": "sun"}  # input untouched

@@ -22,6 +22,7 @@ from .const import (
     DEFAULT_CARDS,
     DEFAULT_UNSPLASH_QUERY,
     LANGUAGES,
+    LEGACY_BUILTIN_SCENES,
     LIGHT_ICONS,
     MAX_CARDS,
     MAX_CUSTOM_TABS,
@@ -35,7 +36,6 @@ from .const import (
     POWER_KEY_COUNT,
     POWER_KEY_NONE,
     ROOM_ICONS,
-    SCENE_BUILTINS,
     SCENE_ICONS,
     SOURCE_IMMICH_FAVORITES,
     SOURCE_MEDIA,
@@ -85,10 +85,9 @@ PLUG = vol.Schema(
 )
 
 
-SCENE_BASE = vol.Schema(
+SCENE = vol.Schema(
     {
-        vol.Optional("entity_id"): _opt_entity,
-        vol.Optional("builtin"): vol.Any(None, vol.In(SCENE_BUILTINS)),
+        vol.Required("entity_id"): vol.All(cv.entity_id, cv.entity_domain(["scene", "script"])),
         vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=40)),
         vol.Optional("icon", default="star"): vol.In(SCENE_ICONS),
     }
@@ -96,13 +95,23 @@ SCENE_BASE = vol.Schema(
 
 
 def _scene(v: Any) -> dict[str, Any]:
-    """A Lights tab scene button: exactly one of an HA scene/script (`entity_id`) or a built-in scene (`builtin`)."""
-    row = {k: x for k, x in SCENE_BASE(v).items() if x not in (None, "")}
-    if ("entity_id" in row) == ("builtin" in row):
-        raise vol.Invalid("a scene button runs either an HA scene/script or a built-in scene")
-    if "entity_id" in row and row["entity_id"].split(".", 1)[0] not in ("scene", "script"):
-        raise vol.Invalid(f"a scene button runs a scene or a script, not {row['entity_id']}")
-    return row
+    """A Lights tab scene button: an HA scene or script."""
+    return SCENE(v)
+
+
+def _migrate(config: dict[str, Any]) -> dict[str, Any]:
+    """Configs saved by kindle_panel <= 0.3.0: built-in Bright / Evening rows run the HA scenes that replaced them; the
+    `evening` block (light, brightness, warm white) is gone (it lives in scene.evening now) and is dropped."""
+    scenes = config.get("scenes")
+    if isinstance(scenes, list):
+        config["scenes"] = [
+            {**{k: v for k, v in row.items() if k != "builtin"}, "entity_id": LEGACY_BUILTIN_SCENES[row["builtin"]]}
+            if isinstance(row, dict) and row.get("builtin") in LEGACY_BUILTIN_SCENES and not row.get("entity_id")
+            else row
+            for row in scenes
+        ]
+    config.pop("evening", None)
+    return config
 
 
 def _power_key(v: Any) -> str:
@@ -188,13 +197,6 @@ CONFIG_SCHEMA = vol.Schema(
         vol.Optional("lights", default=[]): [LIGHT],
         # No defaults here: normalize() derives them from the rest (today's buttons and keys) while the key is absent.
         vol.Optional("scenes"): vol.Any(None, vol.All(cv.ensure_list, [_scene], vol.Length(max=MAX_SCENES))),
-        vol.Optional("evening", default={}): vol.Schema(
-            {
-                vol.Optional("entity_id"): _opt_entity,
-                vol.Optional("brightness_pct", default=40): vol.All(vol.Coerce(int), vol.Range(1, 100)),
-                vol.Optional("warm_kelvin", default=2200): vol.All(vol.Coerce(int), vol.Range(1500, 7000)),
-            }
-        ),
         vol.Optional("vacuum", default={}): vol.Schema(
             {
                 vol.Optional("entity_id"): _opt_entity,
@@ -257,10 +259,11 @@ CONFIG_SCHEMA = vol.Schema(
 
 
 def default_scenes(cfg: dict[str, Any]) -> list[dict[str, Any]]:
-    """The scene buttons the panel always had: Bright and Evening (built in), Movie (the movie-mode script)."""
+    """The default scene buttons: the HA scenes Bright and Evening (see the README for their YAML) and Movie (the
+    movie-mode script). A missing scene shows as a button that HA answers with an error."""
     rows: list[dict[str, Any]] = [
-        {"builtin": "bright", "name": "Bright", "icon": "sun"},
-        {"builtin": "evening", "name": "Evening", "icon": "moon"},
+        {"entity_id": "scene.bright", "name": "Bright", "icon": "sun"},
+        {"entity_id": "scene.evening", "name": "Evening", "icon": "moon"},
     ]
     if movie := cfg.get("media", {}).get("movie_on"):
         rows.append({"entity_id": movie, "name": "Movie", "icon": "film"})
@@ -282,7 +285,7 @@ def _keys(keys: list[str] | None, rows: list[dict[str, Any]]) -> list[str]:
 
 def normalize(config: dict[str, Any] | None) -> dict[str, Any]:
     """Validated config with every default filled in (raises vol.Invalid)."""
-    cfg = CONFIG_SCHEMA(copy.deepcopy(config or {}))
+    cfg = CONFIG_SCHEMA(_migrate(copy.deepcopy(config or {})))
     if cfg.get("scenes") is None:
         cfg["scenes"] = default_scenes(cfg)
     cfg["power_keys"] = _keys(cfg.get("power_keys"), cfg["plugs"])
