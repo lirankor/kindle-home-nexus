@@ -12,9 +12,9 @@ OPT_EDITED = "edited"  # options pages saved in the HA UI; a (late) seed never o
 # options page -> the config keys it owns
 PAGE_KEYS = {
     "general": ("language", "tabs", "sensors", "names"),
-    "lights": ("lights", "evening"),
+    "lights": ("lights", "scenes", "evening"),
     "vacuum": ("vacuum",),
-    "power": ("plugs",),
+    "power": ("plugs", "power_keys"),
     "media": ("media",),
     "screensaver": ("screensaver",),
     "schedule": ("schedule",),
@@ -36,6 +36,14 @@ ROOM_ICONS = [
     "sofa",
     "room",
 ]
+# Lights tab scene buttons (F1..F3, F4 stays "all off"): an HA scene / script, or one of the panel's built-in scenes.
+MAX_SCENES = 3
+SCENE_BUILTINS = ["bright", "evening"]
+SCENE_ICONS = ["sun", "moon", "film", "sofa", "bed", "book", "utensils", "star", "sparkles", "power"]
+# Power tab soft keys F1..F4: a plug (its switch entity id), all plugs off, or nothing.
+POWER_KEY_COUNT = 4
+POWER_KEY_ALL_OFF = "all_off"
+POWER_KEY_NONE = "none"
 PHOTO_MODES = ["curate", "all_but_skipped", "kept_only"]
 MUSIC_BACKENDS = ["app", "ha"]
 CARD_TYPES = ["outdoor", "indoor", "calendar", "sensor"]

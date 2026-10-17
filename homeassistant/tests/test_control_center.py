@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -445,3 +445,119 @@ async def test_no_sources_means_immich_favourites(hass, panel) -> None:
     assert field.default() == ["immich_favorites"]
     assert "immich_favorites" in [o["value"] for o in flow["data_schema"].schema["sources"].config["options"]]
     hass.config_entries.options.async_abort(flow["flow_id"])
+
+
+# ---------------------------------------------------------------- task 011: scene buttons + Power tab keys
+
+PLUGS3 = [{"entity_id": f"switch.plug_{i}", "name": f"Plug {i}", "energy_to_wh": 1} for i in (1, 2, 3)]
+
+
+def test_scene_and_key_defaults_reproduce_the_old_screen() -> None:
+    from custom_components.kindle_panel.config import normalize
+
+    cfg = normalize({"plugs": PLUGS3, "media": {"movie_on": "script.movie_mode"}})
+    assert cfg["scenes"] == [
+        {"builtin": "bright", "name": "Bright", "icon": "sun"},
+        {"builtin": "evening", "name": "Evening", "icon": "moon"},
+        {"entity_id": "script.movie_mode", "name": "Movie", "icon": "film"},
+    ]
+    assert cfg["power_keys"] == ["switch.plug_1", "switch.plug_2", "switch.plug_3", "all_off"]
+    # fewer plugs, no movie script: the gaps stay empty, F4 is still "all off"
+    one = normalize({"plugs": PLUGS3[:1]})
+    assert [s.get("builtin") for s in one["scenes"]] == ["bright", "evening"]
+    assert one["power_keys"] == ["switch.plug_1", "none", "none", "all_off"]
+    # saved values are kept as saved; an empty scene list stays empty; short key lists are padded
+    kept = normalize({"plugs": PLUGS3, "scenes": [], "power_keys": ["all_off"]})
+    assert kept["scenes"] == [] and kept["power_keys"] == ["all_off", "none", "none", "none"]
+    assert normalize(kept) == kept  # stable
+
+
+@pytest.mark.parametrize(
+    "scenes",
+    [
+        [{"name": "Nothing to run"}],
+        [{"entity_id": "scene.a", "builtin": "bright", "name": "Both"}],
+        [{"entity_id": "light.main_light", "name": "Not a scene"}],
+        [{"builtin": "disco", "name": "Unknown built-in"}],
+        [{"entity_id": f"scene.s{i}", "name": f"S{i}"} for i in range(4)],  # F4 stays "all off"
+    ],
+)
+def test_bad_scene_buttons_are_refused(scenes) -> None:
+    import voluptuous as vol
+
+    from custom_components.kindle_panel.config import normalize
+
+    with pytest.raises(vol.Invalid):
+        normalize({"scenes": scenes})
+
+
+async def test_lights_page_edits_the_scene_buttons(hass, panel) -> None:
+    hass.states.async_set("script.movie_mode", "off", {"friendly_name": "Movie mode"})
+    hass.states.async_set("scene.reading", "2026-10-17T20:00:00+00:00", {"friendly_name": "Reading"})
+    await call(hass, "seed", config={**HOUSE, "media": {"movie_on": "script.movie_mode"}})
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "lights"})
+    schema = {str(k): v for k, v in flow["data_schema"].schema.items()}
+    fields = schema["scenes"].config["fields"]
+    offered = [o["value"] for o in fields["runs"]["selector"]["select"]["options"]]
+    assert offered[:2] == ["builtin:bright", "builtin:evening"]
+    assert "script.movie_mode" in offered and "scene.reading" in offered
+    current = next(k for k in flow["data_schema"].schema if str(k) == "scenes").description["suggested_value"]
+    assert [r["runs"] for r in current] == ["builtin:bright", "builtin:evening", "script.movie_mode"]
+
+    rows = [
+        {"runs": "scene.reading", "name": "Reading", "icon": "book"},
+        {"runs": "builtin:evening", "name": "Evening", "icon": "moon"},
+    ]
+    base = {"lights": HOUSE["lights"], "evening_light": "light.main_light", "evening_pct": 30, "warm_kelvin": 2400}
+    res = await hass.config_entries.options.async_configure(flow["flow_id"], {**base, "scenes": rows})
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    cfg = (await call(hass, "get_config"))["config"]
+    assert cfg["scenes"] == [
+        {"entity_id": "scene.reading", "name": "Reading", "icon": "book"},
+        {"builtin": "evening", "name": "Evening", "icon": "moon"},
+    ]
+    assert cfg["evening"] == {"entity_id": "light.main_light", "brightness_pct": 30, "warm_kelvin": 2400}
+    assert cfg["power_keys"] == ["switch.tv_plug", "none", "none", "all_off"]  # other page untouched
+
+    # only the offered choices pass the form (HA validates the nested select) ...
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "lights"})
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            flow["flow_id"], {**base, "scenes": [{"runs": "light.main_light", "name": "Oops", "icon": "star"}]}
+        )
+    # ... and a fourth button (F4 stays "all off") brings the page back with the reason, nothing stored
+    four = [{"runs": "scene.reading", "name": f"R{i}", "icon": "book"} for i in range(4)]
+    res = await hass.config_entries.options.async_configure(flow["flow_id"], {**base, "scenes": four})
+    assert res["type"] is FlowResultType.FORM and res["errors"] == {"base": "invalid_config"}
+    assert (await call(hass, "get_config"))["config"]["scenes"][0]["entity_id"] == "scene.reading"
+
+
+async def test_power_page_maps_the_keys(hass, panel) -> None:
+    await call(hass, "seed", config={**HOUSE, "plugs": PLUGS3})
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "power"})
+    keys = {str(k): k for k in flow["data_schema"].schema if str(k).startswith("key_f")}
+    assert [keys[f"key_f{i}"].default() for i in (1, 2, 3, 4)] == [
+        "switch.plug_1",
+        "switch.plug_2",
+        "switch.plug_3",
+        "all_off",
+    ]
+    options = [o["value"] for o in flow["data_schema"].schema[keys["key_f1"]].config["options"]]
+    assert options == ["switch.plug_1", "switch.plug_2", "switch.plug_3", "all_off", "none"]
+    res = await hass.config_entries.options.async_configure(
+        flow["flow_id"],
+        {
+            "plugs": PLUGS3,
+            "key_f1": "switch.plug_1",
+            "key_f2": "switch.plug_3",
+            "key_f3": "switch.plug_2",
+            "key_f4": "none",
+        },
+    )
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    cfg = (await call(hass, "get_config"))["config"]
+    assert cfg["power_keys"] == ["switch.plug_1", "switch.plug_3", "switch.plug_2", "none"]
+    assert [s.get("builtin") or s.get("entity_id") for s in cfg["scenes"]] == ["bright", "evening"]  # lights untouched

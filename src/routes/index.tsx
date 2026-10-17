@@ -44,6 +44,9 @@ import {
   Gauge,
   Zap,
   Leaf,
+  BookOpen,
+  Star,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,8 +74,14 @@ import {
   applyHomeConfig,
   localName,
   PLUGS,
+  POWER_KEYS,
   ROOMS,
   SAVER_CARDS,
+  SCENES,
+  isMovieScene,
+  sceneKey,
+  sceneLabel,
+  softKeyTarget,
   SHADES,
   SHADE_NAMES,
   actionLabel,
@@ -83,6 +92,7 @@ import {
   vacuumLabel,
 } from "@/lib/home";
 import type { Action, LightState, Snapshot, SnapshotResult } from "@/lib/home";
+import type { SceneButton } from "@/lib/panel-config";
 import { getScreensaver, getSnapshot, markScreensaverPhoto, runAction } from "@/lib/home.functions";
 
 export const Route = createFileRoute("/")({
@@ -178,6 +188,19 @@ const weatherIcons: Record<string, typeof Sun> = {
 };
 const weatherIcon = (condition: string | null) =>
   (condition && weatherIcons[condition]) || (condition === null ? CloudDrizzle : CloudMoon);
+/** Scene button icons (panel config: scenes[].icon). */
+const SCENE_ICONS: Record<string, typeof Sun> = {
+  sun: Sun,
+  moon: Moon,
+  film: Film,
+  sofa: Sofa,
+  bed: Bed,
+  book: BookOpen,
+  utensils: Utensils,
+  star: Star,
+  sparkles: Sparkles,
+  power: Power,
+};
 /** Keeps numbers and units in reading order inside right-to-left text. */
 const Ltr = ({ children }: { children: ReactNode }) => <bdi dir="ltr">{children}</bdi>;
 const fmt = (value: number | null, digits = 1) => (value === null ? "—" : value.toFixed(digits));
@@ -546,9 +569,10 @@ function HomeControl() {
         pct: Math.max(1, Math.min(100, (light.on ? light.level : 0) + amount)),
       });
   };
-  const applyScene = (name: "Bright" | "Evening" | "Movie") => {
-    setScene(name === "Movie" ? "" : name);
-    act({ type: "scene", name });
+  const applyScene = (row: SceneButton) => {
+    // Scripts (movie mode, …) are actions, not states: their button never stays pressed.
+    setScene(row.entity_id?.startsWith("script.") || isMovieScene(row) ? "" : sceneKey(row));
+    act({ type: "scene", key: sceneKey(row) });
   };
   const locate = () => {
     setLocating(true);
@@ -654,18 +678,18 @@ function HomeControl() {
   const actions: (DeviceAction | null)[] =
     tab === "Lights"
       ? [
-          ...(
-            [
-              { name: "Bright", icon: Sun },
-              { name: "Evening", icon: Moon },
-              { name: "Movie", icon: Film },
-            ] as const
-          ).map(({ name, icon }) => ({
-            label: t(`scene.${name}`),
-            icon,
-            pressed: scene === name,
-            onClick: () => applyScene(name),
-          })),
+          // F1..F3: the configured scene buttons (panel config: scenes), blank slots for missing ones.
+          ...[0, 1, 2].map((slot) => {
+            const row = SCENES[slot];
+            return row
+              ? {
+                  label: sceneLabel(lang, row.name),
+                  icon: SCENE_ICONS[row.icon] ?? Star,
+                  pressed: scene === sceneKey(row),
+                  onClick: () => applyScene(row),
+                }
+              : null;
+          }),
           {
             label: t("lights.alloff"),
             icon: Power,
@@ -700,21 +724,31 @@ function HomeControl() {
           ]
         : tab === "Power"
           ? [
-              ...PLUGS.map((meta, index) => ({
-                label: localName(lang, meta.name),
-                icon: Plug,
-                pressed: plugOn(index),
-                onClick: () => act({ type: "switch.toggle", entity: meta.id }),
-              })),
-              {
-                label: t("power.allOff"),
-                icon: Power,
-                onClick: () => {
-                  PLUGS.forEach((meta, index) => {
-                    if (plugOn(index)) act({ type: "switch.toggle", entity: meta.id });
-                  });
-                },
-              },
+              // F1..F4 as configured (panel config: power_keys): a plug, all plugs off, or a blank key.
+              ...POWER_KEYS.map((key) => {
+                const target = softKeyTarget(
+                  key,
+                  PLUGS.map((p) => p.id),
+                );
+                if (!target) return null;
+                if (target.kind === "all_off")
+                  return {
+                    label: t("power.allOff"),
+                    icon: Power,
+                    onClick: () => {
+                      PLUGS.forEach((meta, index) => {
+                        if (plugOn(index)) act({ type: "switch.toggle", entity: meta.id });
+                      });
+                    },
+                  };
+                const meta = PLUGS[target.index]!;
+                return {
+                  label: localName(lang, meta.name),
+                  icon: Plug,
+                  pressed: plugOn(target.index),
+                  onClick: () => act({ type: "switch.toggle", entity: meta.id }),
+                };
+              }),
             ]
           : media.actions;
 

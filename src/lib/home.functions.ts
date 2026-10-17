@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { parseLang } from "@/lib/i18n";
 import { isNight, nightWindowFromEnv, photoMinutesFromEnv } from "@/lib/night-window";
-import { LIGHTS, MEDIA, MEDIA_OPS, PLUGS, ROOMS } from "@/lib/home";
+import { LIGHTS, MEDIA, MEDIA_OPS, PLUGS, ROOMS, SCENES, sceneKey } from "@/lib/home";
 import type { Action, ActionResult, Snapshot, SnapshotResult } from "@/lib/home";
 import { ensurePanelConfig, panelViewNow } from "@/lib/panel-config.server";
 import {
@@ -33,6 +33,8 @@ function actionEntityKnown(a: Action): boolean {
       return ROOMS.some((r) => r.id === a.entity);
     case "switch.toggle":
       return PLUGS.some((p) => p.id === a.entity);
+    case "scene":
+      return SCENES.some((s) => sceneKey(s) === a.key);
     case "media":
       return MEDIA.some((m) => m.id === a.entity);
     default:
@@ -58,7 +60,7 @@ const actionSchema = z.discriminatedUnion("type", [
     color: z.enum(["White", "Red", "Orange", "Yellow", "Green", "Cyan", "Blue", "Purple", "Pink"]),
   }),
   z.object({ type: z.literal("lights.off") }),
-  z.object({ type: z.literal("scene"), name: z.enum(["Bright", "Evening", "Movie"]) }),
+  z.object({ type: z.literal("scene"), key: z.string().min(1).max(255) }),
   z.object({ type: z.literal("movie.end") }),
   z.object({ type: z.literal("vacuum"), op: z.enum(["start", "pause", "dock", "locate"]) }),
   z.object({ type: z.literal("room.toggle"), entity: entityId }),

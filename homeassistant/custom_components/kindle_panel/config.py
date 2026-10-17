@@ -22,10 +22,16 @@ from .const import (
     LANGUAGES,
     LIGHT_ICONS,
     MAX_CARDS,
+    MAX_SCENES,
     MUSIC_BACKENDS,
     PHOTO_FALLBACKS,
     PHOTO_MODES,
+    POWER_KEY_ALL_OFF,
+    POWER_KEY_COUNT,
+    POWER_KEY_NONE,
     ROOM_ICONS,
+    SCENE_BUILTINS,
+    SCENE_ICONS,
     SOURCE_IMMICH_FAVORITES,
     SOURCE_MEDIA,
     TABS,
@@ -72,6 +78,34 @@ PLUG = vol.Schema(
 )
 
 
+SCENE_BASE = vol.Schema(
+    {
+        vol.Optional("entity_id"): _opt_entity,
+        vol.Optional("builtin"): vol.Any(None, vol.In(SCENE_BUILTINS)),
+        vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=40)),
+        vol.Optional("icon", default="star"): vol.In(SCENE_ICONS),
+    }
+)
+
+
+def _scene(v: Any) -> dict[str, Any]:
+    """A Lights tab scene button: exactly one of an HA scene/script (`entity_id`) or a built-in scene (`builtin`)."""
+    row = {k: x for k, x in SCENE_BASE(v).items() if x not in (None, "")}
+    if ("entity_id" in row) == ("builtin" in row):
+        raise vol.Invalid("a scene button runs either an HA scene/script or a built-in scene")
+    if "entity_id" in row and row["entity_id"].split(".", 1)[0] not in ("scene", "script"):
+        raise vol.Invalid(f"a scene button runs a scene or a script, not {row['entity_id']}")
+    return row
+
+
+def _power_key(v: Any) -> str:
+    if v in (None, "", POWER_KEY_NONE):
+        return POWER_KEY_NONE
+    if v == POWER_KEY_ALL_OFF:
+        return v
+    return cv.entity_id(v)
+
+
 def _card(v: Any) -> dict[str, Any]:
     card = CARD_BASE(v)
     if card["type"] == "sensor" and not card.get("entity_id"):
@@ -105,6 +139,8 @@ CONFIG_SCHEMA = vol.Schema(
         vol.Optional("tabs", default=list(TABS)): vol.All(cv.ensure_list, [vol.In(TABS)], vol.Length(min=1)),
         vol.Optional("names", default={}): {vol.In(LANGUAGES): {cv.string: cv.string}},
         vol.Optional("lights", default=[]): [LIGHT],
+        # No defaults here: normalize() derives them from the rest (today's buttons and keys) while the key is absent.
+        vol.Optional("scenes"): vol.Any(None, vol.All(cv.ensure_list, [_scene], vol.Length(max=MAX_SCENES))),
         vol.Optional("evening", default={}): vol.Schema(
             {
                 vol.Optional("entity_id"): _opt_entity,
@@ -121,6 +157,9 @@ CONFIG_SCHEMA = vol.Schema(
             }
         ),
         vol.Optional("plugs", default=[]): [PLUG],
+        vol.Optional("power_keys"): vol.Any(
+            None, vol.All(cv.ensure_list, [_power_key], vol.Length(max=POWER_KEY_COUNT))
+        ),
         vol.Optional("media", default={}): vol.Schema(
             {
                 vol.Optional("music_backend", default="app"): vol.In(MUSIC_BACKENDS),
@@ -172,9 +211,34 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
+def default_scenes(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """The scene buttons the panel always had: Bright and Evening (built in), Movie (the movie-mode script)."""
+    rows: list[dict[str, Any]] = [
+        {"builtin": "bright", "name": "Bright", "icon": "sun"},
+        {"builtin": "evening", "name": "Evening", "icon": "moon"},
+    ]
+    if movie := cfg.get("media", {}).get("movie_on"):
+        rows.append({"entity_id": movie, "name": "Movie", "icon": "film"})
+    return rows
+
+
+def default_power_keys(plugs: list[dict[str, Any]]) -> list[str]:
+    """F1..F3 the first three plugs, F4 all plugs off: the Power tab as it always was."""
+    keys = [p["entity_id"] for p in plugs[: POWER_KEY_COUNT - 1]]
+    return [*keys, *[POWER_KEY_NONE] * (POWER_KEY_COUNT - 1 - len(keys)), POWER_KEY_ALL_OFF]
+
+
 def normalize(config: dict[str, Any] | None) -> dict[str, Any]:
     """Validated config with every default filled in (raises vol.Invalid)."""
-    return CONFIG_SCHEMA(copy.deepcopy(config or {}))
+    cfg = CONFIG_SCHEMA(copy.deepcopy(config or {}))
+    if cfg.get("scenes") is None:
+        cfg["scenes"] = default_scenes(cfg)
+    keys = cfg.get("power_keys")
+    if keys is None:
+        cfg["power_keys"] = default_power_keys(cfg["plugs"])
+    else:
+        cfg["power_keys"] = [*keys, *[POWER_KEY_NONE] * (POWER_KEY_COUNT - len(keys))]
+    return cfg
 
 
 DEFAULT_SOURCES = [{"type": SOURCE_IMMICH_FAVORITES, "title": "Immich · Favourites"}]

@@ -3,8 +3,14 @@
 
 import { makeT, tryT } from "./i18n";
 import type { Lang } from "./i18n";
-import { DEFAULT_CONFIG } from "./panel-config";
-import type { PanelView } from "./panel-config";
+import {
+  DEFAULT_CONFIG,
+  KEY_ALL_OFF,
+  KEY_NONE,
+  defaultPowerKeys,
+  defaultScenes,
+} from "./panel-config";
+import type { PanelView, SceneButton } from "./panel-config";
 
 // Display-name overrides per language, keyed by the English name used below (from the panel config: names).
 // Entities without an entry keep their English name.
@@ -81,6 +87,28 @@ export type CardConfig = {
   icon?: string | null;
 };
 export const SAVER_CARDS: CardConfig[] = [];
+/** Lights tab scene buttons in screen order (panel config: scenes), F1..F3. */
+export const SCENES: SceneButton[] = [];
+/** What a scene button is called in an action: "builtin:<name>" or the HA scene/script entity id. */
+export const sceneKey = (s: SceneButton) =>
+  s.builtin ? `builtin:${s.builtin}` : (s.entity_id ?? "");
+/** A scene button's label: the configured Hebrew name, else the app's own word for Bright / Evening / Movie. */
+export const sceneLabel = (lang: Lang, name: string) =>
+  NAME_OVERRIDES[lang][name] ?? tryT(lang, `scene.${name}`) ?? name;
+/** The movie-mode script runs (the Media tab shows movie mode at once, as the Movie button always did). */
+export const isMovieScene = (s: SceneButton) =>
+  !s.builtin && !!s.entity_id && s.entity_id === SCRIPTS.movie;
+/** Power tab soft keys F1..F4 (panel config: power_keys): a plug's entity id, "all_off" or "none". */
+export const POWER_KEYS: string[] = [];
+export type SoftKeyTarget = { kind: "toggle"; index: number } | { kind: "all_off" } | null;
+/** One soft-key string against a tab's entity list: toggle that entity, everything off, or a blank key. Shared by
+ *  the Power tab (and, by design, the custom tabs of task 012). */
+export function softKeyTarget(key: string, ids: readonly string[]): SoftKeyTarget {
+  if (key === KEY_ALL_OFF) return { kind: "all_off" };
+  if (key === KEY_NONE || !key) return null;
+  const index = ids.indexOf(key);
+  return index >= 0 ? { kind: "toggle", index } : null;
+}
 /** The Evening scene (panel config: evening). */
 export const EVENING = { entity: "", pct: 40, kelvin: 2200 };
 
@@ -94,6 +122,8 @@ const eveningIndex = () =>
 export function applyHomeConfig(c: {
   names: Partial<Record<Lang, Record<string, string>>>;
   lights: { entity_id: string; name: string; room?: string; icon?: string }[];
+  scenes?: SceneButton[];
+  power_keys?: string[];
   vacuum: {
     entity_id?: string | null;
     battery_entity?: string | null;
@@ -166,6 +196,8 @@ export function applyHomeConfig(c: {
     SENSORS.indoorHumidity = c.sensors.indoor_humidity ?? "";
     SENSORS.weather = c.sensors.weather ?? "";
   }
+  SCENES.splice(0, SCENES.length, ...(c.scenes ?? defaultScenes(SCRIPTS.movie)).slice(0, 3));
+  POWER_KEYS.splice(0, POWER_KEYS.length, ...(c.power_keys ?? defaultPowerKeys(c.plugs)));
   if (c.screensaver?.cards)
     SAVER_CARDS.splice(0, SAVER_CARDS.length, ...c.screensaver.cards.slice(0, 3));
   if (c.evening) {
@@ -215,7 +247,7 @@ export type Action =
   | { type: "light.kelvin"; entity: string; kelvin: number }
   | { type: "light.color"; entity: string; color: (typeof COLORS)[number] }
   | { type: "lights.off" }
-  | { type: "scene"; name: "Bright" | "Evening" | "Movie" }
+  | { type: "scene"; key: string }
   | { type: "movie.end" }
   | { type: "vacuum"; op: "start" | "pause" | "dock" | "locate" }
   | { type: "room.toggle"; entity: string }
@@ -308,8 +340,10 @@ export function actionLabel(a: Action, lang: Lang): string {
       });
     case "lights.off":
       return t("act.lightsOff");
-    case "scene":
-      return t("act.scene", { scene: t(`scene.${a.name}`) });
+    case "scene": {
+      const row = SCENES.find((x) => sceneKey(x) === a.key);
+      return t("act.scene", { scene: row ? sceneLabel(lang, row.name) : a.key });
+    }
     case "movie.end":
       return t("act.movieEnd");
     case "vacuum":
@@ -365,21 +399,21 @@ export function applyOptimistic(s: Snapshot, a: Action): Snapshot {
     case "lights.off":
       next.lights.forEach((_, i) => patchLight(i, { on: false }));
       break;
-    case "scene":
-      if (a.name === "Movie") next.movieActive = true;
-      else
+    case "scene": {
+      // Only the built-in scenes are predictable; an HA scene or script shows its result with the next snapshot.
+      const row = SCENES.find((x) => sceneKey(x) === a.key);
+      if (row && isMovieScene(row)) next.movieActive = true;
+      else if (row?.builtin === "bright")
+        next.lights.forEach((_, i) => patchLight(i, { on: true, level: 100 }));
+      else if (row?.builtin === "evening")
         next.lights.forEach((_, i) =>
           patchLight(i, {
-            on: a.name === "Bright" || i === eveningIndex(),
-            level:
-              a.name === "Bright"
-                ? 100
-                : i === eveningIndex()
-                  ? EVENING.pct
-                  : (next.lights[i]?.level ?? 0),
+            on: i === eveningIndex(),
+            level: i === eveningIndex() ? EVENING.pct : (next.lights[i]?.level ?? 0),
           }),
         );
       break;
+    }
     case "movie.end":
       next.movieActive = false;
       break;

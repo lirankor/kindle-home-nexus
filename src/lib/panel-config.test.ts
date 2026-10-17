@@ -225,3 +225,33 @@ describe("mergePanelConfig", () => {
     expect(c.media.music_backend).toBe("app");
   });
 });
+
+describe("scene buttons and Power tab keys (task 011)", () => {
+  it("a config saved before they existed gets today's buttons and keys", () => {
+    const { scenes: _s, power_keys: _k, ...old } = DEFAULT_CONFIG;
+    const c = mergePanelConfig(old);
+    expect(c.scenes).toEqual(DEFAULT_CONFIG.scenes);
+    expect(c.power_keys).toEqual(DEFAULT_CONFIG.power_keys);
+  });
+  it("keeps saved values, drops invalid rows, pads the keys", () => {
+    const c = mergePanelConfig({
+      plugs: DEFAULT_CONFIG.plugs,
+      scenes: [
+        { entity_id: "scene.reading", name: "Reading", icon: "book" },
+        { entity_id: "light.main_light", name: "Not a scene", icon: "star" },
+        { builtin: "evening", name: "Evening", icon: "moon" },
+        { name: "Nothing", icon: "star" },
+        { entity_id: "script.a", name: "A", icon: "star" },
+        { entity_id: "script.b", name: "B", icon: "star" },
+      ],
+      power_keys: ["all_off"],
+    });
+    expect(c.scenes.map((s) => s.entity_id ?? s.builtin)).toEqual([
+      "scene.reading",
+      "evening",
+      "script.a",
+    ]);
+    expect(c.power_keys).toEqual(["all_off", "none", "none", "none"]);
+    expect(mergePanelConfig({ scenes: [] }).scenes).toEqual([]);
+  });
+});

@@ -6,6 +6,7 @@ import {
   MEDIA,
   PLUGS,
   ROOMS,
+  SCENES,
   SCRIPTS,
   SAVER_CARDS,
   SENSORS,
@@ -13,6 +14,7 @@ import {
   COLOR_MODES,
   nearestColor,
   nearestShade,
+  sceneKey,
 } from "@/lib/home";
 import {
   addMark,
@@ -195,21 +197,31 @@ export async function performAction(a: Action): Promise<void> {
     case "lights.off":
       await service("light", "turn_off", { entity_id: LIGHTS.map((l) => l.id) });
       break;
-    case "scene":
-      if (a.name === "Bright")
+    case "scene": {
+      const row = SCENES.find((x) => sceneKey(x) === a.key);
+      if (!row) throw new HomeError("Unknown scene");
+      if (row.builtin === "bright")
         await service("light", "turn_on", {
           entity_id: LIGHTS.map((l) => l.id),
           brightness_pct: 100,
         });
-      else if (a.name === "Evening") {
-        // The evening light (panel config, default: the first light) dimmed, every other light off.
+      else if (row.builtin === "evening") {
+        // The evening light (panel config, default: the first light) dimmed and warm, every other light off.
         const keep = EVENING.entity || LIGHTS[0]?.id;
         if (keep)
-          await service("light", "turn_on", { entity_id: keep, brightness_pct: EVENING.pct });
+          await service("light", "turn_on", {
+            entity_id: keep,
+            brightness_pct: EVENING.pct,
+            color_temp_kelvin: EVENING.kelvin,
+          });
         const rest = LIGHTS.map((l) => l.id).filter((id) => id !== keep);
         if (rest.length) await service("light", "turn_off", { entity_id: rest });
-      } else await service("script", "turn_on", { entity_id: SCRIPTS.movie }); // turn_on: do not wait for the script to finish
+      } else if (row.entity_id?.startsWith("scene."))
+        await service("scene", "turn_on", { entity_id: row.entity_id });
+      // turn_on: do not wait for the script to finish
+      else await service("script", "turn_on", { entity_id: row.entity_id });
       break;
+    }
     case "movie.end":
       await service("script", "turn_on", { entity_id: SCRIPTS.movieOff });
       break;

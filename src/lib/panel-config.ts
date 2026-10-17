@@ -32,6 +32,35 @@ export type PanelPlug = {
   energy_entity?: string | null;
   energy_to_wh: number;
 };
+/** Lights tab scene buttons (F1..F3; F4 stays "all off"). */
+export const MAX_SCENES = 3;
+export const SCENE_BUILTINS = ["bright", "evening"] as const;
+export const SCENE_ICON_NAMES = [
+  "sun",
+  "moon",
+  "film",
+  "sofa",
+  "bed",
+  "book",
+  "utensils",
+  "star",
+  "sparkles",
+  "power",
+] as const;
+/** A scene button: an HA scene or script (`entity_id`), or a built-in scene (`builtin`). The name is English; its
+ *  Hebrew comes from `names` (Bright / Evening / Movie also from the app's own translations). */
+export type SceneButton = {
+  entity_id?: string | null;
+  builtin?: (typeof SCENE_BUILTINS)[number] | null;
+  name: string;
+  icon: string;
+};
+/** A soft key F1..F4 (Power tab): an entity of the tab's list (a plug), "all_off" (every entity of the list off) or
+ *  "none". The same string model is meant for custom tabs (task 012). */
+export const KEY_ALL_OFF = "all_off";
+export const KEY_NONE = "none";
+export const SOFT_KEY_COUNT = 4;
+
 export const CARD_TYPES = ["outdoor", "indoor", "calendar", "sensor"] as const;
 export const CARD_ICON_NAMES = [
   "thermometer",
@@ -62,6 +91,7 @@ export type PanelConfig = {
   tabs: TabId[];
   names: Partial<Record<Lang, Record<string, string>>>;
   lights: PanelLight[];
+  scenes: SceneButton[];
   evening: { entity_id?: string | null; brightness_pct: number; warm_kelvin: number };
   vacuum: {
     entity_id?: string | null;
@@ -70,6 +100,8 @@ export type PanelConfig = {
     rooms: PanelRoom[];
   };
   plugs: PanelPlug[];
+  /** F1..F4 on the Power tab, always 4 entries. */
+  power_keys: string[];
   media: {
     music_backend: "app" | "ha";
     amp_player?: string | null;
@@ -163,6 +195,11 @@ export const DEFAULT_CONFIG: PanelConfig = {
       icon: "strip",
     },
   ],
+  scenes: [
+    { builtin: "bright", name: "Bright", icon: "sun" },
+    { builtin: "evening", name: "Evening", icon: "moon" },
+    { entity_id: "script.movie_mode", name: "Movie", icon: "film" },
+  ],
   evening: { entity_id: "light.main_light", brightness_pct: 40, warm_kelvin: 2200 },
   vacuum: {
     entity_id: "vacuum.roborock_qrevo_edge_series",
@@ -201,6 +238,12 @@ export const DEFAULT_CONFIG: PanelConfig = {
       energy_entity: "sensor.kitchen_boiler_energy_calc",
       energy_to_wh: 1000,
     },
+  ],
+  power_keys: [
+    `switch.${TV_PLUG}_outlet`,
+    `switch.${WORKSTATION}_outlet`,
+    `switch.${BOILER}_outlet`,
+    KEY_ALL_OFF,
   ],
   media: {
     music_backend: "app",
@@ -242,7 +285,7 @@ export const DEFAULT_CONFIG: PanelConfig = {
 /** What the browser needs (no service/script ids beyond what it already shows). */
 export type PanelView = Pick<
   PanelConfig,
-  "language" | "tabs" | "names" | "lights" | "vacuum" | "plugs"
+  "language" | "tabs" | "names" | "lights" | "scenes" | "vacuum" | "plugs" | "power_keys"
 > & { source: "ha" | "default"; screensaver: Omit<PanelConfig["screensaver"], "unsplash_key"> };
 
 export const panelView = (c: PanelConfig, source: "ha" | "default"): PanelView => ({
@@ -250,16 +293,43 @@ export const panelView = (c: PanelConfig, source: "ha" | "default"): PanelView =
   tabs: c.tabs,
   names: c.names,
   lights: c.lights,
+  scenes: c.scenes,
   vacuum: { rooms: c.vacuum.rooms },
   plugs: c.plugs,
+  power_keys: c.power_keys,
   screensaver: (({ unsplash_key: _secret, ...rest }) => rest)(c.screensaver),
   source,
 });
+
+/** The scene buttons the panel always had (HA's kindle_panel derives the same while none are saved). */
+export function defaultScenes(movieOn: string | null | undefined): SceneButton[] {
+  const rows: SceneButton[] = [
+    { builtin: "bright", name: "Bright", icon: "sun" },
+    { builtin: "evening", name: "Evening", icon: "moon" },
+  ];
+  if (movieOn) rows.push({ entity_id: movieOn, name: "Movie", icon: "film" });
+  return rows;
+}
+
+/** F1..F3 the first three plugs, F4 all off: the Power tab as it always was. */
+export function defaultPowerKeys(plugs: { entity_id: string }[]): string[] {
+  const keys = plugs.slice(0, SOFT_KEY_COUNT - 1).map((p) => p.entity_id);
+  while (keys.length < SOFT_KEY_COUNT - 1) keys.push(KEY_NONE);
+  return [...keys, KEY_ALL_OFF];
+}
+
+const validScene = (s: SceneButton) =>
+  !!s.name &&
+  (s.builtin
+    ? (SCENE_BUILTINS as readonly string[]).includes(s.builtin) && !s.entity_id
+    : /^(scene|script)\./.test(s.entity_id ?? ""));
 
 /** A config from HA, missing parts filled from the defaults' shape (HA normalises it already; this guards old ones). */
 export function mergePanelConfig(raw: Partial<PanelConfig> | null | undefined): PanelConfig {
   const d = DEFAULT_CONFIG;
   if (!raw) return structuredClone(d);
+  const plugs = (raw.plugs ?? []).map((p) => ({ ...p, energy_to_wh: p.energy_to_wh ?? 1 }));
+  const keys = raw.power_keys ?? defaultPowerKeys(plugs);
   const tabs = (raw.tabs ?? d.tabs).filter((t): t is TabId =>
     (TAB_IDS as readonly string[]).includes(t),
   );
@@ -269,9 +339,13 @@ export function mergePanelConfig(raw: Partial<PanelConfig> | null | undefined): 
     tabs: tabs.length ? tabs : [...d.tabs],
     names: raw.names ?? {},
     lights: raw.lights ?? [],
+    scenes: (raw.scenes ?? defaultScenes(raw.media?.movie_on))
+      .filter(validScene)
+      .slice(0, MAX_SCENES),
     evening: { ...d.evening, entity_id: null, ...(raw.evening ?? {}) },
     vacuum: { rooms: [], ...(raw.vacuum ?? {}) },
-    plugs: (raw.plugs ?? []).map((p) => ({ ...p, energy_to_wh: p.energy_to_wh ?? 1 })),
+    plugs,
+    power_keys: Array.from({ length: SOFT_KEY_COUNT }, (_, i) => keys[i] || KEY_NONE),
     media: { music_backend: "app", ...(raw.media ?? {}) },
     sensors: { ...(raw.sensors ?? {}) },
     screensaver: {

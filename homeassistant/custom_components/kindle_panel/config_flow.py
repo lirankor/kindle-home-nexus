@@ -28,7 +28,11 @@ from .const import (
     OPT_EDITED,
     PHOTO_FALLBACKS,
     PHOTO_MODES,
+    POWER_KEY_ALL_OFF,
+    POWER_KEY_COUNT,
+    POWER_KEY_NONE,
     ROOM_ICONS,
+    SCENE_ICONS,
     SOURCE_IMMICH_FAVORITES,
     SOURCE_MEDIA,
     TABS,
@@ -143,6 +147,42 @@ CARD_LABELS = {
 }
 
 
+BUILTIN = "builtin:"  # entity ids never contain a colon
+BUILTIN_LABELS = {
+    "bright": "Built in: Bright (every panel light on, 100 %)",
+    "evening": "Built in: Evening (the evening light dimmed, the others off)",
+}
+
+
+def _scene_rows(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Stored scene buttons as list-editor rows: one "runs" choice for a built-in scene or an HA scene/script."""
+    return [
+        {
+            "runs": f"{BUILTIN}{s['builtin']}" if s.get("builtin") else s["entity_id"],
+            "name": s["name"],
+            "icon": s.get("icon", "star"),
+        }
+        for s in scenes
+    ]
+
+
+def _scenes_from_rows(rows: Any) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        runs = str(row.get("runs") or "")
+        scene: dict[str, Any] = {"name": (row.get("name") or "").strip(), "icon": row.get("icon") or "star"}
+        if runs.startswith(BUILTIN):
+            scene["builtin"] = runs[len(BUILTIN) :]
+        else:
+            scene["entity_id"] = runs  # empty or wrong: normalize() refuses it and the page shows why
+        out.append(scene)
+    return out
+
+
+def _power_key_field(i: int) -> str:
+    return f"key_f{i + 1}"
+
+
 class KindlePanelOptionsFlow(OptionsFlow):
     """One menu, one page per area. Every page saves straight into the panel config."""
 
@@ -206,7 +246,13 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 {
                     vol.Required("language", default=c["language"]): _select(LANGUAGES, "language"),
                     _opt("tabs", _tab_rows(c["tabs"])): _list(
-                        {"tab": {"label": "Tab", "required": True, "selector": {"select": {"options": TABS, "translation_key": "tab"}}}},
+                        {
+                            "tab": {
+                                "label": "Tab",
+                                "required": True,
+                                "selector": {"select": {"options": TABS, "translation_key": "tab"}},
+                            }
+                        },
                         "tab",
                     ),
                     _opt("indoor_temperature", s.get("indoor_temperature")): _entity("sensor"),
@@ -221,6 +267,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
         c = self.cfg
         if user_input is not None:
             c["lights"] = user_input.get("lights") or []
+            c["scenes"] = _scenes_from_rows(user_input.get("scenes"))
             c["evening"] = {
                 "entity_id": user_input.get("evening_light"),
                 "brightness_pct": int(user_input.get("evening_pct", 40)),
@@ -229,6 +276,14 @@ class KindlePanelOptionsFlow(OptionsFlow):
             if (done := self._save("lights")) is not None:
                 return done
         ev = c["evening"]
+        # What a scene button can run: the built-in scenes, every HA scene and script (configured ones stay listed).
+        runs = {f"{BUILTIN}{k}": v for k, v in BUILTIN_LABELS.items()}
+        for st in sorted(self.hass.states.async_all(["scene", "script"]), key=lambda x: x.entity_id):
+            kind = "Scene" if st.domain == "scene" else "Script"
+            runs[st.entity_id] = f"{kind}: {st.name} ({st.entity_id})"
+        rows = _scene_rows(c["scenes"])
+        for row in rows:
+            runs.setdefault(row["runs"], row["runs"])
         return self._form(
             "lights",
             vol.Schema(
@@ -242,6 +297,28 @@ class KindlePanelOptionsFlow(OptionsFlow):
                             "name": {"required": True, "selector": {"text": {}}},
                             "room": {"selector": {"text": {}}},
                             "icon": {"selector": {"select": {"options": LIGHT_ICONS}}},
+                        },
+                        "name",
+                    ),
+                    _opt("scenes", rows): _list(
+                        {
+                            # Labels spelled out here: the frontend does not translate fields nested in an object.
+                            "runs": {
+                                "label": "Runs",
+                                "required": True,
+                                "selector": {
+                                    "select": {
+                                        "options": [{"value": k, "label": v} for k, v in runs.items()],
+                                        "mode": "dropdown",
+                                    }
+                                },
+                            },
+                            "name": {
+                                "label": "Name (English; Hebrew from General → Hebrew names)",
+                                "required": True,
+                                "selector": {"text": {}},
+                            },
+                            "icon": {"label": "Icon", "selector": {"select": {"options": SCENE_ICONS}}},
                         },
                         "name",
                     ),
@@ -290,8 +367,21 @@ class KindlePanelOptionsFlow(OptionsFlow):
         c = self.cfg
         if user_input is not None:
             c["plugs"] = user_input.get("plugs") or []
+            c["power_keys"] = [user_input.get(_power_key_field(i)) or POWER_KEY_NONE for i in range(POWER_KEY_COUNT)]
             if (done := self._save("power")) is not None:
                 return done
+        # F1..F4: a plug, all plugs off, or nothing. Plugs added on this page are offered once it was saved and reopened.
+        choices = {p["entity_id"]: f"Plug: {p['name']}" for p in c["plugs"]}
+        choices[POWER_KEY_ALL_OFF] = "All plugs off"
+        choices[POWER_KEY_NONE] = "Nothing"
+        for key in c["power_keys"]:
+            choices.setdefault(key, f"{key} (not in the plug list)")
+        key_select = sel.SelectSelector(
+            sel.SelectSelectorConfig(
+                options=[sel.SelectOptionDict(value=k, label=v) for k, v in choices.items()],
+                mode=sel.SelectSelectorMode.DROPDOWN,
+            )
+        )
         return self._form(
             "power",
             vol.Schema(
@@ -316,7 +406,8 @@ class KindlePanelOptionsFlow(OptionsFlow):
                             },
                         },
                         "name",
-                    )
+                    ),
+                    **{vol.Required(_power_key_field(i), default=k): key_select for i, k in enumerate(c["power_keys"])},
                 }
             ),
         )

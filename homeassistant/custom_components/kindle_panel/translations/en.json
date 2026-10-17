@@ -45,9 +45,14 @@
         "title": "Lights",
         "data": {
           "lights": "Lights (in screen order)",
-          "evening_light": "Evening scene light",
-          "evening_pct": "Evening brightness",
-          "warm_kelvin": "Warm white"
+          "scenes": "Scene buttons (in screen order: F1, F2, F3)",
+          "evening_light": "Built-in Evening: light",
+          "evening_pct": "Built-in Evening: brightness",
+          "warm_kelvin": "Built-in Evening: colour temperature"
+        },
+        "data_description": {
+          "scenes": "Up to 3 buttons on the Lights tab (F4 stays 'All off'). Each runs an HA scene or script, or a built-in scene: Bright (every light on, 100 %) or Evening (the light below dimmed and warm, the others off). The names Bright, Evening and Movie show in Hebrew by themselves; other names take their Hebrew from General → Hebrew names.",
+          "evening_light": "Only used by a built-in Evening button."
         }
       },
       "vacuum": {
@@ -62,10 +67,15 @@
       "power": {
         "title": "Power plugs",
         "data": {
-          "plugs": "Plugs (in screen order)"
+          "plugs": "Plugs (in screen order)",
+          "key_f1": "F1 key",
+          "key_f2": "F2 key",
+          "key_f3": "F3 key",
+          "key_f4": "F4 key"
         },
         "data_description": {
-          "plugs": "energy_to_wh converts the energy sensor to Wh (1 for Wh, 1000 for kWh)."
+          "plugs": "energy_to_wh converts the energy sensor to Wh (1 for Wh, 1000 for kWh).",
+          "key_f1": "What the four keys under the Power tab do: switch a plug, switch all plugs off, or nothing. A plug added above can be picked after saving and opening this page again."
         }
       },
       "media": {
