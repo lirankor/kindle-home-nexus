@@ -191,6 +191,48 @@ export function powerOnFromHa(
   };
 }
 
+/** The panel's own power-on attempt (Q13). A wake through the bridge can finish within ~3 s, before the bridge's step
+ *  ever reaches a snapshot, so from the key press the panel shows "Turning on…" itself until the amp reports on
+ *  (→ done), the bridge or its turn_on call fails (→ failed), or POWER_ON_GIVE_UP_MS passes (→ failed). The final
+ *  status stays readable for POWER_ON_FINAL_MS so both the 2 s poll and the snapshot see it. */
+export type PowerAttempt = {
+  startedAt: number;
+  error: string | null;
+  final: PowerOnStatus | null;
+  finalAt: number;
+  /** The bridge reported a running step during this attempt (its "failed" before that is an old one). */
+  sawBridge?: boolean;
+};
+export const POWER_ON_GIVE_UP_MS = 90_000;
+export const POWER_ON_FINAL_MS = 10_000;
+
+export function powerOnView(
+  s: HaMusicState,
+  now: number,
+  startedAt: number | null,
+  attempt: PowerAttempt | null,
+): { status: PowerOnStatus | null; attempt: PowerAttempt | null } {
+  if (!attempt) return { status: powerOnFromHa(s, now, startedAt), attempt };
+  const started = attempt.startedAt;
+  if (attempt.final)
+    return now - attempt.finalAt < POWER_ON_FINAL_MS
+      ? { status: { ...attempt.final, updatedAt: now }, attempt }
+      : { status: powerOnFromHa(s, now, startedAt), attempt: null };
+  const real = powerOnFromHa(s, now, started);
+  const base = { startedAt: started, updatedAt: now, elapsedMs: now - started, source: null };
+  const end = (status: PowerOnStatus) => ({
+    status,
+    attempt: { ...attempt, final: status, finalAt: now },
+  });
+  if (real?.running) return { status: real, attempt: { ...attempt, sawBridge: true } }; // the bridge's own steps
+  if (real?.step === "failed" && attempt.sawBridge) return end(real);
+  if (attempt.error) return end({ ...base, running: false, step: "failed", error: attempt.error });
+  if (s.amp.on) return end({ ...base, running: false, step: "done" });
+  if (now - started > POWER_ON_GIVE_UP_MS)
+    return end({ ...base, running: false, step: "failed", error: "amplifier did not turn on" });
+  return { status: { ...base, running: true, step: "turn_on" }, attempt };
+}
+
 /** AirPlay is "the music path" for the panel just like SERVER (DLNA): both are Music Assistant playing. */
 export const panelSource = (src: string | null): AmpSource | null =>
   src === "AirPlay" ? "SERVER" : isAmpSource(src) ? src : null;
@@ -334,6 +376,13 @@ async function panelQueue(player: string): Promise<PanelQueue | null> {
 // ---- Runtime ----
 let lastState: { at: number; value: HaMusicState } | null = null;
 let powerStartedAt: number | null = null;
+let powerAttempt: PowerAttempt | null = null;
+/** The power-on status shown on the panel: the bridge's steps, or the panel's own attempt in between. */
+function currentPowerOn(s: HaMusicState, now = Date.now()): PowerOnStatus | null {
+  const v = powerOnView(s, now, powerStartedAt, powerAttempt);
+  powerAttempt = v.attempt;
+  return v.status;
+}
 let lastRadio: RadioPosition | null = null;
 
 export async function readMusicState(maxAgeMs = 0): Promise<HaMusicState> {
@@ -359,7 +408,7 @@ export async function readMediaSnapshotHa(
   const snap = build(projectStates(states, s), {
     queue: queueFromHa(s),
     radio: lastRadio,
-    powerOn: powerOnFromHa(s, Date.now(), powerStartedAt),
+    powerOn: currentPowerOn(s),
   });
   return withRadio(snap, s);
 }
@@ -510,11 +559,17 @@ const control = (op: string) =>
 
 export async function startPowerOnHa(): Promise<PowerOnStatus> {
   powerStartedAt = Date.now();
-  // The bridge's turn_on blocks until the amp is up (25–60 s from deep standby): fire and forget.
-  void service("media_player", "turn_on", { entity_id: BRIDGE }).catch(() => undefined);
+  const attempt: PowerAttempt = { startedAt: powerStartedAt, error: null, final: null, finalAt: 0 };
+  powerAttempt = attempt;
+  lastState = null; // the next status read asks HA, not a cache from before the key press
+  // The bridge's turn_on blocks until the amp is up (25–60 s from deep standby): fire and forget, but remember a
+  // refusal so the panel shows "failed" instead of waiting for the give-up time.
+  void service("media_player", "turn_on", { entity_id: BRIDGE }).catch((e: unknown) => {
+    attempt.error = e instanceof Error ? e.message : String(e);
+  });
   return {
     running: true,
-    step: "wait",
+    step: "turn_on",
     startedAt: powerStartedAt,
     updatedAt: powerStartedAt,
     elapsedMs: 0,
@@ -523,7 +578,7 @@ export async function startPowerOnHa(): Promise<PowerOnStatus> {
 }
 export async function powerOnStatusHa(): Promise<PowerOnStatus | null> {
   const s = await readMusicState(1500).catch(() => null);
-  return s ? powerOnFromHa(s, Date.now(), powerStartedAt) : null;
+  return s ? currentPowerOn(s) : null;
 }
 
 /** Actions the HA backend handles itself; everything else (plug, TV, movie, FM, all_off) stays as it was. */

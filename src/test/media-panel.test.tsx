@@ -479,11 +479,29 @@ describe("Media tab and amp view", () => {
     press("F3");
     await waitFor(() => expect(mocks.startAmpPowerOn).toHaveBeenCalledTimes(1));
     const dialog = screen.getByRole("dialog", { name: "Amplifier view" });
-    expect(dialog.textContent).toContain("The amplifier is off");
+    // "Turning on…" shows at once (optimistic); the refusal drops it again.
+    await waitFor(() => expect(dialog.textContent).toContain("The amplifier is off"));
     expect(dialog.textContent).toContain("Power on: the right-hand button");
     expect(dialog.textContent).toContain("No answer from the amplifier (plug on)");
     press("F4");
     await waitFor(() => expect(mocks.startAmpPowerOn).toHaveBeenCalledTimes(2));
+  });
+
+  it("shows Turning on… the moment the power-on key is pressed, before the server answers (Q13)", async () => {
+    const off = liveResult();
+    off.snapshot!.amp = { ...off.snapshot!.amp, on: false, state: "off", source: null };
+    mocks.getMediaSnapshot.mockResolvedValue(off);
+    let answer: (v: unknown) => void = () => {};
+    mocks.startAmpPowerOn.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    mocks.getPowerOnStatus.mockResolvedValue(null); // a poll that ran before the server registered the start
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open the amplifier")).toBeVisible());
+    press("F3");
+    await waitFor(() => expect(mocks.startAmpPowerOn).toHaveBeenCalledTimes(1));
+    const dialog = screen.getByRole("dialog", { name: "Amplifier view" });
+    await waitFor(() => expect(dialog.textContent).toContain("Turning on…"));
+    answer({ ok: false, error: "nope" });
+    await waitFor(() => expect(dialog.textContent).toContain("The amplifier is off"));
   });
 
   it("fetches a fresh snapshot the moment the tab becomes active again", async () => {

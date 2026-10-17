@@ -247,8 +247,11 @@ export function useMediaPanel({
   });
   const polled = poQuery.data;
   const polledAt = poQuery.dataUpdatedAt;
+  /** A power-on start is in flight: the optimistic block must not be dropped by a poll that ran before it. */
+  const startingPowerOn = useRef(false);
   useEffect(() => {
     if (polled === undefined) return;
+    if (polled === null && startingPowerOn.current) return;
     // null = the server knows no routine (restarted): nothing to show. An older status (cached from
     // a previous routine) never overrides a newer one.
     setLocalPowerOn((local) =>
@@ -352,14 +355,32 @@ export function useMediaPanel({
 
   const startPowerOn = useCallback(
     async (source?: AmpSource) => {
+      // Optimistic (Q13): "Turning on…" in the key's own redraw, before the server answers; the server's status
+      // replaces it, and a refusal drops it.
+      const now = Date.now();
+      startingPowerOn.current = true;
+      setLocalPowerOn({
+        running: true,
+        step: "turn_on",
+        startedAt: now,
+        updatedAt: now,
+        elapsedMs: 0,
+        source: source ?? null,
+      });
       try {
         const res = await startAmpPowerOn({ data: source ? { source } : {} });
         if (res.ok && res.status) {
           setLocalPowerOn(res.status);
           notify({ text: t("act.powerOn") });
-        } else notify({ text: res.error ?? t("err.failed"), error: true });
+        } else {
+          setLocalPowerOn(res.status ?? null);
+          notify({ text: res.error ?? t("err.failed"), error: true });
+        }
       } catch {
+        setLocalPowerOn(null);
         notify({ text: t("err.server"), error: true });
+      } finally {
+        startingPowerOn.current = false;
       }
       refetchSnapshotSoon();
     },

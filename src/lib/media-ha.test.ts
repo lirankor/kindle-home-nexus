@@ -9,6 +9,10 @@ import {
   playSelectionHa,
   positionOf,
   powerOnFromHa,
+  powerOnView,
+  POWER_ON_GIVE_UP_MS,
+  POWER_ON_FINAL_MS,
+  type PowerAttempt,
   projectStates,
   queueFromHa,
   readMediaSnapshotHa,
@@ -102,6 +106,59 @@ describe("pure mappings", () => {
     expect(
       powerOnFromHa(music({ powerOn: { running: false, step: "idle", error: null } }), 1, 1),
     ).toBeNull();
+  });
+});
+
+describe("power-on shown from the key press (Q13)", () => {
+  const off = (step = "idle", running = false, error: string | null = null) =>
+    music({
+      amp: { ...music().amp, on: false, state: "off", playing: false },
+      powerOn: { running, step, error },
+    });
+  const fresh = (startedAt = 1_000): PowerAttempt => ({
+    startedAt,
+    error: null,
+    final: null,
+    finalAt: 0,
+  });
+  it("shows turning on while the bridge is still idle, the bridge's steps while it reports them", () => {
+    let v = powerOnView(off(), 1_500, null, fresh());
+    expect(v.status).toMatchObject({ running: true, step: "turn_on", elapsedMs: 500 });
+    v = powerOnView(off("boot", true), 3_000, 1_000, v.attempt);
+    expect(v.status).toMatchObject({ running: true, step: "wait" });
+    expect(v.attempt).not.toBeNull();
+  });
+  it("ends with done once the amp reports on, and keeps the final status for both readers", () => {
+    let v = powerOnView(off(), 2_000, null, fresh());
+    v = powerOnView(music(), 4_000, null, v.attempt); // a 3 s wake: the bridge never showed a step
+    expect(v.status).toMatchObject({ running: false, step: "done" });
+    expect(powerOnView(music(), 5_000, null, v.attempt).status?.step).toBe("done");
+    const later = powerOnView(music(), 4_000 + POWER_ON_FINAL_MS + 1, null, v.attempt);
+    expect(later.attempt).toBeNull(); // back to the bridge's own status
+    expect(later.status).toEqual(powerOnFromHa(music(), 4_000 + POWER_ON_FINAL_MS + 1, null));
+  });
+  it("fails on a refused turn_on, a bridge failure, or after the give-up time", () => {
+    expect(powerOnView(off(), 2_000, null, { ...fresh(), error: "refused" }).status).toMatchObject({
+      running: false,
+      step: "failed",
+      error: "refused",
+    });
+    // A "failed" left over from an earlier attempt does not end this one; one after the bridge ran does.
+    expect(powerOnView(off("failed", false, "old"), 2_000, null, fresh()).status).toMatchObject({
+      running: true,
+      step: "turn_on",
+    });
+    const ran = powerOnView(off("boot", true), 2_000, null, fresh()).attempt;
+    expect(powerOnView(off("failed", false, "no answer"), 3_000, null, ran).status).toMatchObject({
+      step: "failed",
+      error: "no answer",
+    });
+    expect(powerOnView(off(), 1_000 + POWER_ON_GIVE_UP_MS + 1, null, fresh()).status).toMatchObject(
+      { step: "failed" },
+    );
+  });
+  it("without an attempt it is the bridge's status as before", () => {
+    expect(powerOnView(off(), 1, null, null)).toEqual({ status: null, attempt: null });
   });
 });
 
