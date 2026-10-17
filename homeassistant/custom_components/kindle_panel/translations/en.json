@@ -94,7 +94,8 @@
           "cards": "Cards on the photo (up to 3, in this order)",
           "fallback": "When no photos are connected",
           "unsplash_query": "Unsplash search",
-          "unsplash_key": "Unsplash access key (optional)"
+          "unsplash_key": "Unsplash access key (optional; empty keeps the stored one)",
+          "unsplash_key_clear": "Remove the stored Unsplash key"
         },
         "data_description": {
           "sources": "Any picture folder Home Assistant knows: Immich favourites, an Immich album, person or tag, local media, …",
@@ -147,14 +148,6 @@
         "curate": "Not judged yet first, then the kept ones",
         "all_but_skipped": "Everything except skipped",
         "kept_only": "Only kept photos"
-      }
-    },
-    "card_type": {
-      "options": {
-        "outdoor": "Outdoor (weather)",
-        "indoor": "Indoor (temperature, humidity)",
-        "calendar": "Calendar",
-        "sensor": "Sensor"
       }
     },
     "photo_fallback": {

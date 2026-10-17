@@ -6,10 +6,12 @@ describe("Unsplash fallback photos", () => {
   const seen: { url: string; auth: string | null }[] = [];
   let jpeg: Buffer;
   let unsplashStatus = 200;
+  let picsumUp = true;
 
   beforeEach(async () => {
     seen.length = 0;
     unsplashStatus = 200;
+    picsumUp = true;
     delete process.env["UNSPLASH_ACCESS_KEY"];
     jpeg = await sharp({ create: { width: 40, height: 60, channels: 3, background: "#888" } })
       .jpeg()
@@ -36,6 +38,8 @@ describe("Unsplash fallback photos", () => {
             },
           ]);
         }
+        if (url.startsWith("https://picsum.photos/") && !picsumUp)
+          throw new TypeError("fetch failed");
         if (url.startsWith("https://picsum.photos/600/800"))
           return new Response(new Uint8Array(jpeg), { headers: { "picsum-id": "42" } });
         if (url === "https://picsum.photos/id/42/info") return Response.json({ author: "Pic Sum" });
@@ -59,6 +63,7 @@ describe("Unsplash fallback photos", () => {
     const img = seen.find((s) => s.url.startsWith("https://images.unsplash.com/"))!;
     expect(img.auth).toBeNull();
     expect(new URL(img.url).searchParams.get("w")).toBe("600");
+    expect(new URL(img.url).searchParams.get("sat")).toBe("-100");
     await vi.waitFor(() =>
       expect(seen.some((s) => s.url.endsWith("/photos/u1/download"))).toBe(true),
     );
@@ -76,14 +81,24 @@ describe("Unsplash fallback photos", () => {
     expect(seen[0]!.url).toBe("https://picsum.photos/600/800?grayscale");
   });
 
-  it("offline or rate-limited: null (the bundled sample), and no retry storm", async () => {
+  it("a refused key or a rate limit falls back to Lorem Picsum", async () => {
     const { onlinePhoto, resetOnlinePhotos } = await import("./unsplash.server");
     resetOnlinePhotos();
     unsplashStatus = 403;
+    expect((await onlinePhoto({ key: "k1", query: "q" }))?.credit).toBe("Pic Sum");
+  });
+
+  it("offline: null (the bundled sample), no retry storm, but a new key or search tries again", async () => {
+    const { onlinePhoto, resetOnlinePhotos } = await import("./unsplash.server");
+    resetOnlinePhotos();
+    unsplashStatus = 403;
+    picsumUp = false;
     expect(await onlinePhoto({ key: "k1", query: "q" })).toBeNull();
     const calls = seen.length;
     expect(await onlinePhoto({ key: "k1", query: "q" })).toBeNull();
     expect(seen.length).toBe(calls); // cooling down
+    unsplashStatus = 200;
+    expect((await onlinePhoto({ key: "k2", query: "q" }))?.credit).toBe("Ansel A.");
   });
 
   it("never sends the Unsplash key to the browser", () => {

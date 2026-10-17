@@ -121,6 +121,14 @@ MEDIA_KEYS = (
 )
 
 
+CARD_LABELS = {
+    "outdoor": "Outdoor (weather)",
+    "indoor": "Indoor (temperature, humidity)",
+    "calendar": "Calendar",
+    "sensor": "Sensor (any entity)",
+}
+
+
 class KindlePanelOptionsFlow(OptionsFlow):
     """One menu, one page per area. Every page saves straight into the panel config."""
 
@@ -345,7 +353,9 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 ],
                 "fallback": user_input["fallback"],
                 "unsplash_query": (user_input.get("unsplash_query") or "").strip() or s["unsplash_query"],
-                "unsplash_key": (user_input.get("unsplash_key") or "").strip() or None,
+                "unsplash_key": None
+                if user_input.get("unsplash_key_clear")
+                else (user_input.get("unsplash_key") or "").strip() or s.get("unsplash_key"),
             }
             if (done := self._save("screensaver")) is not None:
                 return done
@@ -364,26 +374,29 @@ class KindlePanelOptionsFlow(OptionsFlow):
                     vol.Required("idle_minutes", default=s["idle_minutes"]): _num(1, 120, 1, "min"),
                     _opt("cards", s["cards"]): _list(
                         {
+                            # Labels spelled out here: the frontend does not translate selects nested in an object.
                             "type": {
+                                "label": "Card",
                                 "required": True,
                                 "selector": {
                                     "select": {
-                                        "options": CARD_TYPES,
-                                        "translation_key": "card_type",
+                                        "options": [{"value": t, "label": CARD_LABELS[t]} for t in CARD_TYPES],
                                     }
                                 },
                             },
-                            "entity_id": {"selector": {"entity": {}}},
-                            "label": {"selector": {"text": {}}},
-                            "icon": {"selector": {"select": {"options": CARD_ICONS}}},
+                            "entity_id": {"label": "Entity (sensor card)", "selector": {"entity": {}}},
+                            "label": {"label": "Label (sensor card)", "selector": {"text": {}}},
+                            "icon": {"label": "Icon (sensor card)", "selector": {"select": {"options": CARD_ICONS}}},
                         },
                         "type",
                     ),
                     vol.Required("fallback", default=s["fallback"]): _select(PHOTO_FALLBACKS, "photo_fallback"),
                     vol.Optional("unsplash_query", default=s["unsplash_query"]): sel.TextSelector(),
-                    _opt("unsplash_key", s.get("unsplash_key")): sel.TextSelector(
+                    # The stored key is never sent back to the browser: empty keeps it, the checkbox removes it.
+                    vol.Optional("unsplash_key"): sel.TextSelector(
                         sel.TextSelectorConfig(type=sel.TextSelectorType.PASSWORD)
                     ),
+                    vol.Optional("unsplash_key_clear", default=False): sel.BooleanSelector(),
                 }
             ),
         )

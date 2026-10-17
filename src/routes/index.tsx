@@ -509,10 +509,15 @@ function HomeControl() {
     forceNextPhoto.current = true;
     // F4 = skip for good (stored in Home Assistant with the kindle_panel integration), then the next photo
     // (asked once the skip is stored, so HA never hands the skipped one back).
-    const skipped = photoAssetId
-      ? markScreensaverPhoto({ data: { id: photoAssetId, verdict: "skip" } }).catch(() => undefined)
-      : Promise.resolve();
-    void skipped.then(() => photoRefetch());
+    if (!photoAssetId) {
+      void photoRefetch();
+      return;
+    }
+    setMarking(true); // a second F4 meanwhile does nothing
+    void markScreensaverPhoto({ data: { id: photoAssetId, verdict: "skip" } })
+      .catch(() => undefined)
+      .then(() => photoRefetch())
+      .finally(() => setMarking(false));
   };
   // While a mark + next photo is in flight the bridge holds its post-key screenshot (data-eink-busy),
   // so the Kindle gets the new photo in the key's own redraw instead of the next poll.

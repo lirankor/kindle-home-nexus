@@ -12,6 +12,7 @@ describe("panel config from Home Assistant", () => {
   let marksSeeded = false;
   let panelInstalled = true;
   let haDown = false;
+  let entryStillThere = false; // services gone, entry still there: HA starting or the entry being retried
 
   beforeEach(async () => {
     vi.resetModules();
@@ -20,6 +21,7 @@ describe("panel config from Home Assistant", () => {
     marksSeeded = false;
     panelInstalled = true;
     haDown = false;
+    entryStillThere = false;
     const dir = await mkdtemp(path.join(os.tmpdir(), "panel-"));
     await writeFile(
       path.join(dir, "kindle-photo-marks.json"),
@@ -36,6 +38,8 @@ describe("panel config from Home Assistant", () => {
         const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
         calls.push({ path: p, body });
         if (haDown) throw new TypeError("fetch failed");
+        if (p.startsWith("/api/config/config_entries/entry"))
+          return Response.json(panelInstalled || entryStillThere ? [{ entry_id: "e1" }] : []);
         if (!panelInstalled) return new Response("{}", { status: 400 });
         if (p.startsWith("/api/services/kindle_panel/get_config"))
           return Response.json({
@@ -92,6 +96,27 @@ describe("panel config from Home Assistant", () => {
     expect((await ensurePanelConfig()).source).toBe("ha"); // one "no such service" may be HA starting up
     vi.advanceTimersByTime(61_000);
     expect((await ensurePanelConfig()).source).toBe("default");
+  });
+
+  it("keeps the HA config while kindle_panel's services are missing but its entry is there (HA starting)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onlyLight();
+    const { ensurePanelConfig } = await import("./panel-config.server");
+    await ensurePanelConfig();
+    panelInstalled = false;
+    entryStillThere = true;
+    for (let i = 0; i < 6; i++) {
+      vi.advanceTimersByTime(61_000);
+      expect((await ensurePanelConfig()).source).toBe("ha");
+    }
+  });
+
+  it("does not take a missing marks file as 'no marks' when MEDIA_STATE_DIR is unset", async () => {
+    delete process.env["MEDIA_STATE_DIR"];
+    const { ensurePanelConfig } = await import("./panel-config.server");
+    await ensurePanelConfig();
+    const seed = calls.find((c) => c.path.startsWith("/api/services/kindle_panel/seed"))!;
+    expect("kept" in seed.body).toBe(false);
   });
 
   it("does not hand over the marks while the marks file cannot be read", async () => {

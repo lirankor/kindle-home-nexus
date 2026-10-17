@@ -327,7 +327,27 @@ async def test_screensaver_cards_and_unsplash_fallback(hass, panel) -> None:
     s = (await call(hass, "get_config"))["config"]["screensaver"]
     assert s["cards"] == cards and s["unsplash_query"] == "bauhaus architecture" and s["unsplash_key"] == "abc123"
 
+    # the stored key never goes back to the browser; empty keeps it, the checkbox removes it
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "screensaver"})
+    assert "abc123" not in repr(flow["data_schema"].schema)
+    hass.config_entries.options.async_abort(flow["flow_id"])
+    assert (await save(cards=cards))["type"] is FlowResultType.CREATE_ENTRY
+    assert (await call(hass, "get_config"))["config"]["screensaver"]["unsplash_key"] == "abc123"
+    assert (await save(cards=cards, unsplash_key_clear=True))["type"] is FlowResultType.CREATE_ENTRY
+    assert (await call(hass, "get_config"))["config"]["screensaver"].get("unsplash_key") is None
+
     res = await save(cards=[{"type": "sensor", "label": "no entity"}])  # a sensor card needs an entity
     assert res["type"] is FlowResultType.FORM and res["errors"] == {"base": "invalid_config"}
     res = await save(cards=[{"type": "calendar"}] * 4)  # the panel fits three
     assert res["type"] is FlowResultType.FORM and res["errors"] == {"base": "invalid_config"}
+
+
+async def test_entry_configured_before_the_seeded_flag_is_not_reseeded(hass: HomeAssistant) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, title="Kindle Panel", data={}, options={"config": HOUSE})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert (await call(hass, "get_config"))["seeded"] is True
+    r = await call(hass, "seed", config=dict(HOUSE, language="en"))
+    assert r["config"] == "kept"

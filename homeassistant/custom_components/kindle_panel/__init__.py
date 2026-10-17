@@ -144,6 +144,14 @@ def _item_view(mass: Any, index: int, qi: Any) -> dict[str, Any]:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) -> bool:
+    legacy = entry.options.get(OPT_CONFIG) or {}
+    if (
+        (legacy.get("lights") or legacy.get("plugs"))
+        and OPT_SEEDED not in entry.options
+        and OPT_EDITED not in entry.options
+    ):
+        # configured before the seeded flag existed (0.2 pre-release): it was seeded, never seed over it again
+        hass.config_entries.async_update_entry(entry, options={**entry.options, OPT_SEEDED: True})
     marks = MarkStore(hass)
     await marks.async_load()
     rt = PanelRuntime(marks=marks, library=PhotoLibrary(hass))

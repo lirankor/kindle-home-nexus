@@ -4,7 +4,8 @@
 //   art"), portrait, in batches of 20 (well inside the 50 requests/hour of a demo key).
 // * Without a key: random Unsplash photos in grayscale through Lorem Picsum (picsum.photos, no key needed), not
 //   picked by subject.
-// Every photo is credited on the screen ("Photo: <name> · Unsplash"), as Unsplash asks.
+// Every photo is credited on the screen ("Photo by <name> on Unsplash", Unsplash's wording; the e-ink panel cannot
+// show links).
 import { cropToScreen } from "./photo.server";
 
 export type OnlinePhoto = { image: string; credit: string };
@@ -20,6 +21,7 @@ const FAIL_COOLDOWN_MS = 5 * 60_000;
 let batch: UnsplashPhoto[] = [];
 let batchKey = "";
 let failedUntil = 0;
+let failedFor = "";
 
 const isHost = (url: string, host: string) => {
   try {
@@ -57,7 +59,15 @@ async function fromUnsplash(key: string, query: string): Promise<{ raw: Buffer; 
   const p = batch.shift();
   if (!p) throw new Error("Unsplash: no photos for this search");
   const img = new URL(p.urls.raw);
-  for (const [k, v] of Object.entries({ w: "600", h: "800", fit: "crop", fm: "jpg", q: "85" }))
+  // sat=-100: Unsplash's image CDN sends it in grayscale already (the panel is grayscale anyway)
+  for (const [k, v] of Object.entries({
+    w: "600",
+    h: "800",
+    fit: "crop",
+    fm: "jpg",
+    q: "85",
+    sat: "-100",
+  }))
     img.searchParams.set(k, v);
   const raw = await bytes(img.toString());
   // Unsplash counts a use like this one (a wallpaper) as a download; the key only goes to Unsplash's own API.
@@ -94,12 +104,22 @@ export async function onlinePhoto(opts: {
   key?: string | null | undefined;
   query: string;
 }): Promise<OnlinePhoto | null> {
-  if (Date.now() < failedUntil) return null;
   const key = (opts.key ?? "").trim() || (process.env["UNSPLASH_ACCESS_KEY"] ?? "").trim();
+  const query = opts.query || "black and white art";
+  if (`${key}|${query}` !== failedFor) failedUntil = 0; // a new key or search gets a fresh try
+  if (Date.now() < failedUntil) return null;
   try {
-    const { raw, name } = key
-      ? await fromUnsplash(key, opts.query || "black and white art")
-      : await fromPicsum();
+    let got: { raw: Buffer; name: string };
+    if (key)
+      try {
+        got = await fromUnsplash(key, query);
+      } catch (e) {
+        // bad key, rate limit, nothing for this search: random grayscale Unsplash photos instead
+        console.warn("[screensaver] Unsplash API:", e instanceof Error ? e.message : e);
+        got = await fromPicsum();
+      }
+    else got = await fromPicsum();
+    const { raw, name } = got;
     return {
       image: `data:image/jpeg;base64,${(await cropToScreen(raw)).toString("base64")}`,
       credit: name,
@@ -107,6 +127,7 @@ export async function onlinePhoto(opts: {
   } catch (e) {
     console.warn("[screensaver] no photo from Unsplash:", e instanceof Error ? e.message : e);
     failedUntil = Date.now() + FAIL_COOLDOWN_MS;
+    failedFor = `${key}|${query}`;
     return null;
   }
 }
@@ -116,4 +137,5 @@ export function resetOnlinePhotos() {
   batch = [];
   batchKey = "";
   failedUntil = 0;
+  failedFor = "";
 }

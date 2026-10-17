@@ -39,8 +39,10 @@ opens a menu:
 The app reads it with `kindle_panel.get_config` (cached for 30 s, so a change shows within 30 s). The bridge
 refreshes its wake schedule every 60 s from `/api/voice/panel-schedule`. Without the integration everything runs on
 `DEFAULT_CONFIG` (`src/lib/panel-config.ts`) plus the env, exactly as before.
-- While HA is unreachable, e.g. during a restart, the panel keeps the last config it got from HA.
-- It goes back to the defaults only when HA answers twice, a minute apart, that kindle_panel is gone (rollback).
+- While HA is unreachable, e.g. during a restart, the panel keeps the last config it got from HA. That includes
+  while HA is starting up and kindle_panel's services are not registered yet.
+- It goes back to the defaults only when HA is up and twice, a minute apart, has no Kindle Panel entry at all
+  (rollback).
 - The bridge then also returns to its env schedule.
 
 ### Seeding: nothing changes on the first start
@@ -73,9 +75,10 @@ Modes:
 - `all_but_skipped`: every photo except the skipped ones.
 - `kept_only`: only kept photos.
 
-The screensaver uses the app's own Immich connection, as before, in two cases:
+The screensaver uses the app's own Immich connection, as before, in three cases:
 - `kindle_panel` is missing;
-- HA has no photos at all, e.g. HA's Immich integration is not added or not loaded yet.
+- HA has no photos at all, e.g. HA's Immich integration is not added or not loaded yet;
+- HA is unreachable, e.g. restarting.
 
 F1/F4 marks still go to HA in the second case, keyed by the same Immich asset ids. Photos are fetched with the HA
 token only from HA itself. A source that resolves to another host gets no credentials.
@@ -83,15 +86,18 @@ token only from HA itself. A source that resolves to another host gets no creden
 ### When no photos are connected: black-and-white art from Unsplash
 
 When none of the sources above gives a photo, the screensaver shows a black-and-white photo from Unsplash, credited on
-the screen ("Photo: <name> · Unsplash"). That covers no library set up, HA's Immich not added yet, Immich
+the screen ("Photo by <name> on Unsplash", Unsplash's wording; the panel cannot show links). That covers no library set up, HA's Immich not added yet, Immich
 unreachable, or everything skipped.
 - **With an Unsplash access key** (free at unsplash.com/developers; HA → Kindle Panel → Configure → Screensaver, or
   `UNSPLASH_ACCESS_KEY` in the app env): photos for the search on that page, default "black and white art", portrait.
-  They are fetched in batches of 20, well inside a demo key's 50 requests an hour. The key stays on the server and
-  is never sent to the browser.
+  They are fetched in batches of 20, well inside a demo key's 50 requests an hour.
+  - The key stays on the server: it is never sent to the browser, not even back to the HA options page. Leaving the
+    field empty keeps the stored key; a checkbox removes it.
+  - A refused key or a rate limit falls back to the keyless Lorem Picsum path.
 - **Without a key:** random grayscale Unsplash photos through Lorem Picsum (picsum.photos). They are not picked by
   subject.
-- **Offline or rate-limited:** the bundled sample photo, with a 5-minute pause before trying again.
+- **Offline:** the bundled sample photo, with a 5-minute pause before trying again. A new key or search tries
+  again at once.
 - Setting "When no photos are connected" to *the built-in sample photo* turns this off.
 - F4 shows the next photo. F1 does nothing on these photos, since they aren't yours to curate.
 
@@ -108,8 +114,9 @@ The default is Outdoor, Indoor, Calendar, as before. Fewer cards share the width
 
 ### Verified
 
-- `kindle_panel`: 17 pytest tests (`homeassistant/tests`).
-- App: 182 vitest tests.
+- `kindle_panel`: 18 pytest tests (`homeassistant/tests`).
+- App: 185 vitest tests.
+- A third independent review: no blockers. Its important findings are fixed.
 - A second independent review: 1 blocker and 6 important findings, all fixed with regression tests.
 - Screenshot regression: every tab at 600×800 in demo mode, in Hebrew and in English, is pixel-identical between
   `main` and this branch. With the default cards and no network, the screensaver is identical too. The check uses puppeteer-core with the preinstalled Chromium and runs pixelmatch with

@@ -64,6 +64,7 @@ async function call<T>(service: string, data: Record<string, unknown> = {}): Pro
  *  mounted, unreadable file): then the marks are not handed over yet, and HA keeps asking for them. */
 async function localMarks(): Promise<Record<string, string> | null> {
   const file = marksFile();
+  const stateDir = (process.env["MEDIA_STATE_DIR"] ?? "").trim();
   try {
     await access(path.dirname(file));
   } catch {
@@ -72,7 +73,9 @@ async function localMarks(): Promise<Record<string, string> | null> {
   try {
     await access(file);
   } catch {
-    return {}; // the state dir is there, nothing was ever marked
+    // The state dir is there and nothing was ever marked. Without MEDIA_STATE_DIR the file would be in the temp
+    // dir, which always exists: then "no file" proves nothing, keep asking.
+    return stateDir ? {} : null;
   }
   const raw = await readFile(file, "utf8").catch(() => null);
   if (raw === null) return null;
@@ -83,6 +86,25 @@ async function localMarks(): Promise<Record<string, string> | null> {
   }
   const m = await loadMarks(file);
   return Object.fromEntries(m.marked.map((x) => [x.id, x.at]));
+}
+
+/** HA is running and has no kindle_panel config entry. The entries list needs an admin token (the panel's token is
+ *  one); without it, HA running with no kindle_panel component loaded counts as removed. */
+async function panelRemoved(): Promise<boolean> {
+  try {
+    const entries = await ha<unknown[]>(
+      "GET",
+      "/api/config/config_entries/entry?domain=kindle_panel",
+    );
+    return Array.isArray(entries) && entries.length === 0;
+  } catch {
+    try {
+      const c = await ha<{ state?: string; components?: string[] }>("GET", "/api/config");
+      return c.state === "RUNNING" && !(c.components ?? []).includes("kindle_panel");
+    } catch {
+      return false;
+    }
+  }
 }
 
 /** While HA is unreachable the last config from HA stays (an HA restart must not flip the screen to the defaults);
@@ -99,9 +121,16 @@ async function load(): Promise<Loaded> {
     missingStrikes = 0;
   } catch (e) {
     missingUntil = Date.now() + MISSING_RETRY_MS;
-    const missing = e instanceof HomeError && e.status === 400;
-    // Twice in a row (≥ 1 min apart) "no such service": the integration was removed, back to defaults + env.
-    if (missing && ++missingStrikes >= 2) return fallback();
+    // HA answers 400 for an unknown service, also while it is still starting or the entry is being retried; only
+    // count it when HA is up and has no Kindle Panel entry at all. Twice in a row (≥ 1 min apart): the integration
+    // was removed (rollback), back to defaults + env.
+    if (
+      e instanceof HomeError &&
+      e.status === 400 &&
+      (await panelRemoved()) &&
+      ++missingStrikes >= 2
+    )
+      return fallback();
     return keepLast() ?? fallback();
   }
   if (!got.seeded || !got.marks_seeded) {

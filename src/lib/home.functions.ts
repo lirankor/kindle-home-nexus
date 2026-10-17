@@ -165,11 +165,14 @@ export const getScreensaver = createServerFn({ method: "GET" })
     try {
       const pickHa = () =>
         haPickPhoto(lastPhoto?.assetId ?? null).catch((e: unknown) => {
-          // HA has no candidates at all (e.g. HA's Immich entry not added yet, or not loaded): the panel's own
-          // Immich connection, as before. "Everything skipped" (candidates > 0) is respected, no fallback.
-          if (e instanceof NoHaPhoto && e.candidates === 0 && immichConfigured()) {
+          // HA has no photos at all (HA's Immich entry not added yet, or not loaded) or HA is unreachable (e.g.
+          // restarting): the panel's own Immich connection, as before. "Everything skipped" (candidates > 0) is
+          // respected, no fallback.
+          const allSkipped = e instanceof NoHaPhoto && e.candidates > 0;
+          if (!allSkipped && immichConfigured()) {
+            const why = e instanceof Error ? e.message : String(e);
             console.warn(
-              `[screensaver] Home Assistant has no photos (${e.message}); using Immich directly`,
+              `[screensaver] no photo from Home Assistant (${why}); using Immich directly`,
             );
             return randomFavorite();
           }
