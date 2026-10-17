@@ -67,12 +67,22 @@ def _entity(domain: str | list[str]) -> sel.EntitySelector:
     return sel.EntitySelector(sel.EntitySelectorConfig(domain=domain))
 
 
-def _select(options: list[str], key: str, multiple: bool = False, reorder: bool = False) -> sel.SelectSelector:
-    # reorder needs multiple; HA renders it as a dropdown with draggable chips (list mode shows plain checkboxes)
-    cfg: dict[str, Any] = {"options": options, "translation_key": key, "multiple": multiple}
-    if reorder:
-        cfg.update(reorder=True, mode=sel.SelectSelectorMode.DROPDOWN)
-    return sel.SelectSelector(sel.SelectSelectorConfig(**cfg))
+def _select(options: list[str], key: str, multiple: bool = False) -> sel.SelectSelector:
+    return sel.SelectSelector(sel.SelectSelectorConfig(options=options, translation_key=key, multiple=multiple))
+
+
+def _tab_rows(tabs: list[str]) -> list[dict[str, str]]:
+    """The tab order as list-editor rows: HA 2026.8's select selector has no reorder, the object list editor has drag handles."""
+    return [{"tab": t} for t in tabs]
+
+
+def _tabs_from_rows(rows: Any, fallback: list[str]) -> list[str]:
+    out: list[str] = []
+    for row in rows or []:
+        t = row.get("tab") if isinstance(row, dict) else None
+        if t in TABS and t not in out:
+            out.append(t)
+    return out or fallback
 
 
 def _num(lo: float, hi: float, step: float = 1, unit: str | None = None) -> sel.NumberSelector:
@@ -184,7 +194,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
         c = self.cfg
         if user_input is not None:
             c["language"] = user_input["language"]
-            c["tabs"] = user_input["tabs"]
+            c["tabs"] = _tabs_from_rows(user_input.get("tabs"), c["tabs"])
             c["sensors"] = {k: user_input.get(k) for k in ("indoor_temperature", "indoor_humidity", "weather")}
             c["names"] = {**c.get("names", {}), "he": user_input.get("names_he") or {}}
             if (done := self._save("general")) is not None:
@@ -195,7 +205,10 @@ class KindlePanelOptionsFlow(OptionsFlow):
             vol.Schema(
                 {
                     vol.Required("language", default=c["language"]): _select(LANGUAGES, "language"),
-                    vol.Required("tabs", default=c["tabs"]): _select(TABS, "tab", multiple=True, reorder=True),
+                    _opt("tabs", _tab_rows(c["tabs"])): _list(
+                        {"tab": {"label": "Tab", "required": True, "selector": {"select": {"options": TABS, "translation_key": "tab"}}}},
+                        "tab",
+                    ),
                     _opt("indoor_temperature", s.get("indoor_temperature")): _entity("sensor"),
                     _opt("indoor_humidity", s.get("indoor_humidity")): _entity("sensor"),
                     _opt("weather", s.get("weather")): _entity("weather"),
