@@ -14,7 +14,7 @@ from homeassistant.config_entries import (
 from homeassistant.core import callback
 from homeassistant.helpers import selector as sel
 
-from .config import normalize
+from .config import effective_sources, normalize
 from .const import (
     CARD_ICONS,
     CARD_TYPES,
@@ -339,8 +339,9 @@ class KindlePanelOptionsFlow(OptionsFlow):
         if self._found is None:
             self._found = await discover_sources(self.hass)
         found = dict(self._found)
-        current = [_source_key(x) for x in s["sources"]]
-        for src, key in zip(s["sources"], current, strict=True):  # configured sources stay selectable
+        shown = effective_sources(s["sources"])  # an empty list means Immich favourites, so that is the default
+        current = [_source_key(x) for x in shown]
+        for src, key in zip(shown, current, strict=True):  # configured sources stay selectable
             found.setdefault(key, src.get("title") or key)
         if user_input is not None:
             c["screensaver"] = {

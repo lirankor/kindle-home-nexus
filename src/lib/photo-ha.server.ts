@@ -4,7 +4,7 @@
 import { HomeError, ha } from "./home.server";
 import { cropToScreen } from "./photo.server";
 
-/** HA answered, but had no photo to give (no sources yet, Immich not loaded in HA, everything skipped). */
+/** HA answered, but had no photo to give (Immich not loaded in HA, the sources are empty, everything skipped). */
 export class NoHaPhoto extends HomeError {
   constructor(
     message: string,
@@ -21,10 +21,10 @@ type PickAnswer = {
   kept?: number;
 };
 
-export const haPhotosActive = (cfg: {
-  source: string;
-  config: { screensaver: { sources: unknown[] } };
-}) => cfg.source === "ha" && cfg.config.screensaver.sources.length > 0;
+/** Photos come from HA whenever the config does: kindle_panel always has a source (an empty list means Immich
+ *  favourites, owner 2026-10-17), so F1/F4 and the footer count go to HA too. The app's own Immich picker is only
+ *  the fallback while HA gives no photo (see getScreensaver). */
+export const haPhotosActive = (cfg: { source: string }) => cfg.source === "ha";
 
 const base = () =>
   (process.env["HA_BASE_URL"] ?? "").trim().replace(/\/+$/, "") ||

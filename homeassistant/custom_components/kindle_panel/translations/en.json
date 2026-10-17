@@ -98,7 +98,7 @@
           "unsplash_key_clear": "Remove the stored Unsplash key"
         },
         "data_description": {
-          "sources": "Any picture folder Home Assistant knows: Immich favourites, an Immich album, person or tag, local media, …",
+          "sources": "Any picture folder Home Assistant knows: Immich favourites, an Immich album, person or tag, local media, … Left empty, Immich favourites are shown.",
           "mode": "F1 on the panel keeps a photo (good on e-ink), F4 skips it for good. Skipped photos are never shown.",
           "cards": "Outdoor (weather), Indoor (temperature + humidity), Calendar, or Sensor: any entity, with a label and an icon.",
           "fallback": "Black-and-white photos from Unsplash, or the built-in sample photo. Used while no photo source has a photo.",
@@ -228,7 +228,7 @@
     },
     "pick_photo": {
       "name": "Pick a photo",
-      "description": "The next screensaver photo from the configured sources.",
+      "description": "The next screensaver photo from the configured sources (Immich favourites when none are set).",
       "fields": {
         "previous_id": {
           "name": "Previous photo",

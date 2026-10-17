@@ -213,7 +213,7 @@ export const getScreensaver = createServerFn({ method: "GET" })
   });
 
 /** F1 on the screensaver: keep (looks good on e-ink); F4: skip for good. A photo Home Assistant served is marked in
- *  HA (kindle_panel); a photo from the app's own Immich (no HA sources, or the fallback while HA gives no photo) is
+ *  HA (kindle_panel); a photo from the app's own Immich (no HA config, or the fallback while HA gives no photo) is
  *  marked in the local marks file, which that picker filters on and counts. */
 export const markScreensaverPhoto = createServerFn({ method: "POST" })
   .validator(

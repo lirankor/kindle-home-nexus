@@ -28,7 +28,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from .config import normalize
+from .config import effective_sources, normalize
 from .const import (
     CONF_MA_ENTRY,
     DOMAIN,
@@ -191,11 +191,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
         await mass.player_queues.play_index(queue.queue_id, call.data["index"])
 
     async def get_config(call: ServiceCall) -> ServiceResponse:
-        raw = entry.options.get(OPT_CONFIG)
+        cfg = normalize(entry.options.get(OPT_CONFIG))
         return {
             "seeded": bool(entry.options.get(OPT_SEEDED)),
             "marks_seeded": rt.marks.seeded,
-            "config": normalize(raw),
+            "config": cfg,
+            # what pick_photo uses: an empty source list means Immich favourites
+            "effective_sources": effective_sources(cfg["screensaver"]["sources"]),
         }
 
     async def seed(call: ServiceCall) -> ServiceResponse:
@@ -230,9 +232,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
 
     async def pick_photo(call: ServiceCall) -> ServiceResponse:
         cfg = panel_config(entry)["screensaver"]
-        sources = cfg["sources"]
-        if not sources:
-            return {"photo": None, "reason": "no photo sources configured"}
+        sources = effective_sources(cfg["sources"])
         candidates = await rt.library.candidates(sources)
         photo = pick(candidates, rt.marks, cfg["mode"], call.data.get("previous_id"))
         if photo is None:

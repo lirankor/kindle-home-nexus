@@ -175,3 +175,11 @@ CONFIG_SCHEMA = vol.Schema(
 def normalize(config: dict[str, Any] | None) -> dict[str, Any]:
     """Validated config with every default filled in (raises vol.Invalid)."""
     return CONFIG_SCHEMA(copy.deepcopy(config or {}))
+
+
+DEFAULT_SOURCES = [{"type": SOURCE_IMMICH_FAVORITES, "title": "Immich · Favourites"}]
+
+
+def effective_sources(sources: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """The screensaver sources actually used: an empty list means Immich favourites (owner, 2026-10-17)."""
+    return [dict(s) for s in (sources or DEFAULT_SOURCES)]

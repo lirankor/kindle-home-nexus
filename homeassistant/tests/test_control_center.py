@@ -420,3 +420,28 @@ async def test_discover_sources_is_capped_by_time(hass, monkeypatch) -> None:
     t = time.monotonic()
     assert await photos.discover_sources(hass, budget=0.3) == {}
     assert time.monotonic() - t < 2
+
+
+async def test_no_sources_means_immich_favourites(hass, panel) -> None:
+    """Owner, 2026-10-17: an empty screensaver source list shows Immich favourites (pick, get_config, options page)."""
+
+    async def do_request(end_point, data=None, method="GET", **kw):
+        assert end_point == "search/metadata" and data["isFavorite"] is True
+        return {"assets": {"items": [{"id": "f1", "originalFileName": "f1.jpg"}], "nextPage": None}}
+
+    immich = MockConfigEntry(domain="immich", unique_id="imm1", state=ConfigEntryState.LOADED)
+    immich.add_to_hass(hass)
+    immich.runtime_data = SimpleNamespace(api=SimpleNamespace(async_do_request=do_request))
+    await call(hass, "seed", config={**HOUSE, "screensaver": {"sources": [], "mode": "curate"}})
+    got = await call(hass, "get_config")
+    assert got["config"]["screensaver"]["sources"] == []  # stored as left
+    assert [s["type"] for s in got["effective_sources"]] == ["immich_favorites"]
+    r = await call(hass, "pick_photo")
+    assert r["photo"]["id"] == "f1" and r["photo"]["source"]
+
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "screensaver"})
+    field = next(k for k in flow["data_schema"].schema if k == "sources")
+    assert field.default() == ["immich_favorites"]
+    assert "immich_favorites" in [o["value"] for o in flow["data_schema"].schema["sources"].config["options"]]
+    hass.config_entries.options.async_abort(flow["flow_id"])

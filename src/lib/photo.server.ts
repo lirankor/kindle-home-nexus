@@ -68,7 +68,7 @@ export async function cropToScreen(input: Buffer): Promise<Buffer> {
 
 // ---- "Looks good on e-ink" marks ----
 // The user presses F1 on the screensaver to mark a photo that dithers well (keep) and F4 to never see it again
-// (skip). Without Home Assistant photos (no kindle_panel sources, or HA gives no photo and the app falls back to its
+// (skip). Without Home Assistant photos (no kindle_panel config, or HA gives no photo and the app falls back to its
 // own Immich) the marks are kept in MEDIA_STATE_DIR/kindle-photo-marks.json (the app-data bind mount): kept ids
 // leave the random pool so each favourite is judged once, skipped ids never come back. With HA photos the marks
 // live in HA (kindle_panel) instead; see home.functions.ts for which store a mark goes to.

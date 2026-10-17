@@ -50,4 +50,14 @@ describe("screensaver photos through Home Assistant", () => {
     expect(() => toUrl("file:///etc/passwd")).toThrow();
     expect(() => toUrl("//evil.example/x")).toThrow();
   });
+
+  it("routes photos to HA whenever the config comes from HA, even with no sources (= Immich favourites)", async () => {
+    const { haPhotosActive } = await import("./photo-ha.server");
+    expect(haPhotosActive({ source: "ha" })).toBe(true);
+    expect(haPhotosActive({ source: "default" })).toBe(false);
+    const { MarkRouter } = await import("./photo.server");
+    expect(new MarkRouter().storeFor("never-served-id", haPhotosActive({ source: "ha" }))).toBe(
+      "ha",
+    );
+  });
 });
