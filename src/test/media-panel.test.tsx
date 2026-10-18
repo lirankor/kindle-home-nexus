@@ -309,7 +309,9 @@ describe("Media tab and amp view", () => {
       expect.stringContaining("group"),
       expect.stringContaining("not in Home Assistant"),
     ]);
-    expect(rows()[0]?.textContent).toContain("now");
+    // bus task 023: "now-playing · state" (the check mark, not a word, marks the current output)
+    expect(rows()[0]?.textContent).toContain("Holiday · Scorpions · Playing");
+    expect(rows()[0]).toHaveAttribute("data-current", "true");
     // the unexposed TV: Enter changes nothing
     press("ArrowDown");
     press("ArrowDown");
@@ -400,6 +402,76 @@ describe("Media tab and amp view", () => {
         data: { type: "output.sync", entity: PIX, join: true },
       }),
     );
+  });
+
+  it("picker rows (task 023): one status line trimmed to fit, link glyph on the icon side, five rows a page", async () => {
+    const r = liveResult();
+    const AIR = "media_player.ma_amp_airplay";
+    const PIX = "media_player.pixel_phone";
+    const row = (entity_id: string, name: string, extra: Record<string, unknown> = {}) => ({
+      entity_id,
+      name,
+      state: "idle",
+      now: null,
+      kind: "player" as const,
+      exposed: true,
+      groupWith: [] as string[],
+      groupMembers: [] as string[],
+      syncedTo: null as string | null,
+      ...extra,
+    });
+    r.snapshot!.output = {
+      entity: AIR,
+      name: "R-N500 AirPlay",
+      valid: true,
+      outputs: [
+        row(AIR, "R-N500 AirPlay", {
+          state: "playing",
+          now: "John I Love You · Sinéad O'Connor",
+          nowParts: {
+            title: "John I Love You",
+            artist: "Sinéad O'Connor",
+            album: "I Do Not Want What I Haven't Got",
+          },
+          groupMembers: [AIR, PIX],
+        }),
+        row(PIX, "Pixel phone", { state: "playing", syncedTo: AIR }),
+        ...["A", "B", "C", "D", "E"].map((n) =>
+          row(`media_player.spk_${n.toLowerCase()}`, `Speaker ${n}`),
+        ),
+      ],
+      unexposed: [],
+      keys: ["none", "none", "none", "none"],
+      moving: null,
+      playingElsewhere: null,
+      moveError: null,
+    };
+    r.snapshot!.amp = { ...r.snapshot!.amp, source: "SERVER", state: "on" };
+    r.snapshot!.nowPlaying = { ...r.snapshot!.nowPlaying, kind: "music", station: null };
+    mocks.getMediaSnapshot.mockResolvedValue(r);
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
+    press("F1");
+    press("F3"); // Output
+    const picker = screen.getByRole("dialog", { name: "Play music on" });
+    const rows = () => Array.from(picker.querySelectorAll('[role="option"]'));
+    expect(rows()).toHaveLength(5);
+    expect(picker.querySelector(".modal-heading")?.textContent).toContain("1/2");
+    // album and artist dropped to fit the line budget (40): title · state
+    const status = rows()[0]!.querySelector(".source-row-text > span")!.textContent!;
+    expect(status).toBe("John I Love You · Playing");
+    // the member: link glyph first (the icon side), then its icon
+    const member = rows()[1]!;
+    expect(member).toHaveAttribute("data-member", "true");
+    expect(member.firstElementChild).toHaveClass("source-row-link");
+    expect(member.children[1]).toHaveClass("source-row-icon");
+    // down past the fifth row: page 2 with the last two
+    for (let i = 0; i < 5; i++) press("ArrowDown");
+    expect(rows().map((o) => o.querySelector("strong")?.textContent)).toEqual([
+      "Speaker D",
+      "Speaker E",
+    ]);
+    expect(picker.querySelector(".modal-heading")?.textContent).toContain("2/2");
   });
 
   it("a refused move (task 022): the output label stays and the music screen shows HA's reason", async () => {

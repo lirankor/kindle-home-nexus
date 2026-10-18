@@ -287,6 +287,9 @@ export type OutputRow = {
   state: string;
   /** "Title · Artist" while it has something. */
   now?: string | null;
+  /** What it plays, by part (from HA's live state), so the picker's one status line can drop the album first, then
+   *  the artist (bus task 023). */
+  nowParts?: NowParts | null;
   kind?: "player" | "group";
   /** false: an MA player without an HA entity (cannot be chosen until MA exposes it). */
   exposed?: boolean;
@@ -297,6 +300,34 @@ export type OutputRow = {
   /** It follows a sync group: the leader. */
   syncedTo?: string | null;
 };
+export type NowParts = { title: string | null; artist: string | null; album: string | null };
+/** Characters that fit on a picker row's status line (600 px panel, 20 px font, icon + check mark beside it). */
+export const OUTPUT_STATUS_CHARS = 40;
+/** A picker row's one status line (bus task 023): "now-playing · state…", trimmed to `max` characters by dropping
+ *  the album first, then the artist, then cutting the title with "…". The `tail` (state, group / sync labels) is
+ *  never dropped; CSS still ellipsizes the line if a wide font needs it. */
+export function fitStatusLine(
+  parts: NowParts | null | undefined,
+  tail: (string | null | undefined)[],
+  max = OUTPUT_STATUS_CHARS,
+): string {
+  const rest = tail.filter((x): x is string => !!x).join(" · ");
+  const join = (xs: (string | null | undefined)[]) =>
+    [...xs.filter((x): x is string => !!x), ...(rest ? [rest] : [])].join(" · ");
+  if (!parts?.title) return join([parts?.artist ?? null]).slice(0, Math.max(max, rest.length));
+  for (const xs of [
+    [parts.title, parts.artist, parts.album],
+    [parts.title, parts.artist],
+    [parts.title],
+  ]) {
+    const line = join(xs);
+    if (line.length <= max) return line;
+  }
+  const room = max - (rest ? rest.length + 3 : 0) - 1;
+  if (room < 4) return join([parts.title]); // the state alone fills the line: CSS ellipsizes the title
+  return join([`${parts.title.slice(0, room).trimEnd()}…`]);
+}
+
 /** The sync leader the panel's output belongs to: the output itself, or the group it follows. */
 export const syncLeaderOf = (rows: OutputRow[], entity: string | null): OutputRow | undefined => {
   const cur = rows.find((r) => r.entity_id === entity);

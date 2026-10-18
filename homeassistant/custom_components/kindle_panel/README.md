@@ -50,7 +50,9 @@ time by design: **to play in several rooms, make a group in Music Assistant**; t
 MA player has its own queue; the panel shows and controls only its output (state, queue, cover art), and says so when
 another output plays instead ("R-N500 AirPlay is playing · F3 to switch"). In the picker:
 
-* each row shows the player's state and what it plays, and "group" for MA groups; rows are sorted by name;
+* each row is two fixed lines (since 0.9.1, bus task 023): the name, then "what it plays · state" ("group" for MA
+  groups), each cut with "…"; when the line is too long the album goes first, then the artist. Five rows a page; more
+  page with up / down (page indicator "1/2" in the heading). Rows are sorted by name;
 * **Enter** = this panel now controls that player (nothing moves);
 * **Right**, or the right-most picker key left at *none* ("Move here"), = move the music there:
   `kindle_panel.move_queue` runs Music Assistant's transfer_queue (whole queue and position, plays at once, the source
@@ -59,12 +61,19 @@ another output plays instead ("R-N500 AirPlay is playing · F3 to switch"). In t
   players Home Assistant has no entity for (e.g. MA's own web player, "Web (Chrome on Android)", which comes and goes
   with a browser tab), are hidden. The panel's own output always stays listed. For debugging, *Media → Output picker:
   also list unavailable players* (`media.show_unavailable_outputs`) lists them again, greyed and not selectable;
+* **hidden players** (since 0.9.1, bus task 023): a player hidden in Music Assistant (*Settings → Players → (the
+  player) → Hide player*, MA's `hide_in_ui`) is never listed, and neither is one picked in *Media → Output picker:
+  never list these players* (`media.hidden_outputs`, a list of MA players, default empty). The panel's current output
+  is always listed. The F-key dropdowns still offer every player;
 * **sync** (since 0.9.0): players Music Assistant can play in sync (its `can_group_with`, e.g. AirPlay ↔ a TV ↔ a
   Sendspin phone; a DLNA player syncs with nothing) get a **Sync** key on the next picker key left at *none* to the
   left of "Move here" (and on **Left**, the only way when no second key is free). On a highlighted player that can
-  sync with the panel's output it joins the output's group (HA `media_player.join`, target = the output, or the
-  leader it follows); on a member it reads **Unsync** (`media_player.unjoin`). Members are listed under their leader,
-  indented with a link glyph, like in Music Assistant; the music screen's output label names the whole group
+  sync with the panel's output it joins the output's group (`kindle_panel.sync_output` since 0.9.1, which calls HA's
+  `media_player.join` with the output, or the leader it follows, as the target); on a member it reads **Unsync**
+  (`media_player.unjoin`). When Music Assistant says no, `sync_output` answers `{ok: false, reason: unavailable |
+  cannot | failed | not_joined, error}` and the panel shows "Cannot sync: …" on the music screen, like a refused move.
+  Members are listed under their leader with a link glyph on the icon side (the right in Hebrew), like in Music
+  Assistant; the music screen's output label names the whole group
   ("R-N500 AirPlay + TV"). The group plays the leader's queue, so the panel's output stays the leader.
 
 **A player missing from the list?** Music Assistant only gives Home Assistant an entity for a player whose setting

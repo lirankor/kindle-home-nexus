@@ -17,6 +17,9 @@
   `media.show_unavailable_outputs` is on; each row carries `group_with` / `group_members` / `synced_to` (entity ids,
   from MA's `can_group_with` / sync state) for the picker's sync key, which calls HA's media_player.join / unjoin
   (bus task 022).
+* Bus task 023: the picker never lists a player MA hides (its "hide player" flag, `hide_in_ui`) or one in
+  `media.hidden_outputs` (the panel's own output stays). `sync_output` joins / unjoins like move_queue: it answers
+  `{ok: false, reason, error}` when MA says no, so the panel shows why.
 * `/api/kindle_panel/ma_image?url=…` (HA auth): Music Assistant's image proxy through HA, so cover art reaches a panel
   that can only talk to HA (bus task 021). Only the loaded MA server's /imageproxy URLs are fetched.
 The panel only ever talks to Home Assistant.
@@ -24,6 +27,7 @@ The panel only ever talks to Home Assistant.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -98,6 +102,18 @@ MOVE_QUEUE_SCHEMA = vol.Schema(
         vol.Optional("auto_play", default=True): cv.boolean,
     }
 )
+SYNC_OUTPUT_SCHEMA = vol.Schema(
+    {
+        # the player that joins (or leaves) the group
+        vol.Required(ATTR_ENTITY_ID): vol.All(cv.entity_id, cv.entity_domain("media_player")),
+        # the group's leader; left out: the panel's current output
+        vol.Optional("leader"): vol.All(cv.entity_id, cv.entity_domain("media_player")),
+        vol.Optional("join", default=True): cv.boolean,
+    }
+)
+# how long sync_output waits for Music Assistant to show the new member in the leader's group
+SYNC_CONFIRM_S = 8.0
+SYNC_POLL_S = 0.5
 MA_IMAGE_MAX_BYTES = 8 * 1024 * 1024
 MARK_SCHEMA = vol.Schema(
     {
@@ -197,6 +213,8 @@ def ma_players(hass: HomeAssistant, mass: Any | None = None) -> list[dict[str, A
             "now": _now_line(st),
             "kind": _ma_kind(p) if p is not None else "player",
         }
+        # MA's own "hide player" flag (what the MA UI hides, the panel hides; bus task 023); unknown = visible
+        row["hidden_in_ma"] = bool(getattr(p, "hide_in_ui", False)) if p is not None else False
         if p is not None and row["kind"] == "group":
             members = getattr(p, "group_members", None) or getattr(p, "static_group_members", None) or []
             row["members"] = [m for m in members if m != e.unique_id]
@@ -210,13 +228,20 @@ def ma_players(hass: HomeAssistant, mass: Any | None = None) -> list[dict[str, A
 
 
 def visible_outputs(
-    outputs: list[dict[str, Any]], unexposed: list[dict[str, Any]], current: str | None, show_unavailable: bool
+    outputs: list[dict[str, Any]],
+    unexposed: list[dict[str, Any]],
+    current: str | None,
+    show_unavailable: bool,
+    hidden: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """What the picker lists (bus task 022): only what can be chosen, i.e. no `unavailable` player and no MA player
-    without an HA entity (MA's web clients come and go with a browser tab). The panel's own output always stays listed.
-    `show_unavailable_outputs` brings the rest back (greyed by the panel) for debugging."""
+    """What the picker lists. Bus task 023: never a player MA hides (its "hide player" flag) or one in the panel
+    option `media.hidden_outputs`. Bus task 022: only what can be chosen, i.e. no `unavailable` player and no MA player
+    without an HA entity (MA's web clients come and go with a browser tab); `show_unavailable_outputs` brings those
+    back (greyed by the panel) for debugging. The panel's own output always stays listed."""
+    skip = set(hidden or [])
+    outputs = [o for o in outputs if o["entity_id"] == current or not (o.get("hidden_in_ma") or o["entity_id"] in skip)]
     if show_unavailable:
-        return outputs, unexposed
+        return outputs, [u for u in unexposed if not u.get("hidden_in_ma")]
     return [o for o in outputs if o["state"] != "unavailable" or o["entity_id"] == current], []
 
 
@@ -495,6 +520,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
             ma_unexposed(hass, mass),
             rt.output.output,
             bool(cfg["media"].get("show_unavailable_outputs")),
+            cfg["media"].get("hidden_outputs") or [],
         )
         keys = cfg["media"]["output_keys"]
         if keys[0] == POWER_KEY_NONE and all(k == POWER_KEY_NONE for k in keys) and ids:
@@ -622,6 +648,55 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
         hass.bus.async_fire(EVENT_CONFIG_UPDATED, {"entry_id": entry.entry_id, "music_output": target})
         return {"ok": True, "music_output": target, "moved_from": source, "items": source_queue.items}
 
+    async def sync_output(call: ServiceCall) -> ServiceResponse:
+        """Sync (bus task 023): `entity_id` joins the sync group of `leader` (default: the panel's output) through
+        HA's media_player.join, or leaves it (`join: false`, media_player.unjoin). Like move_queue it answers instead
+        of raising when Music Assistant says no, so the panel can show the reason: `{ok: false, reason, error}` with
+        reason unavailable | cannot (not in MA's can_group_with) | failed (the join call raised) | not_joined (MA
+        did not list the member in the leader's group within SYNC_CONFIRM_S)."""
+        member = call.data[ATTR_ENTITY_ID]
+        leader = call.data.get("leader") or rt.output.output
+        join = call.data["join"]
+        mass, member_id = _mass_and_player(hass, entry, member)
+        refused: dict[str, Any] = {"ok": False, "entity_id": member, "leader": leader, "join": join}
+        if not join:
+            try:
+                await hass.services.async_call("media_player", "unjoin", {ATTR_ENTITY_ID: member}, blocking=True)
+            except Exception as err:  # noqa: BLE001 - HA / MA errors are shown on the panel
+                return {**refused, "reason": "failed", "error": str(err) or type(err).__name__}
+            return {"ok": True, "entity_id": member, "leader": leader, "join": False}
+        if not leader:
+            raise ServiceValidationError("the panel has no output to sync with")
+        if leader == member:
+            raise ServiceValidationError("a player cannot sync with itself")
+        _, leader_id = _mass_and_player(hass, entry, leader)
+        st = hass.states.get(member)
+        if st is None or st.state == "unavailable":
+            return {**refused, "reason": "unavailable", "error": f"{member} is not available"}
+        lp = mass.players.get(leader_id)
+        if lp is not None and member_id not in (getattr(lp, "can_group_with", None) or []):
+            return {**refused, "reason": "cannot", "error": f"Music Assistant cannot sync {member} with {leader}"}
+        try:
+            await hass.services.async_call(
+                "media_player", "join", {ATTR_ENTITY_ID: leader, "group_members": [member]}, blocking=True
+            )
+        except Exception as err:  # noqa: BLE001 - HA / MA errors are shown on the panel
+            return {**refused, "reason": "failed", "error": str(err) or type(err).__name__}
+        waited = 0.0
+        while True:
+            lp = mass.players.get(leader_id)
+            members = list(getattr(lp, "group_members", None) or []) if lp is not None else [member_id]
+            if member_id in members:
+                return {"ok": True, "entity_id": member, "leader": leader, "join": True, "group_members": members}
+            if waited >= SYNC_CONFIRM_S:
+                return {
+                    **refused,
+                    "reason": "not_joined",
+                    "error": f"Music Assistant did not add {member} to the group of {leader}",
+                }
+            await asyncio.sleep(SYNC_POLL_S)
+            waited += SYNC_POLL_S
+
     async def get_marks(call: ServiceCall) -> ServiceResponse:
         return {"kept": dict(rt.marks.kept), "skipped": dict(rt.marks.skipped)}
 
@@ -634,6 +709,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
     hass.services.async_register(DOMAIN, "get_marks", get_marks, None, SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "set_output", set_output, SET_OUTPUT_SCHEMA, SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "move_queue", move_queue, MOVE_QUEUE_SCHEMA, SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, "sync_output", sync_output, SYNC_OUTPUT_SCHEMA, SupportsResponse.OPTIONAL)
     if not hass.data.get(f"{DOMAIN}_ma_image_view"):
         hass.http.register_view(MaImageView())
         hass.data[f"{DOMAIN}_ma_image_view"] = True
@@ -659,6 +735,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "get_marks",
         "set_output",
         "move_queue",
+        "sync_output",
     ):
         hass.services.async_remove(DOMAIN, svc)
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

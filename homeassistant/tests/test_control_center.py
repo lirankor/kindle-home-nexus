@@ -10,7 +10,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -1345,14 +1345,15 @@ async def test_picker_lists_ma_players_groups_and_unexposed(hass, panel, monkeyp
     assert rows["media_player.ma_amp_dlna"]["now"] is None and rows["media_player.ma_amp_dlna"]["kind"] == "player"
     assert rows["media_player.ma_house"]["kind"] == "group" and rows["media_player.ma_house"]["members"] == ["a", "b"]
     un = r["outputs_unexposed"]
-    assert [u["name"] for u in un] == ["Pixel phone", "TV"]  # no display, no disabled player
+    # no display, no disabled player; bus task 023: no player MA hides (Pixel phone), not even for debugging
+    assert [u["name"] for u in un] == ["TV"]
     assert un[0] == {
-        "player_id": "pixel",
-        "name": "Pixel phone",
-        "state": "playing",
-        "now": "Song · Band",
+        "player_id": "updcd23cf6",
+        "name": "TV",
+        "state": "idle",
+        "now": None,
         "kind": "player",
-        "hidden_in_ma": True,
+        "hidden_in_ma": False,
     }
 
 
@@ -1502,7 +1503,9 @@ async def test_picker_rows_carry_sync_groups_as_entity_ids(hass, panel, monkeypa
     assert rows["media_player.ma_amp_airplay"]["group_with"] == ["media_player.tv_3"]  # pixel: no HA entity
     assert rows["media_player.ma_amp_airplay"]["group_members"] == ["media_player.ma_amp_airplay", "media_player.tv_3"]
     assert rows["media_player.tv_3"]["synced_to"] == "media_player.ma_amp_airplay"
-    assert rows["media_player.ma_amp_dlna"]["group_with"] == [] and rows["media_player.ma_amp_dlna"]["synced_to"] is None
+    assert (
+        rows["media_player.ma_amp_dlna"]["group_with"] == [] and rows["media_player.ma_amp_dlna"]["synced_to"] is None
+    )
 
 
 class _MoveQueues:
@@ -1590,3 +1593,167 @@ def test_tv_movie_active_takes_the_movie_script() -> None:
     assert normalize({"media": {"nodes": [node]}})["media"]["nodes"][0]["movie_active"] == "script.movie_mode"
     old = {**TV_NODE, "movie_active": "input_boolean.movie_mode_active"}  # other households: still fine
     assert normalize({"media": {"nodes": [old]}})["media"]["nodes"][0]["movie_active"].startswith("input_boolean.")
+
+
+# ---------------------------------------------------------------- bus task 023: hidden outputs, sync answers
+
+
+async def test_picker_hides_ma_hidden_players_and_the_option_list(hass, panel, monkeypatch) -> None:
+    import custom_components.kindle_panel as kp
+
+    for eid, name in [
+        ("media_player.ma_amp_airplay", "R-N500 AirPlay"),
+        ("media_player.ma_amp_dlna", "R-N500 DLNA"),
+        ("media_player.pixel_phone", "Pixel phone"),
+        ("media_player.tv_3", "TV"),
+    ]:
+        _ma_player(hass, eid, name)
+    pixel = _sp("media_player.pixel_phone", "Pixel phone")
+    pixel.hide_in_ui = True  # MA: Hide player
+    mass = SimpleNamespace(
+        players=_FakePlayers(
+            [
+                _sp("media_player.ma_amp_airplay", "R-N500 AirPlay"),
+                _sp("media_player.ma_amp_dlna", "R-N500 DLNA"),
+                pixel,
+                _sp("media_player.tv_3", "TV"),
+            ]
+        )
+    )
+    monkeypatch.setattr(kp, "_mass_client", lambda hass: mass)
+    await call(hass, "seed", config=HOUSE)
+    r = await call(hass, "get_config")
+    assert r["config"]["media"]["hidden_outputs"] == []
+    assert [o["entity_id"] for o in r["outputs"]] == [
+        "media_player.ma_amp_airplay",
+        "media_player.ma_amp_dlna",
+        "media_player.tv_3",
+    ]
+    # the owner's list hides more; the debugging option does not bring hidden players back
+    media = {"hidden_outputs": ["media_player.ma_amp_dlna"], "show_unavailable_outputs": True}
+    await call(hass, "seed", config={**HOUSE, "media": media}, force=True)
+    r = await call(hass, "get_config")
+    assert [o["entity_id"] for o in r["outputs"]] == ["media_player.ma_amp_airplay", "media_player.tv_3"]
+    # the panel's own output is always listed, hidden or not
+    await call(hass, "set_output", entity_id="media_player.pixel_phone")
+    r = await call(hass, "get_config")
+    assert "media_player.pixel_phone" in [o["entity_id"] for o in r["outputs"]]
+    assert r["music_output_valid"] is True
+    # unknown MA data (MA not loaded): visible
+    monkeypatch.setattr(kp, "_mass_client", lambda hass: None)
+    await call(hass, "seed", config=HOUSE, force=True)
+    r = await call(hass, "get_config")
+    assert len(r["outputs"]) == 4
+
+
+def test_hidden_outputs_option_validates_entity_ids() -> None:
+    from custom_components.kindle_panel.config import normalize
+
+    assert normalize({"media": {"hidden_outputs": "media_player.pixel_phone"}})["media"]["hidden_outputs"] == [
+        "media_player.pixel_phone"
+    ]
+    with pytest.raises(vol.Invalid):
+        normalize({"media": {"hidden_outputs": ["not an entity"]}})
+
+
+async def test_options_flow_saves_hidden_outputs(hass, panel) -> None:
+    _ma_player(hass, "media_player.pixel_phone", "Pixel phone")
+    await call(hass, "seed", config=HOUSE)
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "media"})
+    field = {str(k): v for k, v in flow["data_schema"].schema.items()}["hidden_outputs"]
+    assert field.config["multiple"] is True and field.config["integration"] == "music_assistant"
+    res = await hass.config_entries.options.async_configure(
+        flow["flow_id"],
+        {
+            "music_backend": "ha",
+            "nodes": [],
+            **{f"key_f{i}": "none" for i in range(1, 5)},
+            **{f"out_f{i}": "none" for i in range(1, 5)},
+            "hidden_outputs": ["media_player.pixel_phone"],
+        },
+    )
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert (await call(hass, "get_config"))["config"]["media"]["hidden_outputs"] == ["media_player.pixel_phone"]
+
+
+async def _sync_setup(hass, monkeypatch, *, join_error=None, joins=True):
+    """AirPlay (the panel's output) can sync with the TV, the DLNA player with nothing; a fake media_player.join
+    adds the member to MA's group (or raises / does nothing)."""
+    import custom_components.kindle_panel as kp
+
+    for eid, name in [
+        ("media_player.ma_amp_airplay", "R-N500 AirPlay"),
+        ("media_player.ma_amp_dlna", "R-N500 DLNA"),
+        ("media_player.tv_3", "TV"),
+    ]:
+        _ma_player(hass, eid, name)
+    air = _sp("media_player.ma_amp_airplay", "R-N500 AirPlay", can=["media_player.tv_3"], state="playing")
+    mass = SimpleNamespace(
+        players=_FakePlayers([air, _sp("media_player.ma_amp_dlna", "R-N500 DLNA"), _sp("media_player.tv_3", "TV")])
+    )
+    monkeypatch.setattr(kp, "_mass_and_player", lambda hass, entry, eid: (mass, eid))
+    monkeypatch.setattr(kp, "SYNC_CONFIRM_S", 0.02)
+    monkeypatch.setattr(kp, "SYNC_POLL_S", 0.01)
+    calls = []
+
+    async def join(call):
+        calls.append(("join", call.data["entity_id"], call.data["group_members"]))
+        if join_error:
+            raise HomeAssistantError(join_error)
+        if joins:
+            air.group_members = [air.player_id, *call.data["group_members"]]
+
+    async def unjoin(call):
+        calls.append(("unjoin", call.data["entity_id"]))
+        air.group_members = []
+
+    hass.services.async_register("media_player", "join", join)
+    hass.services.async_register("media_player", "unjoin", unjoin)
+    await call(hass, "seed", config=HOUSE)
+    await call(hass, "set_output", entity_id="media_player.ma_amp_airplay")
+    return calls
+
+
+async def test_sync_output_joins_and_unjoins(hass, panel, monkeypatch) -> None:
+    calls = await _sync_setup(hass, monkeypatch)
+    r = await call(hass, "sync_output", entity_id="media_player.tv_3")
+    assert r["ok"] is True and r["leader"] == "media_player.ma_amp_airplay"
+    assert r["group_members"] == ["media_player.ma_amp_airplay", "media_player.tv_3"]
+    r = await call(hass, "sync_output", entity_id="media_player.tv_3", join=False)
+    assert r["ok"] is True
+    assert calls == [
+        ("join", "media_player.ma_amp_airplay", ["media_player.tv_3"]),
+        ("unjoin", "media_player.tv_3"),
+    ]
+
+
+async def test_sync_output_answers_why_not(hass, panel, monkeypatch) -> None:
+    calls = await _sync_setup(hass, monkeypatch)
+    r = await call(hass, "sync_output", entity_id="media_player.ma_amp_dlna")
+    assert r["ok"] is False and r["reason"] == "cannot" and calls == []  # not in can_group_with: nothing called
+    hass.states.async_set("media_player.tv_3", "unavailable")
+    r = await call(hass, "sync_output", entity_id="media_player.tv_3")
+    assert r["ok"] is False and r["reason"] == "unavailable" and calls == []
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "sync_output", entity_id="media_player.ma_amp_airplay")
+
+
+async def test_sync_output_reports_a_refused_join(hass, panel, monkeypatch) -> None:
+    await _sync_setup(hass, monkeypatch, join_error="TV is off")
+    r = await call(hass, "sync_output", entity_id="media_player.tv_3")
+    assert r == {
+        "ok": False,
+        "entity_id": "media_player.tv_3",
+        "leader": "media_player.ma_amp_airplay",
+        "join": True,
+        "reason": "failed",
+        "error": "TV is off",
+    }
+
+
+async def test_sync_output_reports_a_join_ma_ignored(hass, panel, monkeypatch) -> None:
+    await _sync_setup(hass, monkeypatch, joins=False)
+    r = await call(hass, "sync_output", entity_id="media_player.tv_3")
+    assert r["ok"] is False and r["reason"] == "not_joined"

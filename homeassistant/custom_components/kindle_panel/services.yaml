@@ -84,3 +84,20 @@ move_queue:
       default: true
       selector:
         boolean:
+sync_output:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: music_assistant
+          domain: media_player
+    leader:
+      selector:
+        entity:
+          integration: music_assistant
+          domain: media_player
+    join:
+      default: true
+      selector:
+        boolean:

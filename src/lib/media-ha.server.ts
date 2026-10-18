@@ -18,7 +18,7 @@ import {
   syncActionFor,
   syncLeaderOf,
 } from "./media";
-import type { OutputRow, OutputView } from "./media";
+import type { NowParts, OutputRow, OutputView } from "./media";
 import type { MediaNode } from "./panel-config";
 import type {
   AmpSource,
@@ -81,6 +81,13 @@ export const nowLineOf = (st: HaState | undefined): string | null => {
     (x): x is string => typeof x === "string" && x !== "",
   );
   return parts.length ? parts.join(" · ") : null;
+};
+/** What an HA media_player plays, by part (bus task 023), null when it has no title. */
+export const nowPartsOf = (st: HaState | undefined): NowParts | null => {
+  const a = (st?.attributes ?? {}) as Record<string, unknown>;
+  const str = (k: string) => (typeof a[k] === "string" && a[k] !== "" ? (a[k] as string) : null);
+  const title = str("media_title");
+  return title ? { title, artist: str("media_artist"), album: str("media_album_name") } : null;
 };
 /** A move under way (bus task 021): set by moveOutputHa, cleared when the target plays or after MOVE_GIVE_UP_MS. */
 type Moving = {
@@ -147,6 +154,7 @@ export function outputView(
       name: o.name,
       state: st?.state ?? o.state,
       now: st ? nowLineOf(st) : (o.now ?? null),
+      nowParts: st ? nowPartsOf(st) : o.now ? { title: o.now, artist: null, album: null } : null,
       kind: o.kind ?? "player",
       exposed: true,
       groupWith: o.group_with ?? [],
@@ -187,9 +195,17 @@ export function outputView(
   const members = (current?.groupMembers ?? []).filter((m) => m !== entity);
   const groupName =
     current && members.length
-      ? [current.name, ...members.map((m) => rows.find((r) => r.entity_id === m)?.name ?? m)].join(
-          " + ",
-        )
+      ? [
+          current.name,
+          // a member the picker hides (MA-hidden / hidden_outputs) still has its HA name
+          ...members.map(
+            (m) =>
+              rows.find((r) => r.entity_id === m)?.name ??
+              (states?.get(m)?.attributes as { friendly_name?: string } | undefined)
+                ?.friendly_name ??
+              m,
+          ),
+        ].join(" + ")
       : null;
   if (moveError && now - moveError.at > MOVE_ERROR_SHOWN_MS) moveError = null;
   const other =
@@ -925,9 +941,25 @@ export function moveReasonText(a: MoveAnswer, targetName: string): string {
   return t("output.moveRefused", { reason: `${why}${detail}` });
 }
 
-/** Sync (bus task 022): `entity` joins the sync group of the panel's output (HA media_player.join with the output,
- *  or the leader it follows, as the target) or leaves it (media_player.unjoin). Music Assistant decides what can sync
- *  (can_group_with); the picker offers the key only for those. */
+/** The one line the panel shows for a refused sync (bus task 023): the reason in the panel's words. */
+export function syncReasonText(a: MoveAnswer, name: string): string {
+  const t = serverT();
+  const why =
+    a.reason === "unavailable"
+      ? t("output.reasonUnavailable", { name })
+      : a.reason === "cannot"
+        ? t("output.cantSync", { name })
+        : a.reason === "not_joined"
+          ? t("output.reasonNotJoined", { name })
+          : (a.error ?? "Music Assistant refused");
+  return t("output.syncRefused", { reason: why });
+}
+
+/** Sync (bus task 022): `entity` joins the sync group of the panel's output (the output, or the leader it follows,
+ *  is the target) or leaves it. Music Assistant decides what can sync (can_group_with); the picker offers the key
+ *  only for those. Bus task 023: through kindle_panel.sync_output, which answers why MA said no; the reason is shown
+ *  like a refused move (music screen line + the action's error). An older kindle_panel without it: HA's
+ *  media_player.join / unjoin as before. */
 export async function syncOutputHa(entity: string, join: boolean): Promise<void> {
   const view = outputView(await fetchStates().catch(() => null));
   const row = view?.outputs.find((o) => o.entity_id === entity);
@@ -935,12 +967,34 @@ export async function syncOutputHa(entity: string, join: boolean): Promise<void>
   const want = syncActionFor(view.outputs, view.entity, row);
   if (want !== (join ? "join" : "unjoin"))
     throw new HomeError(serverT()("output.cantSync", { name: row.name }));
-  if (join) {
-    const leader = syncLeaderOf(view.outputs, view.entity)!;
-    await service("media_player", "join", { entity_id: leader.entity_id, group_members: [entity] });
-  } else await service("media_player", "unjoin", { entity_id: entity });
+  const leader = syncLeaderOf(view.outputs, view.entity)!;
+  let answer: MoveAnswer | undefined;
+  try {
+    const r = await ha<{ service_response?: MoveAnswer }>(
+      "POST",
+      "/api/services/kindle_panel/sync_output?return_response",
+      { entity_id: entity, leader: leader.entity_id, join },
+      20_000,
+    );
+    answer = r.service_response;
+  } catch (e) {
+    if (!(e instanceof HomeError) || e.status !== 400) throw e;
+    // kindle_panel < 0.9.1 has no sync_output
+    if (join)
+      await service("media_player", "join", {
+        entity_id: leader.entity_id,
+        group_members: [entity],
+      });
+    else await service("media_player", "unjoin", { entity_id: entity });
+  }
   invalidatePanelConfig();
   lastState = null;
+  if (answer && answer.ok === false) {
+    const reason = syncReasonText(answer, row.name);
+    moveError = { name: row.name, error: reason, at: Date.now() };
+    throw new HomeError(reason);
+  }
+  if (moveError) moveError = null;
 }
 
 /** Move the music here (bus task 021): Music Assistant's transfer_queue from the panel's output to `entity`

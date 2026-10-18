@@ -1,7 +1,7 @@
 // Bus task 022: the picker hides what cannot be chosen, shows sync groups, and a refused move keeps the music and the
 // output where they were (the 2026-10-18 16:52 case: the receiver was held, MA had already cleared AirPlay).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AMP, syncActionFor } from "./media";
+import { AMP, OUTPUT_STATUS_CHARS, fitStatusLine, syncActionFor } from "./media";
 import type { OutputRow } from "./media";
 import type { HaState } from "./home.server";
 import { DEFAULT_CONFIG } from "./panel-config";
@@ -13,7 +13,7 @@ vi.mock("./panel-config.server", () => ({
   setMusicOutput: vi.fn(),
 }));
 
-const { groupOrder, moveOutputHa, moveReasonText, outputView, syncOutputHa } =
+const { groupOrder, moveOutputHa, moveReasonText, outputView, syncOutputHa, syncReasonText } =
   await import("./media-ha.server");
 
 const AIRPLAY = "media_player.ma_amp_airplay";
@@ -131,6 +131,7 @@ describe("picker rows (bus task 022)", () => {
 describe("HA calls: move and sync (bus task 022)", () => {
   const calls: { path: string; body: Record<string, unknown> }[] = [];
   let moveAnswer: Record<string, unknown> = { ok: true, music_output: DLNA };
+  let syncAnswer: Record<string, unknown> | null = { ok: true };
   beforeEach(() => {
     panel();
     calls.length = 0;
@@ -144,7 +145,10 @@ describe("HA calls: move and sync (bus task 022)", () => {
         const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
         calls.push({ path, body });
         let payload: unknown = [];
-        if (path.startsWith("/api/services/kindle_panel/move_queue"))
+        if (path.startsWith("/api/services/kindle_panel/sync_output")) {
+          if (!syncAnswer) return new Response("{}", { status: 400 }); // kindle_panel < 0.9.1
+          payload = { changed_states: [], service_response: syncAnswer };
+        } else if (path.startsWith("/api/services/kindle_panel/move_queue"))
           payload = { changed_states: [], service_response: moveAnswer };
         else if (path === "/api/states")
           payload = [
@@ -200,19 +204,94 @@ describe("HA calls: move and sync (bus task 022)", () => {
     expect(v.moving?.entity).toBe(DLNA);
     expect(v.moveError).toBeNull();
   });
-  it("sync: join targets the output (leader) with the new member; unjoin takes a member out", async () => {
+  it("sync: kindle_panel.sync_output with the output (leader) and the member; unjoin takes a member out", async () => {
+    syncAnswer = { ok: true };
+    await syncOutputHa(PIXEL, true);
+    const join = calls.find((c) => c.path.startsWith("/api/services/kindle_panel/sync_output"))!;
+    expect(join.path).toContain("return_response");
+    expect(join.body).toEqual({ entity_id: PIXEL, leader: AIRPLAY, join: true });
+    await syncOutputHa(TV, false);
+    expect(calls.filter((c) => c.path.includes("sync_output")).at(-1)?.body).toEqual({
+      entity_id: TV,
+      leader: AIRPLAY,
+      join: false,
+    });
+    expect(calls.some((c) => c.path.startsWith("/api/services/media_player/"))).toBe(false);
+    // DLNA cannot sync with AirPlay: refused before any HA call
+    const before = calls.length;
+    await expect(syncOutputHa(DLNA, true)).rejects.toThrow();
+    expect(calls.slice(before).some((c) => c.path.includes("sync_output"))).toBe(false);
+  });
+  it("sync refused by MA (task 023): the reason on the music screen, like a refused move", async () => {
+    syncAnswer = { ok: false, reason: "failed", error: "TV is off" };
+    await expect(syncOutputHa(PIXEL, true)).rejects.toThrow("לא ניתן לסנכרן: TV is off");
+    expect(outputView(null)!.moveError?.error).toBe("לא ניתן לסנכרן: TV is off");
+    process.env["UI_LANGUAGE"] = "en";
+    expect(syncReasonText({ ok: false, reason: "not_joined" }, "TV")).toBe(
+      "Cannot sync: Music Assistant did not add TV to the group",
+    );
+    expect(syncReasonText({ ok: false, reason: "unavailable" }, "TV")).toBe(
+      "Cannot sync: TV is not available",
+    );
+  });
+  it("sync with an older kindle_panel (no sync_output): HA's media_player.join as before", async () => {
+    syncAnswer = null;
     await syncOutputHa(PIXEL, true);
     expect(calls.find((c) => c.path === "/api/services/media_player/join")?.body).toEqual({
       entity_id: AIRPLAY,
       group_members: [PIXEL],
     });
-    await syncOutputHa(TV, false);
-    expect(calls.find((c) => c.path === "/api/services/media_player/unjoin")?.body).toEqual({
-      entity_id: TV,
+  });
+});
+
+describe("picker status line (bus task 023)", () => {
+  const parts = {
+    title: "John I Love You",
+    artist: "Sinéad O'Connor",
+    album: "I Do Not Want What I Haven't Got",
+  };
+  it("now-playing first, then the state; the album goes first, then the artist, then the title is cut", () => {
+    expect(fitStatusLine(parts, ["Playing"], 80)).toBe(
+      "John I Love You · Sinéad O'Connor · I Do Not Want What I Haven't Got · Playing",
+    );
+    // the owner's photo (2026-10-18): Hebrew state, fits once the album is gone
+    expect(fitStatusLine(parts, ["מנגן"])).toBe("John I Love You · Sinéad O'Connor · מנגן");
+    expect(fitStatusLine(parts, ["Playing"])).toBe("John I Love You · Playing"); // 43 chars with the artist
+    expect(fitStatusLine(parts, ["Playing"], 30)).toBe("John I Love You · Playing");
+    const cut = fitStatusLine(
+      { ...parts, title: "A very long song title that never ends at all" },
+      ["Playing"],
+    );
+    expect(cut.endsWith("… · Playing")).toBe(true);
+    expect(cut.length).toBeLessThanOrEqual(OUTPUT_STATUS_CHARS);
+  });
+  it("nothing playing: the state alone; group labels stay", () => {
+    expect(fitStatusLine(null, ["Idle"])).toBe("Idle");
+    expect(fitStatusLine(null, ["Idle", "group"])).toBe("Idle · group");
+  });
+  it("the picker rows carry the parts from HA's live state; a hidden member keeps its HA name in the label", () => {
+    panel();
+    const live = new Map([
+      [
+        AIRPLAY,
+        st(AIRPLAY, "playing", {
+          media_title: "Holiday",
+          media_artist: "Scorpions",
+          media_album_name: "Lovedrive",
+          group_members: [AIRPLAY, "media_player.hidden_phone"],
+        }),
+      ],
+      [
+        "media_player.hidden_phone",
+        st("media_player.hidden_phone", "playing", { friendly_name: "Hidden phone" }),
+      ],
+    ]);
+    const v = outputView(live)!;
+    expect(v.outputs.find((o) => o.entity_id === AIRPLAY)?.nowParts).toEqual({
+      title: "Holiday",
+      artist: "Scorpions",
+      album: "Lovedrive",
     });
-    // DLNA cannot sync with AirPlay: refused before any HA call
-    const before = calls.length;
-    await expect(syncOutputHa(DLNA, true)).rejects.toThrow();
-    expect(calls.slice(before).some((c) => c.path.includes("/media_player/join"))).toBe(false);
+    expect(v.groupName).toBe("R-N500 AirPlay + Hidden phone");
   });
 });

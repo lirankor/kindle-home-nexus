@@ -150,6 +150,8 @@ export type RadioView = "dial" | "stations" | "bands";
 export type MediaNotice = { text: string; error?: boolean };
 export const RADIO_PAGE_SIZE = 8;
 export const QUEUE_PAGE_SIZE = 8;
+/** Output picker rows per page (bus task 023): five fixed-height rows fit above the hint and the legend. */
+export const OUTPUT_PAGE_SIZE = 5;
 /** Search screen: the results request waits this long after the last typed character. */
 export const SEARCH_DEBOUNCE_MS = 250;
 const SEARCH_STALE_MS = 60_000;

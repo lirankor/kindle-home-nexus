@@ -91,6 +91,7 @@
           "out_f3": "F3 in the output picker",
           "out_f4": "F4 in the output picker",
           "show_unavailable_outputs": "Output picker: also list unavailable players (debugging)",
+          "hidden_outputs": "Output picker: never list these players",
           "inputs_for": "Then rename / hide the inputs of"
         },
         "data_description": {
@@ -98,6 +99,7 @@
           "key_f1": "Music screen, a device's controls, a script, all off or nothing. Devices added on this page are offered after saving and reopening it.",
           "out_f1": "Quick keys in the output picker: a Music Assistant player or group (picks it), a script (runs it, e.g. plug on, amp on, input SERVER, output DLNA; see the README), or nothing.",
           "show_unavailable_outputs": "Off (default): the picker lists only players that can be chosen now. On: unavailable players and Music Assistant players without a Home Assistant entity (MA's Expose to Home Assistant is off, e.g. a browser's web player) are listed greyed.",
+          "hidden_outputs": "Music Assistant players the Kindle's picker leaves out (e.g. a phone). Players hidden in Music Assistant itself (its \"Hide player\" setting) are left out anyway. The panel's current output is always listed; the F-key dropdowns above still offer every player.",
           "inputs_for": "Pick a device (or type the id of one added above) to go on to its inputs: the list comes live from its media player (source_list), in the device's order; rename an input (e.g. CD -> Bluetooth & TV) or hide it. Both pages are saved together there."
         }
       },
@@ -338,6 +340,24 @@
         "auto_play": {
           "name": "Play at once",
           "description": "Start playing on the target right away (default on)."
+        }
+      }
+    },
+    "sync_output": {
+      "name": "Sync a player with the panel's output",
+      "description": "Music Assistant plays this player in sync with the leader (HA media_player.join), or takes it out of the group. Answers ok false with the reason when Music Assistant says no.",
+      "fields": {
+        "entity_id": {
+          "name": "Player",
+          "description": "The Music Assistant player that joins or leaves the group."
+        },
+        "leader": {
+          "name": "Leader",
+          "description": "The player whose group it joins. Leave empty: the panel's current output."
+        },
+        "join": {
+          "name": "Join",
+          "description": "On (default): join the group. Off: leave it."
         }
       }
     }

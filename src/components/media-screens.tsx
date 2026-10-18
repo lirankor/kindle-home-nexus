@@ -37,7 +37,7 @@ import { RadioDial } from "@/components/dial-bar";
 import { FullModal } from "@/components/light-modals";
 import { tryT } from "@/lib/i18n";
 import type { Key, Lang } from "@/lib/i18n";
-import { MUSIC_TABS, SEARCH_MIN_CHARS } from "@/lib/media";
+import { MUSIC_TABS, SEARCH_MIN_CHARS, fitStatusLine } from "@/lib/media";
 import type {
   AmpSource,
   MediaSnapshot,
@@ -60,7 +60,7 @@ import {
   powerOnStepKey,
 } from "@/lib/media-ui";
 import { nodeIcon, optionalIcon, pickIcon } from "@/lib/icons";
-import { QUEUE_PAGE_SIZE, RADIO_PAGE_SIZE } from "@/lib/media-panel";
+import { OUTPUT_PAGE_SIZE, QUEUE_PAGE_SIZE, RADIO_PAGE_SIZE } from "@/lib/media-panel";
 import type { MediaPanel } from "@/lib/media-panel";
 import {
   FAVOURITES_BAND,
@@ -390,24 +390,36 @@ function NodeStationList({ panel, status }: { panel: MediaPanel; status: string 
 }
 
 /** The music output picker: every Music Assistant player / MA group in HA, single select. Up / down + Enter choose,
- *  Back closes with no change; F1..F4 (the legend row) are the configured quick outputs. */
+ *  Back closes with no change; F1..F4 (the legend row) are the configured quick outputs. Bus task 023: every row is
+ *  two fixed lines (name, then "now-playing · state", both cut with an ellipsis), OUTPUT_PAGE_SIZE rows per page with
+ *  a page indicator; a sync member carries its link glyph on the icon side (right in Hebrew). */
 function OutputPicker({ panel, status }: { panel: MediaPanel; status: string }) {
   const { t, output, outputRows, cursor } = panel;
-  const first = Math.max(0, Math.min(cursor - 3, outputRows.length - 7));
+  const page = Math.floor(cursor / OUTPUT_PAGE_SIZE);
+  const pages = Math.max(1, Math.ceil(outputRows.length / OUTPUT_PAGE_SIZE));
+  const first = page * OUTPUT_PAGE_SIZE;
   return (
     <FullModal label={t("output.title")} actions={panel.modalActions} status={status}>
       <header className="modal-heading">
         <h1>{t("output.title")}</h1>
-        <p>
+        <p className="output-heading-line">
           {output?.moving
             ? outputHint(panel, panel.data)
             : output?.entity && output.valid
               ? (output.name ?? output.entity)
               : t("output.none")}
+          {pages > 1 && (
+            <>
+              {" · "}
+              <Ltr>
+                {page + 1}/{pages}
+              </Ltr>
+            </>
+          )}
         </p>
       </header>
-      <div className="source-rows" role="listbox" aria-label={t("output.title")}>
-        {outputRows.slice(first, first + 7).map((o, i) => {
+      <div className="source-rows output-rows" role="listbox" aria-label={t("output.title")}>
+        {outputRows.slice(first, first + OUTPUT_PAGE_SIZE).map((o, i) => {
           const index = first + i;
           const current = o.entity_id === output?.entity;
           const OutputIcon = pickIcon(
@@ -415,25 +427,28 @@ function OutputPicker({ panel, status }: { panel: MediaPanel; status: string }) 
             panel.data?.icons?.[o.entity_id],
             o.kind === "group" ? Boxes : Speaker,
           );
-          // a sync member (bus task 022): indented under its leader with a link glyph, like Music Assistant
+          // a sync member (bus task 022): under its leader with a link glyph, like Music Assistant
           const leader = o.syncedTo
             ? outputRows.find((x) => x.entity_id === o.syncedTo)
             : undefined;
-          // one line: state (+ group / sync), then what it plays, or why it cannot be chosen
-          const detail = [
-            current ? t("output.current") : null,
-            stateLabel(panel.lang, o.state),
-            o.kind === "group" ? t("output.group") : null,
-            leader ? t("output.synced", { name: leader.name }) : null,
-            o.exposed === false ? t("output.notInHa") : leader ? null : (o.now ?? null),
-          ]
-            .filter(Boolean)
-            .join(" · ");
+          // one line (bus task 023): what it plays (or whom it follows, or why it cannot be chosen), then its state
+          const lead =
+            o.exposed === false
+              ? t("output.notInHa")
+              : leader
+                ? t("output.synced", { name: leader.name })
+                : null;
+          const playing =
+            o.nowParts ?? (o.now ? { title: o.now, artist: null, album: null } : null);
+          const detail = fitStatusLine(
+            lead ? { title: lead, artist: null, album: null } : playing,
+            [stateLabel(panel.lang, o.state), o.kind === "group" ? t("output.group") : null],
+          );
           return (
             <Button
               key={o.entity_id}
               variant="eink"
-              className="source-row"
+              className="source-row output-row"
               role="option"
               aria-selected={index === cursor}
               aria-pressed={index === cursor}
@@ -443,6 +458,7 @@ function OutputPicker({ panel, status }: { panel: MediaPanel; status: string }) 
               onClick={() => panel.chooseOutput(o.entity_id)}
             >
               {leader && (
+                // first in the row = the icon side (right in RTL, left in LTR): between the edge and the icon
                 <span className="source-row-link" aria-hidden="true">
                   <Link2 size={22} strokeWidth={2} />
                 </span>

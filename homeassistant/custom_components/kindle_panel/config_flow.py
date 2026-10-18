@@ -710,6 +710,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 "keys": [user_input.get(f"key_f{i + 1}") or POWER_KEY_NONE for i in range(POWER_KEY_COUNT)],
                 "output_keys": [user_input.get(f"out_f{i + 1}") or POWER_KEY_NONE for i in range(POWER_KEY_COUNT)],
                 "show_unavailable_outputs": bool(user_input.get("show_unavailable_outputs", False)),
+                "hidden_outputs": list(user_input.get("hidden_outputs") or []),
             }
             edit = user_input.get("inputs_for")
             if edit:
@@ -754,6 +755,10 @@ class KindlePanelOptionsFlow(OptionsFlow):
                     vol.Optional(
                         "show_unavailable_outputs", default=bool(m.get("show_unavailable_outputs"))
                     ): sel.BooleanSelector(),
+                    # the picker leaves these out (bus task 023); MA's own "hide player" flag hides a player anyway
+                    vol.Optional("hidden_outputs", default=list(m.get("hidden_outputs") or [])): sel.EntitySelector(
+                        sel.EntitySelectorConfig(integration=MA_DOMAIN, domain="media_player", multiple=True)
+                    ),
                     vol.Optional("inputs_for"): sel.SelectSelector(
                         sel.SelectSelectorConfig(
                             options=[sel.SelectOptionDict(value=n["id"], label=n["name"]) for n in m["nodes"]],

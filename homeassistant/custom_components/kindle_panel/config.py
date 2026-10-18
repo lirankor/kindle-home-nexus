@@ -393,6 +393,9 @@ CONFIG_SCHEMA = vol.Schema(
                 # the output picker also lists unavailable players and MA players HA has no entity for (greyed,
                 # not selectable): for debugging only (bus task 022)
                 vol.Optional("show_unavailable_outputs", default=False): cv.boolean,
+                # MA players the picker never lists (the owner's choice, bus task 023); MA's own "hide player" flag
+                # hides a player too. The panel's current output is always listed.
+                vol.Optional("hidden_outputs", default=[]): vol.All(cv.ensure_list, [cv.entity_id]),
             }
         ),
         vol.Optional("sensors", default={}): vol.Schema(

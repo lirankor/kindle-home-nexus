@@ -481,7 +481,9 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .media-card-heading { display: flex; gap: 12px; align-items: flex-start; }
 .media-card .device-icon { width: 56px; height: 60px; border: 1px solid var(--foreground); flex-shrink: 0; }
 .media-card .device-info { text-align: start; display: flex; flex-direction: column; min-width: 0; margin: 0; }
-.media-card .device-info strong { display: block; font-size: 34px; line-height: 1.2; font-weight: 700; }
+/* Media tab node rows: name and state one line each (bus task 023) */
+.media-nodes .power-row .device-info strong, .media-nodes .power-row .light-state { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-card .device-info strong { display: block; font-size: 34px; line-height: 1.2; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .media-card .light-state { font-size: 26px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .media-card-body { display: block; font-size: 26px; line-height: 1.2; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .media-now-line { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; }
@@ -543,12 +545,14 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .source-row-icon { width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; border: 1px solid currentColor; flex-shrink: 0; }
 /* Output picker (bus task 022): a sync member sits indented under its leader with a link glyph, like Music Assistant;
    an unavailable / not-in-HA row (only with the panel option show_unavailable_outputs) is greyed. */
-.source-row[data-member="true"].eink-button { padding-inline-start: 34px; gap: 10px; }
+/* a sync member: the link glyph is the indent, first in the row = the icon side (right in RTL), no second indent */
+.source-row[data-member="true"].eink-button { gap: 10px; }
 .source-row-link { display: flex; align-items: center; flex-shrink: 0; }
 .source-row[data-exposed="false"] { color: var(--muted-foreground); border-style: dashed; }
 .source-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.source-row-text strong { font-size: 28px; line-height: 1.15; font-weight: 700; }
-.source-row-text span { font-size: 20px; opacity: 0.85; }
+/* rows never wrap (bus task 023): name and status line one line each, cut with an ellipsis */
+.source-row-text strong { font-size: 28px; line-height: 1.15; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-row-text span { font-size: 20px; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-rows + .modal-hint { margin-top: 14px; }
 .tv-glyph { display: flex; justify-content: center; margin-top: 70px; }
 .tv-glyph[data-on="false"] { color: var(--muted-foreground); }

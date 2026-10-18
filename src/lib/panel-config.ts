@@ -213,6 +213,8 @@ export type PanelConfig = {
     output_keys: string[];
     /** The picker also lists unavailable / not-in-HA players, greyed (debugging; bus task 022). Absent = off. */
     show_unavailable_outputs?: boolean;
+    /** MA players the picker never lists (kindle_panel filters them; bus task 023). Absent = none. */
+    hidden_outputs?: string[];
   };
   sensors: {
     indoor_temperature?: string | null;
@@ -521,5 +523,6 @@ export function mergeMedia(
     keys: m.keys ? padTo4(m.keys) : defaultMediaKeys(nodes),
     output_keys: m.output_keys?.length ? padTo4(m.output_keys) : defaultOutputKeys(nodes),
     ...(m.show_unavailable_outputs ? { show_unavailable_outputs: true } : {}),
+    ...(m.hidden_outputs?.length ? { hidden_outputs: [...m.hidden_outputs] } : {}),
   };
 }
