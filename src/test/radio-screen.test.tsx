@@ -240,7 +240,7 @@ describe("Radio screen", () => {
         data: { type: "amp.volume.step", delta: 1 },
       }),
     );
-    expect(knob()?.textContent).toBe("-42.5dB");
+    expect(knob()?.textContent).toBe("-43.5dB");
     await act(async () => settle({ ok: true }));
     press("ArrowDown");
     await waitFor(() =>

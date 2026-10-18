@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Boxes,
+  Link2,
   Cable,
   Check,
   Compass,
@@ -145,6 +146,8 @@ function outputHint(panel: MediaPanel, s: MediaSnapshot | null): string | null {
     return o.moving.failed
       ? panel.t("output.moveFailed", { name: o.moving.name })
       : panel.t("output.moving", { name: o.moving.name });
+  // a refused / undone move (bus task 022): HA's reason, one line, instead of a label that switched anyway
+  if (o.moveError) return o.moveError.error;
   if (o.playingElsewhere) return panel.t("output.elsewhere", { name: o.playingElsewhere.name });
   return null;
 }
@@ -168,7 +171,7 @@ export function MediaCards({ panel }: { panel: MediaPanel }) {
     ? t(routine.step === "failed" ? "poweron.failed" : "poweron.title")
     : out
       ? out.entity && out.valid
-        ? t("media.outputOn", { name: out.name ?? out.entity })
+        ? t("media.outputOn", { name: out.groupName ?? out.name ?? out.entity })
         : t("output.none")
       : s
         ? `${s.amp.on ? t("state.on") : t("state.off")}${
@@ -412,12 +415,17 @@ function OutputPicker({ panel, status }: { panel: MediaPanel; status: string }) 
             panel.data?.icons?.[o.entity_id],
             o.kind === "group" ? Boxes : Speaker,
           );
-          // one line: state (+ group), then what it plays, or why it cannot be chosen
+          // a sync member (bus task 022): indented under its leader with a link glyph, like Music Assistant
+          const leader = o.syncedTo
+            ? outputRows.find((x) => x.entity_id === o.syncedTo)
+            : undefined;
+          // one line: state (+ group / sync), then what it plays, or why it cannot be chosen
           const detail = [
             current ? t("output.current") : null,
             stateLabel(panel.lang, o.state),
             o.kind === "group" ? t("output.group") : null,
-            o.exposed === false ? t("output.notInHa") : (o.now ?? null),
+            leader ? t("output.synced", { name: leader.name }) : null,
+            o.exposed === false ? t("output.notInHa") : leader ? null : (o.now ?? null),
           ]
             .filter(Boolean)
             .join(" · ");
@@ -430,9 +438,15 @@ function OutputPicker({ panel, status }: { panel: MediaPanel; status: string }) 
               aria-selected={index === cursor}
               aria-pressed={index === cursor}
               data-current={current}
-              data-exposed={o.exposed === false ? "false" : undefined}
+              data-exposed={o.exposed === false || o.state === "unavailable" ? "false" : undefined}
+              data-member={leader ? "true" : undefined}
               onClick={() => panel.chooseOutput(o.entity_id)}
             >
+              {leader && (
+                <span className="source-row-link" aria-hidden="true">
+                  <Link2 size={22} strokeWidth={2} />
+                </span>
+              )}
               <span className="source-row-icon">
                 <OutputIcon size={30} strokeWidth={1.6} />
               </span>
@@ -668,7 +682,7 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
             sourceTitle={s?.output ? t("media.output") : t("media.source")}
             source={
               s?.output
-                ? (s.output.name ?? s.output.entity ?? "—")
+                ? (s.output.groupName ?? s.output.name ?? s.output.entity ?? "—")
                 : sourceLabel(panel, s?.amp.source ?? null)
             }
             mode={transportMode(s)}

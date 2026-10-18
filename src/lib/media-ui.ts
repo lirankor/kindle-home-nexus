@@ -145,16 +145,15 @@ export function applyMediaOptimistic(s: MediaSnapshot, action: MediaAction): Med
         };
       break;
     case "output.move":
-      // the output switches at once and the picker says "moving…" until the target plays (server side)
+      // "moving…" at once; the output (and its label) switches only when HA moved the music (bus task 022: a refused
+      // move used to leave the label on the target while the music stayed, or stopped, on the source)
       if (s.output) {
         const name =
           s.output.outputs.find((o) => o.entity_id === action.entity)?.name ?? action.entity;
         next.output = {
           ...s.output,
-          entity: action.entity,
-          valid: true,
-          name,
           moving: { entity: action.entity, name, startedAt: Date.now(), failed: null },
+          moveError: null,
         };
       }
       break;
@@ -421,6 +420,11 @@ export function mediaActionLabel(action: MediaAction, lang: Lang, after?: MediaS
       });
     case "output.move":
       return t("act.move", {
+        name:
+          after?.output?.outputs.find((o) => o.entity_id === action.entity)?.name ?? action.entity,
+      });
+    case "output.sync":
+      return t(action.join ? "act.sync" : "act.unsync", {
         name:
           after?.output?.outputs.find((o) => o.entity_id === action.entity)?.name ?? action.entity,
       });

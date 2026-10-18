@@ -26,15 +26,15 @@ export const AMP = {
   plug: `switch.${MEDIA_PLUG}_outlet`,
   plugPower: `sensor.${MEDIA_PLUG}_power`,
   tv: "media_player.bravia_xr_65x90k",
-  movieActive: "input_boolean.movie_mode_active",
+  movieActive: "script.movie_mode",
   movieOn: "script.movie_mode",
   movieOff: "script.movie_mode_off",
   /** HA config entry of the yamaha_ynca integration; reloading it reconnects right after power-on. */
   yncaEntryId: "01M0ZMQXMTWAAW7BXTBCXD1YZR",
   volumeMinDb: -80.5,
   volumeMaxDb: 16.5,
-  /** One 5-way press. */
-  volumeStepDb: 2,
+  /** One 5-way press: 1 dB, the receiver bridge's own volume_step_db (bus task 022; it was 2). */
+  volumeStepDb: 1,
 };
 /** Media tab nodes and F1..F4 (panel config: media.nodes / media.keys). Rewritten in place by applyMediaConfig. */
 export const MEDIA_NODES: MediaNode[] = [];
@@ -273,6 +273,12 @@ export type OutputView = {
   moving?: { entity: string; name: string; startedAt: number; failed?: string | null } | null;
   /** Another output plays while the chosen one does not: the music screen's hint line. */
   playingElsewhere?: { entity: string; name: string; now: string | null } | null;
+  /** A move HA refused or undid (bus task 022): the output stayed; the music screen shows why for a minute. */
+  moveError?: { name: string; error: string; at: number } | null;
+  /** The output leads a sync group: its name with its members ("R-N500 AirPlay + TV"); else absent. */
+  groupName?: string | null;
+  /** The picker greys unavailable rows instead of hiding them (panel option show_unavailable_outputs). */
+  showUnavailable?: boolean;
 };
 /** One row of the output picker: an MA player or MA group, its live state and what it plays. */
 export type OutputRow = {
@@ -284,7 +290,34 @@ export type OutputRow = {
   kind?: "player" | "group";
   /** false: an MA player without an HA entity (cannot be chosen until MA exposes it). */
   exposed?: boolean;
+  /** Sync (bus task 022, from MA's can_group_with): the players this one can play in sync with. */
+  groupWith?: string[];
+  /** It leads a sync group: the members, itself first. */
+  groupMembers?: string[];
+  /** It follows a sync group: the leader. */
+  syncedTo?: string | null;
 };
+/** The sync leader the panel's output belongs to: the output itself, or the group it follows. */
+export const syncLeaderOf = (rows: OutputRow[], entity: string | null): OutputRow | undefined => {
+  const cur = rows.find((r) => r.entity_id === entity);
+  return cur?.syncedTo ? (rows.find((r) => r.entity_id === cur.syncedTo) ?? cur) : cur;
+};
+
+/** What the picker's sync key does on a row (bus task 022): join it to the output's group, take it out, or nothing
+ *  (it cannot sync with this output, or it is the leader itself). */
+export function syncActionFor(
+  rows: OutputRow[],
+  entity: string | null,
+  row: OutputRow | undefined,
+): "join" | "unjoin" | null {
+  const leader = syncLeaderOf(rows, entity);
+  if (!leader || !row || row.exposed === false || row.entity_id === leader.entity_id) return null;
+  if (row.syncedTo === leader.entity_id) return "unjoin";
+  if ((leader.groupWith ?? []).includes(row.entity_id) && row.state !== "unavailable")
+    return "join";
+  return null;
+}
+
 export type MediaSnapshot = {
   /** Media tab rows (bus task 014); absent in old snapshots. */
   nodes?: NodeView[];
@@ -469,7 +502,9 @@ export type MediaAction =
   /** The output picker chose this Music Assistant player. */
   | { type: "output"; entity: string }
   /** Move the music (MA transfer_queue) from the panel's output to `entity`, which becomes the output. */
-  | { type: "output.move"; entity: string };
+  | { type: "output.move"; entity: string }
+  /** Sync `entity` with the panel's output (HA media_player.join, leader = the output) or take it out (unjoin). */
+  | { type: "output.sync"; entity: string; join: boolean };
 export type MediaActionResult = { ok: boolean; error?: string; snapshot?: MediaSnapshot | null };
 
 // ---- Demo data (no env) ----

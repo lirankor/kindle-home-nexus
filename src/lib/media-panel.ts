@@ -13,6 +13,7 @@ import {
   Delete,
   Film,
   Heart,
+  Link2,
   ListMusic,
   ListOrdered,
   Music2,
@@ -22,6 +23,7 @@ import {
   Shuffle,
   Space,
   Speaker,
+  Unlink2,
   VolumeX,
   X,
   Zap,
@@ -40,6 +42,7 @@ import {
   SEARCH_MIN_CHARS,
   demoMediaSnapshot,
   demoQueue,
+  syncActionFor,
 } from "@/lib/media";
 import type {
   AmpSource,
@@ -239,14 +242,22 @@ export function useMediaPanel({
     wasActive.current = active;
   }, [active, refetchSnapshot]);
   const fastPoll = (active || screen !== null) && queuePlaying(result?.snapshot);
+  // Volume freshness (bus task 022): while the music screen or a node screen shows, the Kindle fetches its frame every
+  // POLL_MS (10 s) instead of its idle 20 s, so a volume changed on the amp's knob, its remote or the MA app shows
+  // within ~10 s (+ the 10 s snapshot poll); the frame changes as a partial e-ink update (no full-refresh bump).
+  const einkPollS = fastPoll
+    ? QUEUE_POLL_MS / 1000
+    : screen === "now" || screen === "node"
+      ? POLL_MS / 1000
+      : null;
   useEffect(() => {
     const el = document.documentElement;
-    if (fastPoll) el.dataset["einkPoll"] = String(QUEUE_POLL_MS / 1000);
+    if (einkPollS) el.dataset["einkPoll"] = String(einkPollS);
     else delete el.dataset["einkPoll"];
     return () => {
       delete el.dataset["einkPoll"];
     };
-  }, [fastPoll]);
+  }, [einkPollS]);
   const configured = result?.configured ?? true;
   if (result?.configured && result.snapshot) lastGood.current = result.snapshot;
   const data: MediaSnapshot | null =
@@ -474,6 +485,10 @@ export function useMediaPanel({
     );
     if (row?.exposed === false) {
       notify({ text: `${row.name}: ${t("output.notInHa")}`, error: true });
+      return;
+    }
+    if (row?.state === "unavailable" && row.entity_id !== output?.entity) {
+      notify({ text: t("output.reasonUnavailable", { name: row.name }), error: true });
       return;
     }
     void act({ type: "output", entity });
@@ -1184,9 +1199,22 @@ export function useMediaPanel({
         }
       : null;
   });
-  /** "Move here" takes the right-most picker key the owner left free (quick keys keep working); Right does the same. */
+  /** "Move here" takes the right-most picker key the owner left free (quick keys keep working); Right does the same.
+   *  Sync (bus task 022) takes the next free key to its left; Left does the same (the only way when no second key is
+   *  free). */
   const moveSlot = quickOutputActions.lastIndexOf(null);
+  const syncSlot = moveSlot > 0 ? quickOutputActions.lastIndexOf(null, moveSlot - 1) : -1;
   const highlighted = outputRows[cursor];
+  const syncAction = syncActionFor(output?.outputs ?? [], output?.entity ?? null, highlighted);
+  const syncHere = (row = highlighted) => {
+    const want = syncActionFor(output?.outputs ?? [], output?.entity ?? null, row);
+    if (!row) return;
+    if (!want) {
+      notify({ text: t("output.cantSync", { name: row.name }), error: true });
+      return;
+    }
+    void act({ type: "output.sync", entity: row.entity_id, join: want === "join" });
+  };
   const outputKeyActions: (DeviceAction | null)[] = quickOutputActions.map((a, i) =>
     i === moveSlot && screen === "output"
       ? {
@@ -1200,7 +1228,14 @@ export function useMediaPanel({
             if (highlighted) moveHere(highlighted.entity_id);
           },
         }
-      : a,
+      : i === syncSlot && screen === "output"
+        ? {
+            label: t(syncAction === "unjoin" ? "output.unsync" : "output.sync"),
+            icon: syncAction === "unjoin" ? Unlink2 : Link2,
+            disabled: !syncAction,
+            onClick: () => syncHere(),
+          }
+        : a,
   );
   const outputKey: DeviceAction = {
     label: t("media.output"),
@@ -1482,6 +1517,11 @@ export function useMediaPanel({
       event.preventDefault();
       const o = outputRows[cursor];
       if (o) moveHere(o.entity_id);
+      return true;
+    }
+    if (screen === "output" && event.key === "ArrowLeft") {
+      event.preventDefault();
+      syncHere(outputRows[cursor]);
       return true;
     }
     if (screen === "output")
@@ -1777,6 +1817,8 @@ export function useMediaPanel({
     data,
     configured,
     pollError,
+    /** When the snapshot shown was fetched (ms; 0 = none yet): the status line's "stale · HH:MM" (bus task 022). */
+    snapshotAt: query.dataUpdatedAt,
     powerOn,
     showPowerOn,
     cursor,

@@ -44,7 +44,7 @@ import {
 } from "@/components/device-actions";
 import { LightModal, PickerModal, PlugModal, pickerValues } from "@/components/light-modals";
 import { MediaCards, MediaModal } from "@/components/media-screens";
-import { useMediaPanel } from "@/lib/media-panel";
+import { SNAPSHOT_STALE_MS, useMediaPanel } from "@/lib/media-panel";
 import { loadPanelState, persistableScreen, savePanelState, type TabName } from "@/lib/panel-state";
 import { isCustomTab } from "@/lib/panel-config";
 import type { PanelView, TabId } from "@/lib/panel-config";
@@ -315,10 +315,24 @@ function HomeControl() {
   const mediaOpen = media.restoreScreen;
   const mediaRestoreRadio = media.restoreRadio;
   const mediaRestoreMusic = media.restoreMusic;
+  // Volume freshness (bus task 022): a snapshot older than SNAPSHOT_STALE_MS (polls failing: HA / the app away)
+  // says so with its time, so a volume or track on the e-ink frame is never taken for the live one.
+  const mediaStale =
+    configured && media.snapshotAt > 0 && now.getTime() - media.snapshotAt > SNAPSHOT_STALE_MS
+      ? t("status.stale", {
+          time: new Date(media.snapshotAt).toLocaleTimeString(locale, {
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          }),
+        })
+      : null;
   const mediaStatus =
     configured && media.pollError
       ? `${t("status.disconnected")} · ${serverText(media.pollError)}`
-      : status;
+      : mediaStale
+        ? `${status} · ${mediaStale}`
+        : status;
 
   useEffect(() => {
     setNow(new Date());

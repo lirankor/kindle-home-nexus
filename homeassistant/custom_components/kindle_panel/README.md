@@ -13,8 +13,9 @@ type:
 * **Receiver / amplifier**: *Entity* = its media player (power and inputs). Optional: a volume number, a plug (and its
   power sensor), its DLNA/AirPlay stream-output select, and the **Music Assistant players it plays**. On the panel: on /
   off, volume (up / down), input list, stream output.
-* **TV**: *Entity* = the TV's media player. Optional: movie-mode on / off scripts and the movie-mode boolean. On the
-  panel: on / off, volume, input list, movie mode.
+* **TV**: *Entity* = the TV's media player. Optional: movie-mode on / off scripts and *movie mode active*: best the
+  movie-mode **script** itself (a script is `on` while it runs, so the TV screen's movie badge shows exactly while it
+  runs; since 0.9.0, bus task 022), or a boolean. On the panel: on / off, volume, input list, movie mode.
 
 **Inputs** (since 0.5.1): a device's input list on the panel is its media player's own `source_list`, live from Home
 Assistant and in the device's order (a Yamaha through yamaha_netbridge: Spotify, NET RADIO, SERVER, AirPlay, USB,
@@ -54,14 +55,29 @@ another output plays instead ("R-N500 AirPlay is playing · F3 to switch"). In t
 * **Right**, or the right-most picker key left at *none* ("Move here"), = move the music there:
   `kindle_panel.move_queue` runs Music Assistant's transfer_queue (whole queue and position, plays at once, the source
   stops) and the target becomes the panel's output; the screen says "moving…" until it plays;
-* players Music Assistant has but Home Assistant does not are listed greyed and cannot be chosen.
+* **only what can be chosen is listed** (since 0.9.0, bus task 022): players that are unavailable, and Music Assistant
+  players Home Assistant has no entity for (e.g. MA's own web player, "Web (Chrome on Android)", which comes and goes
+  with a browser tab), are hidden. The panel's own output always stays listed. For debugging, *Media → Output picker:
+  also list unavailable players* (`media.show_unavailable_outputs`) lists them again, greyed and not selectable;
+* **sync** (since 0.9.0): players Music Assistant can play in sync (its `can_group_with`, e.g. AirPlay ↔ a TV ↔ a
+  Sendspin phone; a DLNA player syncs with nothing) get a **Sync** key on the next picker key left at *none* to the
+  left of "Move here" (and on **Left**, the only way when no second key is free). On a highlighted player that can
+  sync with the panel's output it joins the output's group (HA `media_player.join`, target = the output, or the
+  leader it follows); on a member it reads **Unsync** (`media_player.unjoin`). Members are listed under their leader,
+  indented with a link glyph, like in Music Assistant; the music screen's output label names the whole group
+  ("R-N500 AirPlay + TV"). The group plays the leader's queue, so the panel's output stays the leader.
 
 **A player missing from the list?** Music Assistant only gives Home Assistant an entity for a player whose setting
 *Settings → Players → (the player) → Expose to Home Assistant* is on. It is off for some players added later (for
 example a "universal" TV player or a phone running Sendspin). Turn it on; the entity appears at once (no reload).
 
 `kindle_panel.move_queue` (`entity_id` = target, optional `source_player`, default the panel's output; `auto_play`,
-default on) answers `{music_output, moved_from, items}`. Cover art from Music Assistant reaches the panel through
+default on) answers `{ok: true, music_output, moved_from, items}`. Since 0.9.0 it first checks the target: unavailable,
+or its receiver **held** (yamaha_netbridge's `held` attribute, e.g. while a movie-mode script runs) answers
+`{ok: false, reason: unavailable | held, error, music_output}` and nothing moves. Music Assistant's transfer stops and
+clears the source before the target starts, so when the target refuses anyway the panel moves the queue back to the
+source and plays it there (`reason: failed`, `restored: moved_back | resumed`); the panel's output never changes on a
+refusal and the panel shows the reason on the music screen ("Cannot move: the receiver is busy (movie mode)"). Cover art from Music Assistant reaches the panel through
 `GET /api/kindle_panel/ma_image?url=<MA imageproxy URL>` (Home Assistant auth; only the loaded MA server's
 `/imageproxy` is fetched), for setups where the panel cannot reach Music Assistant's port.
 

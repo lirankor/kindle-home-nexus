@@ -479,7 +479,7 @@ describe("Music screen", () => {
     await waitFor(() =>
       expect(dialog.querySelector(".amp-progress")?.getAttribute("data-status")).toBe("paused"),
     );
-    expect(document.documentElement.dataset["einkPoll"]).toBeUndefined();
+    expect(document.documentElement.dataset["einkPoll"]).toBe("10"); // the music screen: frames every 10 s (task 022)
     press("Enter");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({

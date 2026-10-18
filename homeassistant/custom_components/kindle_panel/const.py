@@ -150,7 +150,9 @@ NODE_TYPES: dict[str, dict] = {
     },
     "tv": {
         "entity": ("entity", "media_player"),
-        "optional": {"movie_on": "script", "movie_off": "script", "movie_active": "input_boolean"},
+        # movie_active: what says "movie mode is on". The owner's Movie mode is a script (bus task 022): `script.movie_mode`
+        # is on exactly while it runs; an input_boolean still works for other households.
+        "optional": {"movie_on": "script", "movie_off": "script", "movie_active": "script|input_boolean"},
     },
 }
 MAX_NODES = 6

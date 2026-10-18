@@ -27,6 +27,10 @@ export type MaOutput = {
   state: string;
   now?: string | null;
   kind?: "player" | "group";
+  /** kindle_panel >= 0.9.0 (bus task 022): sync, as HA entity ids. */
+  group_with?: string[];
+  group_members?: string[];
+  synced_to?: string | null;
 };
 /** An MA player kindle_panel found in MA without an HA entity (bus task 021). */
 export type MaUnexposed = {

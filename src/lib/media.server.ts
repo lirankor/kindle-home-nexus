@@ -2719,6 +2719,7 @@ export async function performMediaAction(a: MediaAction): Promise<void> {
       break;
     case "output":
     case "output.move":
+    case "output.sync":
       throw new HomeError("Music outputs need music played by Home Assistant");
   }
 }

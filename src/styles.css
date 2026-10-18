@@ -541,6 +541,11 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .source-row[data-current="true"] .source-row-icon { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
 .radio-row[data-current="true"] .source-row-text strong { text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 4px; }
 .source-row-icon { width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; border: 1px solid currentColor; flex-shrink: 0; }
+/* Output picker (bus task 022): a sync member sits indented under its leader with a link glyph, like Music Assistant;
+   an unavailable / not-in-HA row (only with the panel option show_unavailable_outputs) is greyed. */
+.source-row[data-member="true"].eink-button { padding-inline-start: 34px; gap: 10px; }
+.source-row-link { display: flex; align-items: center; flex-shrink: 0; }
+.source-row[data-exposed="false"] { color: var(--muted-foreground); border-style: dashed; }
 .source-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .source-row-text strong { font-size: 28px; line-height: 1.15; font-weight: 700; }
 .source-row-text span { font-size: 20px; opacity: 0.85; }

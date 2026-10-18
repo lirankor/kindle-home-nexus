@@ -199,6 +199,8 @@ def migrate_media(old: dict[str, Any]) -> dict[str, Any]:
 def _node_entity(domain: str) -> Any:
     if domain == "text":
         return vol.Any(None, str)
+    if "|" in domain:  # one of several domains (e.g. "script|input_boolean")
+        return vol.Any(None, vol.All(cv.entity_id, cv.entity_domain(domain.split("|"))))
     if domain.endswith("[]"):
         d = domain[:-2]
         return vol.All(cv.ensure_list, [vol.All(cv.entity_id, cv.entity_domain(d))])
@@ -388,6 +390,9 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional("output_keys"): vol.Any(
                     None, vol.All(cv.ensure_list, [_output_key], vol.Length(max=POWER_KEY_COUNT))
                 ),
+                # the output picker also lists unavailable players and MA players HA has no entity for (greyed,
+                # not selectable): for debugging only (bus task 022)
+                vol.Optional("show_unavailable_outputs", default=False): cv.boolean,
             }
         ),
         vol.Optional("sensors", default={}): vol.Schema(

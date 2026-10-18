@@ -109,6 +109,11 @@ const actionSchema = z.union([
     type: z.literal("output.move"),
     entity: z.string().regex(/^media_player\.[a-z0-9_]+$/),
   }),
+  z.object({
+    type: z.literal("output.sync"),
+    entity: z.string().regex(/^media_player\.[a-z0-9_]+$/),
+    join: z.boolean(),
+  }),
 ]);
 
 const flags = () => ({ amp: ampConfigured() || haBackend(), jellyfin: jellyfinConfigured() });

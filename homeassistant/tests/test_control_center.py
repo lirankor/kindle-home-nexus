@@ -1337,7 +1337,7 @@ async def test_picker_lists_ma_players_groups_and_unexposed(hass, panel, monkeyp
         )
     )
     monkeypatch.setattr(kp, "_mass_client", lambda hass: mass)
-    await call(hass, "seed", config=HOUSE)
+    await call(hass, "seed", config={**HOUSE, "media": {"show_unavailable_outputs": True}})
     r = await call(hass, "get_config")
     rows = {o["entity_id"]: o for o in r["outputs"]}
     assert rows["media_player.ma_amp_airplay"]["now"] == "Holiday · Scorpions"
@@ -1383,7 +1383,12 @@ async def test_move_queue_transfers_and_switches_the_output(hass, panel, monkeyp
     await call(hass, "set_output", entity_id="media_player.ma_amp_airplay")
     r = await call(hass, "move_queue", entity_id="media_player.ma_amp_dlna")
     assert moved == [("q-media_player.ma_amp_airplay", "media_player.ma_amp_dlna", True)]
-    assert r == {"music_output": "media_player.ma_amp_dlna", "moved_from": "media_player.ma_amp_airplay", "items": 26}
+    assert r == {
+        "ok": True,
+        "music_output": "media_player.ma_amp_dlna",
+        "moved_from": "media_player.ma_amp_airplay",
+        "items": 26,
+    }
     assert (await call(hass, "get_config"))["music_output"] == "media_player.ma_amp_dlna"
     # nothing to move from the (now idle, empty) DLNA queue; same player refused
     with pytest.raises(ServiceValidationError):
@@ -1423,3 +1428,165 @@ async def test_ma_image_view_needs_auth_and_proxies(
     bad = await client.get("/api/kindle_panel/ma_image", params={"url": "http://192.168.1.15:8123/api/states"})
     assert bad.status == 403
     entry.mock_state(hass, ConfigEntryState.NOT_LOADED)  # no real music_assistant unload at teardown
+
+
+# ---------------------------------------------------------------- bus task 022: hide unavailable, sync, safe move
+
+
+def _sp(pid, name, *, can=(), members=(), synced_to=None, available=True, state="idle"):
+    p = _mp(pid, name, state=state)
+    p.can_group_with = list(can)
+    p.group_members = list(members)
+    p.synced_to = synced_to
+    p.available = available
+    return p
+
+
+async def test_picker_hides_unavailable_and_unexposed_by_default(hass, panel, monkeypatch) -> None:
+    import custom_components.kindle_panel as kp
+
+    _ma_player(hass, "media_player.ma_amp_dlna", "R-N500 DLNA")
+    _ma_player(hass, "media_player.ma_gone", "Gone speaker")
+    hass.states.async_set("media_player.ma_gone", "unavailable", {"friendly_name": "Gone speaker"})
+    mass = SimpleNamespace(
+        players=_FakePlayers(
+            [
+                _sp("media_player.ma_amp_dlna", "R-N500 DLNA"),
+                _sp("media_player.ma_gone", "Gone speaker", available=False),
+                _sp("web1", "Web (Chrome on Android)", available=False),
+            ]
+        )
+    )
+    monkeypatch.setattr(kp, "_mass_client", lambda hass: mass)
+    await call(hass, "seed", config=HOUSE)
+    r = await call(hass, "get_config")
+    assert [o["entity_id"] for o in r["outputs"]] == ["media_player.ma_amp_dlna"]
+    assert r["outputs_unexposed"] == []
+    assert r["config"]["media"]["show_unavailable_outputs"] is False
+    # the panel's own output stays listed even while it is unavailable (the label must not vanish)
+    await call(hass, "set_output", entity_id="media_player.ma_gone")
+    r = await call(hass, "get_config")
+    assert [o["entity_id"] for o in r["outputs"]] == ["media_player.ma_amp_dlna", "media_player.ma_gone"]
+    assert r["music_output_valid"] is True
+    # debugging option: everything back
+    await call(hass, "seed", config={**HOUSE, "media": {"show_unavailable_outputs": True}}, force=True)
+    r = await call(hass, "get_config")
+    assert len(r["outputs"]) == 2 and [u["name"] for u in r["outputs_unexposed"]] == ["Web (Chrome on Android)"]
+
+
+async def test_picker_rows_carry_sync_groups_as_entity_ids(hass, panel, monkeypatch) -> None:
+    import custom_components.kindle_panel as kp
+
+    for eid, name in [
+        ("media_player.ma_amp_dlna", "R-N500 DLNA"),
+        ("media_player.ma_amp_airplay", "R-N500 AirPlay"),
+        ("media_player.tv_3", "TV"),
+    ]:
+        _ma_player(hass, eid, name)
+    reg = __import__("homeassistant.helpers.entity_registry", fromlist=["x"]).async_get(hass)
+    # MA ids differ from entity ids for universal players: map through the registry's unique_id
+    reg.async_update_entity("media_player.ma_amp_airplay", new_unique_id="up2e612fa9")
+    reg.async_update_entity("media_player.tv_3", new_unique_id="updcd23cf6")
+    mass = SimpleNamespace(
+        players=_FakePlayers(
+            [
+                _sp("media_player.ma_amp_dlna", "R-N500 DLNA"),
+                _sp("up2e612fa9", "R-N500 AirPlay", can=["updcd23cf6", "pixel"], members=["up2e612fa9", "updcd23cf6"]),
+                _sp("updcd23cf6", "TV", can=["up2e612fa9", "pixel"], synced_to="up2e612fa9"),
+            ]
+        )
+    )
+    monkeypatch.setattr(kp, "_mass_client", lambda hass: mass)
+    await call(hass, "seed", config=HOUSE)
+    rows = {o["entity_id"]: o for o in (await call(hass, "get_config"))["outputs"]}
+    assert rows["media_player.ma_amp_airplay"]["group_with"] == ["media_player.tv_3"]  # pixel: no HA entity
+    assert rows["media_player.ma_amp_airplay"]["group_members"] == ["media_player.ma_amp_airplay", "media_player.tv_3"]
+    assert rows["media_player.tv_3"]["synced_to"] == "media_player.ma_amp_airplay"
+    assert rows["media_player.ma_amp_dlna"]["group_with"] == [] and rows["media_player.ma_amp_dlna"]["synced_to"] is None
+
+
+class _MoveQueues:
+    """MA's transfer_queue as it really behaves: it clears the source and loads the target BEFORE starting it."""
+
+    def __init__(self, fail_on=None):
+        self.items = {"media_player.ma_amp_airplay": 26, "media_player.ma_amp_dlna": 0}
+        self.fail_on = fail_on
+        self.calls = []
+
+    async def get_active_queue(self, pid):
+        n = self.items.get(pid, 0)
+        st = "playing" if pid == "media_player.ma_amp_airplay" and n else "idle"
+        return SimpleNamespace(queue_id=pid, items=n, state=SimpleNamespace(value=st))
+
+    async def transfer_queue(self, src, dst, auto_play):
+        self.calls.append(("transfer", src, dst, auto_play))
+        self.items[dst], self.items[src] = self.items[src], 0
+        if dst == self.fail_on:
+            raise RuntimeError("the receiver is held by another owner (hold entity is on)")
+
+    async def resume(self, qid):
+        self.calls.append(("resume", qid))
+
+
+async def _move_setup(hass, monkeypatch, queues, nodes=None):
+    import custom_components.kindle_panel as kp
+
+    _ma_player(hass, "media_player.ma_amp_dlna", "R-N500 DLNA")
+    _ma_player(hass, "media_player.ma_amp_airplay", "R-N500 AirPlay")
+    mass = SimpleNamespace(player_queues=queues)
+    monkeypatch.setattr(kp, "_mass_and_player", lambda hass, entry, eid: (mass, eid))
+    cfg = {**HOUSE, "media": {"music_backend": "ha", "nodes": nodes or []}}
+    await call(hass, "seed", config=cfg)
+    await call(hass, "set_output", entity_id="media_player.ma_amp_airplay")
+
+
+RX_AMP_022 = {
+    "id": "amp",
+    "type": "receiver",
+    "name": "Amp",
+    "power_device": "media_player.r_n500",
+    "players": ["media_player.ma_amp_dlna", "media_player.ma_amp_airplay"],
+}
+
+
+async def test_move_refused_up_front_when_the_receiver_is_held(hass, panel, monkeypatch) -> None:
+    q = _MoveQueues()
+    await _move_setup(hass, monkeypatch, q, nodes=[RX_AMP_022])
+    hass.states.async_set("media_player.r_n500", "on", {"held": True})
+    r = await call(hass, "move_queue", entity_id="media_player.ma_amp_dlna")
+    assert r["ok"] is False and r["reason"] == "held" and "media_player.r_n500" in r["error"]
+    assert r["music_output"] == "media_player.ma_amp_airplay"
+    assert q.calls == [] and q.items["media_player.ma_amp_airplay"] == 26  # nothing touched
+    assert (await call(hass, "get_config"))["music_output"] == "media_player.ma_amp_airplay"
+
+
+async def test_move_refused_when_the_target_is_unavailable(hass, panel, monkeypatch) -> None:
+    q = _MoveQueues()
+    await _move_setup(hass, monkeypatch, q)
+    hass.states.async_set("media_player.ma_amp_dlna", "unavailable")
+    r = await call(hass, "move_queue", entity_id="media_player.ma_amp_dlna")
+    assert r["ok"] is False and r["reason"] == "unavailable" and q.calls == []
+
+
+async def test_failed_move_puts_the_music_back_and_keeps_the_output(hass, panel, monkeypatch) -> None:
+    """The 2026-10-18 16:52 case: MA cleared AirPlay, loaded DLNA, DLNA refused to start (receiver held)."""
+    q = _MoveQueues(fail_on="media_player.ma_amp_dlna")
+    await _move_setup(hass, monkeypatch, q)  # no receiver node: the pre-check cannot see the hold
+    r = await call(hass, "move_queue", entity_id="media_player.ma_amp_dlna")
+    assert r["ok"] is False and r["reason"] == "failed" and r["restored"] == "moved_back"
+    assert "held by another owner" in r["error"]
+    assert q.calls == [
+        ("transfer", "media_player.ma_amp_airplay", "media_player.ma_amp_dlna", True),
+        ("transfer", "media_player.ma_amp_dlna", "media_player.ma_amp_airplay", True),
+    ]
+    assert q.items == {"media_player.ma_amp_airplay": 26, "media_player.ma_amp_dlna": 0}
+    assert (await call(hass, "get_config"))["music_output"] == "media_player.ma_amp_airplay"
+
+
+def test_tv_movie_active_takes_the_movie_script() -> None:
+    from custom_components.kindle_panel.config import normalize
+
+    node = {**TV_NODE, "movie_active": "script.movie_mode"}
+    assert normalize({"media": {"nodes": [node]}})["media"]["nodes"][0]["movie_active"] == "script.movie_mode"
+    old = {**TV_NODE, "movie_active": "input_boolean.movie_mode_active"}  # other households: still fine
+    assert normalize({"media": {"nodes": [old]}})["media"]["nodes"][0]["movie_active"].startswith("input_boolean.")

@@ -255,7 +255,10 @@ NODE_COLUMNS: dict[str, dict[str, Any]] = {
     },
     "movie_on": {"label": "TV: movie mode on (script)", "selector": {"entity": {"domain": "script"}}},
     "movie_off": {"label": "TV: movie mode off (script)", "selector": {"entity": {"domain": "script"}}},
-    "movie_active": {"label": "TV: movie mode active (boolean)", "selector": {"entity": {"domain": "input_boolean"}}},
+    "movie_active": {
+        "label": "TV: movie mode active (the movie-mode script: on while it runs; or a boolean)",
+        "selector": {"entity": {"domain": ["script", "input_boolean"]}},
+    },
     "dlna_player": {
         "label": "Receiver, app backend only: DLNA renderer",
         "selector": {"entity": {"domain": "media_player"}},
@@ -706,6 +709,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 "nodes": _nodes_from_rows(_take_he(c, user_input.get("nodes")), c["media"]["nodes"]),
                 "keys": [user_input.get(f"key_f{i + 1}") or POWER_KEY_NONE for i in range(POWER_KEY_COUNT)],
                 "output_keys": [user_input.get(f"out_f{i + 1}") or POWER_KEY_NONE for i in range(POWER_KEY_COUNT)],
+                "show_unavailable_outputs": bool(user_input.get("show_unavailable_outputs", False)),
             }
             edit = user_input.get("inputs_for")
             if edit:
@@ -747,6 +751,9 @@ class KindlePanelOptionsFlow(OptionsFlow):
                     _opt("nodes", _auto_icons(_with_he(c, _node_rows(m["nodes"])))): _list(NODE_COLUMNS, "name"),
                     **{vol.Required(f"key_f{i + 1}", default=k): key_select for i, k in enumerate(m["keys"])},
                     **{vol.Required(f"out_f{i + 1}", default=k): out_select for i, k in enumerate(m["output_keys"])},
+                    vol.Optional(
+                        "show_unavailable_outputs", default=bool(m.get("show_unavailable_outputs"))
+                    ): sel.BooleanSelector(),
                     vol.Optional("inputs_for"): sel.SelectSelector(
                         sel.SelectSelectorConfig(
                             options=[sel.SelectOptionDict(value=n["id"], label=n["name"]) for n in m["nodes"]],

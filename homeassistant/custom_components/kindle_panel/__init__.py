@@ -10,7 +10,13 @@
   `get_config` answers it with every MA player HA has (`music_output`, `outputs`: name, state, what it plays, player
   or group) plus the MA players HA has no entity for (`outputs_unexposed`, MA's "Expose to Home Assistant" is off).
 * `move_queue`: Music Assistant's transfer_queue from the panel's output (or `source_player`) to another player, then
-  that player becomes the panel's output (bus task 021).
+  that player becomes the panel's output (bus task 021). It checks the target first (available, its receiver not held,
+  e.g. by a running movie-mode script) and, when MA's transfer fails anyway, puts the music back on the source and
+  answers `{ok: false, error}` with the output unchanged (bus task 022).
+* Picker rows hide what cannot be chosen (unavailable, or no HA entity) unless the panel option
+  `media.show_unavailable_outputs` is on; each row carries `group_with` / `group_members` / `synced_to` (entity ids,
+  from MA's `can_group_with` / sync state) for the picker's sync key, which calls HA's media_player.join / unjoin
+  (bus task 022).
 * `/api/kindle_panel/ma_image?url=…` (HA auth): Music Assistant's image proxy through HA, so cover art reaches a panel
   that can only talk to HA (bus task 021). Only the loaded MA server's /imageproxy URLs are fetched.
 The panel only ever talks to Home Assistant.
@@ -149,10 +155,35 @@ def _now_line(st: Any) -> str | None:
 MA_PLAYBACK_TYPES = {"player", "stereo_pair", "group"}
 
 
+def _ma_entity_ids(hass: HomeAssistant) -> dict[str, str]:
+    """MA player id -> HA entity id, for every MA media_player HA has (enabled)."""
+    return {
+        e.unique_id: e.entity_id
+        for e in er.async_get(hass).entities.values()
+        if e.platform == MA_DOMAIN and e.domain == "media_player" and e.disabled_by is None
+    }
+
+
+def _sync_fields(p: Any, self_id: str, by_ma: dict[str, str]) -> dict[str, Any]:
+    """Sync (MA: players that can play the same thing in sync) as HA entity ids: `group_with` = the players this one
+    can be joined with (MA's can_group_with, only those HA has), `group_members` = the players synced to it when it
+    leads a sync group (itself first, like HA's group_members), `synced_to` = the leader it follows (or None)."""
+    can = [by_ma[x] for x in (getattr(p, "can_group_with", None) or []) if x in by_ma and by_ma[x] != self_id]
+    members = [by_ma[x] for x in (getattr(p, "group_members", None) or []) if x in by_ma]
+    leader = getattr(p, "synced_to", None)
+    return {
+        "group_with": sorted(set(can)),
+        "group_members": members if len(members) > 1 else [],
+        "synced_to": by_ma.get(leader) if leader else None,
+    }
+
+
 def ma_players(hass: HomeAssistant, mass: Any | None = None) -> list[dict[str, Any]]:
     """Every Music Assistant media_player HA has (players and MA groups), names from HA, in entity id order, with
-    its state, what it plays (`now`) and `kind` player | group (from MA's own player list when MA is loaded)."""
+    its state, what it plays (`now`) and `kind` player | group (from MA's own player list when MA is loaded), plus
+    what it can sync with (`group_with`, `group_members`, `synced_to`; empty without MA)."""
     out = []
+    by_ma = _ma_entity_ids(hass) if mass is not None else {}
     for e in sorted(er.async_get(hass).entities.values(), key=lambda x: x.entity_id):
         if e.platform != MA_DOMAIN or e.domain != "media_player" or e.disabled_by is not None:
             continue
@@ -169,8 +200,42 @@ def ma_players(hass: HomeAssistant, mass: Any | None = None) -> list[dict[str, A
         if p is not None and row["kind"] == "group":
             members = getattr(p, "group_members", None) or getattr(p, "static_group_members", None) or []
             row["members"] = [m for m in members if m != e.unique_id]
+        row.update(
+            _sync_fields(p, e.entity_id, by_ma)
+            if p is not None
+            else {"group_with": [], "group_members": [], "synced_to": None}
+        )
         out.append(row)
     return out
+
+
+def visible_outputs(
+    outputs: list[dict[str, Any]], unexposed: list[dict[str, Any]], current: str | None, show_unavailable: bool
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """What the picker lists (bus task 022): only what can be chosen, i.e. no `unavailable` player and no MA player
+    without an HA entity (MA's web clients come and go with a browser tab). The panel's own output always stays listed.
+    `show_unavailable_outputs` brings the rest back (greyed by the panel) for debugging."""
+    if show_unavailable:
+        return outputs, unexposed
+    return [o for o in outputs if o["state"] != "unavailable" or o["entity_id"] == current], []
+
+
+def receiver_held(hass: HomeAssistant, cfg: dict[str, Any], target_entity: str, target_ma_id: str) -> str | None:
+    """The receiver behind an MA player is held (yamaha_netbridge `held`: a hold entity, e.g. a running movie-mode
+    script, is on): the receiver's entity id, else None. Looked up through the panel's receiver nodes (`players`) and
+    through MA's "Home Assistant media players" provider, whose player id is the HA entity it plays to."""
+    candidates = [
+        n.get("power_device")
+        for n in cfg.get("media", {}).get("nodes", [])
+        if n.get("type") == "receiver" and target_entity in (n.get("players") or [])
+    ]
+    if target_ma_id.startswith("media_player."):
+        candidates.append(target_ma_id)
+    for eid in candidates:
+        st = hass.states.get(eid or "")
+        if st is not None and st.attributes.get("held") is True:
+            return st.entity_id
+    return None
 
 
 def ma_unexposed(hass: HomeAssistant, mass: Any | None) -> list[dict[str, Any]]:
@@ -286,6 +351,23 @@ def _item_view(mass: Any, index: int, qi: Any) -> dict[str, Any]:
         "album_id": _jellyfin_id(album) if album is not None else None,
         "image": image,
     }
+
+
+async def _restore_source(mass: Any, source_queue_id: str, source_id: str, target_id: str, was_playing: bool) -> str:
+    """Undo a failed transfer_queue: MA had already moved the items to the target (and cleared the source) when the
+    target refused to start, so move them back; when they never left, resume the source. Returns what was done."""
+    try:
+        target_queue = await mass.player_queues.get_active_queue(target_id)
+        if target_queue is not None and target_queue.items:
+            await mass.player_queues.transfer_queue(target_queue.queue_id, source_id, was_playing)
+            return "moved_back"
+        source_queue = await mass.player_queues.get_active_queue(source_id)
+        if was_playing and source_queue is not None and source_queue.items:
+            await mass.player_queues.resume(source_queue.queue_id)
+            return "resumed"
+    except Exception:  # noqa: BLE001 - best effort; the error of the move itself is what the panel shows
+        return "failed"
+    return "nothing"
 
 
 # ---------------------------------------------------------------- Music Assistant images through HA
@@ -406,8 +488,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
         cfg = normalize(entry.options.get(OPT_CONFIG))
         fill_net_radio(hass, cfg["media"]["nodes"])
         mass = _mass_client(hass)
-        outputs = ma_players(hass, mass)
-        ids = [o["entity_id"] for o in outputs]
+        all_outputs = ma_players(hass, mass)
+        ids = [o["entity_id"] for o in all_outputs]
+        outputs, unexposed = visible_outputs(
+            all_outputs,
+            ma_unexposed(hass, mass),
+            rt.output.output,
+            bool(cfg["media"].get("show_unavailable_outputs")),
+        )
         keys = cfg["media"]["output_keys"]
         if keys[0] == POWER_KEY_NONE and all(k == POWER_KEY_NONE for k in keys) and ids:
             cfg["media"]["output_keys"] = [ids[0], *keys[1:]]  # no receiver lists players: F1 = HA's first MA player
@@ -419,8 +507,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
             "music_output": rt.output.output,
             "music_output_valid": rt.output.output in ids,
             "outputs": outputs,
-            # MA players without an HA entity (MA: Expose to Home Assistant off): shown, not playable from HA
-            "outputs_unexposed": ma_unexposed(hass, mass),
+            # MA players without an HA entity (MA: Expose to Home Assistant off): only with show_unavailable_outputs
+            "outputs_unexposed": unexposed,
             # what pick_photo uses: an empty source list means Immich favourites
             "effective_sources": effective_sources(cfg["screensaver"]["sources"]),
         }
@@ -497,7 +585,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
 
     async def move_queue(call: ServiceCall) -> ServiceResponse:
         """Move the music: MA's transfer_queue from the panel's output (or `source_player`) to `entity_id`, which then
-        becomes the panel's output. MA moves the whole queue and the position and stops the source."""
+        becomes the panel's output. MA moves the whole queue and the position and stops the source.
+
+        Bus task 022: MA's transfer stops and clears the source *before* the target starts, so a target that refuses
+        (a receiver held by a running movie-mode script) used to leave nothing playing anywhere. Now the target is
+        checked first, and a failed transfer is undone (the queue goes back to the source and plays on there); both
+        answer `{ok: false, error, music_output}` with the panel's output unchanged."""
         target = call.data[ATTR_ENTITY_ID]
         source = call.data.get("source_player") or rt.output.output
         if not source:
@@ -509,10 +602,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
         source_queue = await mass.player_queues.get_active_queue(source_id)
         if source_queue is None or not source_queue.items:
             raise ServiceValidationError(f"{source} has nothing to move")
-        await mass.player_queues.transfer_queue(source_queue.queue_id, target_id, call.data["auto_play"])
+        refused = {"ok": False, "music_output": rt.output.output, "moved_from": None, "target": target}
+        st = hass.states.get(target)
+        if st is None or st.state == "unavailable":
+            return {**refused, "reason": "unavailable", "error": f"{target} is not available"}
+        if held := receiver_held(hass, panel_config(entry), target, target_id):
+            return {
+                **refused,
+                "reason": "held",
+                "error": f"the receiver is held by another owner ({held}: a hold entity is on)",
+            }
+        was_playing = _enum(getattr(source_queue, "state", None)) == "playing"
+        try:
+            await mass.player_queues.transfer_queue(source_queue.queue_id, target_id, call.data["auto_play"])
+        except Exception as err:  # noqa: BLE001 - MA's errors are plain exceptions; the music must not be lost
+            restored = await _restore_source(mass, source_queue.queue_id, source_id, target_id, was_playing)
+            return {**refused, "reason": "failed", "error": str(err) or type(err).__name__, "restored": restored}
         await rt.output.async_set(target)
         hass.bus.async_fire(EVENT_CONFIG_UPDATED, {"entry_id": entry.entry_id, "music_output": target})
-        return {"music_output": target, "moved_from": source, "items": source_queue.items}
+        return {"ok": True, "music_output": target, "moved_from": source, "items": source_queue.items}
 
     async def get_marks(call: ServiceCall) -> ServiceResponse:
         return {"kept": dict(rt.marks.kept), "skipped": dict(rt.marks.skipped)}

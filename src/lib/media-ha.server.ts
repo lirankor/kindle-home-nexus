@@ -4,6 +4,7 @@
 // chosen tracks to HA's script.music_play_items; everything it shows about playback comes from script.music_state.
 // The scripts live in homeserver-cloud: stacks/homeassistant/.../packages_media_platform/music_platform.yaml.
 import { HomeError, fetchStates, ha, service } from "./home.server";
+import { makeT, parseLang } from "./i18n";
 import { mediaKeyIcons, nodeViews } from "./media-nodes.server";
 import { invalidatePanelConfig, panelConfigNow, setMusicOutput } from "./panel-config.server";
 import type { HaState } from "./home.server";
@@ -14,6 +15,8 @@ import {
   OUTPUT_KEYS,
   RADIO_LISTS,
   isAmpSource,
+  syncActionFor,
+  syncLeaderOf,
 } from "./media";
 import type { OutputRow, OutputView } from "./media";
 import type { MediaNode } from "./panel-config";
@@ -100,8 +103,35 @@ export function movingView(m: Moving | null, rows: OutputRow[], now: number): Mo
     return { ...m, failed: "did not start playing", failedAt: now };
   return m;
 }
+/** A move HA refused or undid (bus task 022): shown on the music screen for MOVE_ERROR_SHOWN_MS. */
+let moveError: { name: string; error: string; at: number } | null = null;
+export const MOVE_ERROR_SHOWN_MS = 60_000;
+
+/** A sync group's members (itself first) from HA's live `group_members` (MA entities have it), else kindle_panel's. */
+const membersOf = (st: HaState | undefined, fallback: string[] | undefined): string[] => {
+  const live = (st?.attributes as { group_members?: unknown } | undefined)?.group_members;
+  const list = Array.isArray(live)
+    ? live.filter((x): x is string => typeof x === "string")
+    : (fallback ?? []);
+  return list.length > 1 ? list : [];
+};
+
+/** Rows by name (as Music Assistant's Players list), each sync group's members right under their leader. */
+export function groupOrder(rows: OutputRow[]): OutputRow[] {
+  const byName = [...rows].sort((a, b) => a.name.localeCompare(b.name));
+  const listed = new Set(byName.map((r) => r.entity_id));
+  const out: OutputRow[] = [];
+  for (const r of byName) {
+    if (r.syncedTo && listed.has(r.syncedTo)) continue; // placed under its leader
+    out.push(r);
+    out.push(...byName.filter((m) => m.syncedTo === r.entity_id));
+  }
+  return out;
+}
+
 /** What the picker shows: MA's players (live state + what each plays from the HA states when given), the ones HA
- *  has no entity for, the move under way and, when the chosen output is quiet, which other output plays. */
+ *  has no entity for (only with the panel's show_unavailable_outputs), the move under way, a refused move, sync groups
+ *  and, when the chosen output is quiet, which other output plays. */
 export function outputView(
   states?: Map<string, HaState> | null,
   now = Date.now(),
@@ -109,21 +139,39 @@ export function outputView(
   const l = panelConfigNow();
   if (!l || l.source !== "ha") return null;
   const entity = l.musicOutput ?? null;
-  // by name, as Music Assistant's own Players list shows them
-  const outputs: OutputRow[] = [...(l.outputs ?? [])]
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((o) => {
-      const st = states?.get(o.entity_id);
-      return {
-        entity_id: o.entity_id,
-        name: o.name,
-        state: st?.state ?? o.state,
-        now: st ? nowLineOf(st) : (o.now ?? null),
-        kind: o.kind ?? "player",
-        exposed: true,
-      };
-    });
-  const unexposed: OutputRow[] = (l.outputsUnexposed ?? []).map((u) => ({
+  const showUnavailable = !!l.config.media.show_unavailable_outputs;
+  const rows: OutputRow[] = (l.outputs ?? []).map((o) => {
+    const st = states?.get(o.entity_id);
+    return {
+      entity_id: o.entity_id,
+      name: o.name,
+      state: st?.state ?? o.state,
+      now: st ? nowLineOf(st) : (o.now ?? null),
+      kind: o.kind ?? "player",
+      exposed: true,
+      groupWith: o.group_with ?? [],
+      groupMembers: membersOf(st, o.group_members),
+      syncedTo: null,
+    };
+  });
+  // who follows whom, from the leaders' member lists (HA has no synced_to attribute)
+  for (const r of rows) {
+    const leader = rows.find(
+      (x) => x.entity_id !== r.entity_id && (x.groupMembers ?? []).includes(r.entity_id),
+    );
+    r.syncedTo =
+      leader?.entity_id ??
+      (l.outputs ?? []).find((o) => o.entity_id === r.entity_id)?.synced_to ??
+      null;
+  }
+  // only what can be chosen (bus task 022): a player that went unavailable since the last get_config hides too;
+  // the panel's own output always stays
+  const outputs = groupOrder(
+    showUnavailable
+      ? rows
+      : rows.filter((r) => r.state !== "unavailable" || r.entity_id === entity),
+  );
+  const unexposed: OutputRow[] = (showUnavailable ? (l.outputsUnexposed ?? []) : []).map((u) => ({
     entity_id: `ma:${u.player_id}`,
     name: u.name,
     state: u.state,
@@ -132,6 +180,14 @@ export function outputView(
     exposed: false,
   }));
   const current = outputs.find((o) => o.entity_id === entity);
+  const members = (current?.groupMembers ?? []).filter((m) => m !== entity);
+  const groupName =
+    current && members.length
+      ? [current.name, ...members.map((m) => rows.find((r) => r.entity_id === m)?.name ?? m)].join(
+          " + ",
+        )
+      : null;
+  if (moveError && now - moveError.at > MOVE_ERROR_SHOWN_MS) moveError = null;
   const other =
     current && PLAYING_STATES.includes(current.state)
       ? undefined
@@ -155,6 +211,9 @@ export function outputView(
     playingElsewhere: other
       ? { entity: other.entity_id, name: other.name, now: other.now ?? null }
       : null,
+    moveError,
+    groupName,
+    showUnavailable,
   };
 }
 
@@ -845,6 +904,41 @@ async function alignStreamSelect(entity: string) {
     );
 }
 
+/** Texts made on the server (errors the panel shows as is) in the panel's language (UI_LANGUAGE, read per call). */
+const serverT = () => makeT(parseLang(process.env["UI_LANGUAGE"]));
+/** kindle_panel >= 0.9.0 answers move_queue; older ones answer nothing (then a refusal is an HA error). */
+type MoveAnswer = { ok?: boolean; reason?: string; error?: string; restored?: string };
+/** The one line the panel shows for a refused move: the reason in the panel's words plus HA's own text. */
+export function moveReasonText(a: MoveAnswer, targetName: string): string {
+  const t = serverT();
+  const why =
+    a.reason === "held"
+      ? t("output.reasonHeld")
+      : a.reason === "unavailable"
+        ? t("output.reasonUnavailable", { name: targetName })
+        : (a.error ?? "Music Assistant refused");
+  const detail = a.reason === "failed" || !a.error ? "" : ` (${a.error})`;
+  return t("output.moveRefused", { reason: `${why}${detail}` });
+}
+
+/** Sync (bus task 022): `entity` joins the sync group of the panel's output (HA media_player.join with the output,
+ *  or the leader it follows, as the target) or leaves it (media_player.unjoin). Music Assistant decides what can sync
+ *  (can_group_with); the picker offers the key only for those. */
+export async function syncOutputHa(entity: string, join: boolean): Promise<void> {
+  const view = outputView(await fetchStates().catch(() => null));
+  const row = view?.outputs.find((o) => o.entity_id === entity);
+  if (!view || !row) throw new HomeError("Not a Music Assistant player");
+  const want = syncActionFor(view.outputs, view.entity, row);
+  if (want !== (join ? "join" : "unjoin"))
+    throw new HomeError(serverT()("output.cantSync", { name: row.name }));
+  if (join) {
+    const leader = syncLeaderOf(view.outputs, view.entity)!;
+    await service("media_player", "join", { entity_id: leader.entity_id, group_members: [entity] });
+  } else await service("media_player", "unjoin", { entity_id: entity });
+  invalidatePanelConfig();
+  lastState = null;
+}
+
 /** Move the music here (bus task 021): Music Assistant's transfer_queue from the panel's output to `entity`
  *  (kindle_panel.move_queue: whole queue + position, auto play, the source stops); `entity` becomes the output and
  *  the picker shows "moving…" until it plays. */
@@ -856,12 +950,25 @@ export async function moveOutputHa(entity: string): Promise<void> {
   if (!from) throw new HomeError("No output to move the music from");
   if (from === entity) throw new HomeError("The music is already there");
   await alignStreamSelect(entity);
-  await ha(
+  moveError = null;
+  const r = await ha<{ service_response?: MoveAnswer }>(
     "POST",
-    "/api/services/kindle_panel/move_queue",
+    "/api/services/kindle_panel/move_queue?return_response",
     { entity_id: entity, source_player: from },
-    30_000,
+    45_000,
   );
+  const answer = r.service_response;
+  if (answer && answer.ok === false) {
+    // HA refused (target held / unavailable) or undid a failed transfer: the music stays where it was, so does the
+    // output; the receiver's stream select goes back to the source (bus task 022)
+    await alignStreamSelect(from);
+    const reason = moveReasonText(answer, target.name);
+    moveError = { name: target.name, error: reason, at: Date.now() };
+    moving = null;
+    lastState = null;
+    invalidatePanelConfig();
+    throw new HomeError(reason);
+  }
   moving = { entity, name: target.name, startedAt: Date.now() };
   if (l) {
     l.musicOutput = entity;
@@ -961,6 +1068,9 @@ export async function performMediaActionHa(
       return;
     case "output.move":
       await moveOutputHa(a.entity);
+      return;
+    case "output.sync":
+      await syncOutputHa(a.entity, a.join);
       return;
     default:
       await legacy(a);

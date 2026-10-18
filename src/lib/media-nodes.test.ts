@@ -141,7 +141,7 @@ describe("media nodes", () => {
     expect(
       nodeCalls(withNumber, { type: "node", id: "amp", op: "volume", delta: 1 }, states(plain)),
     ).toEqual([
-      { domain: "number", service: "set_value", data: { entity_id: "number.vol", value: -28 } },
+      { domain: "number", service: "set_value", data: { entity_id: "number.vol", value: -29 } },
     ]);
     expect(
       nodeCalls(tv, { type: "node", id: "tv", op: "volume", delta: -1 }, states(plain)),

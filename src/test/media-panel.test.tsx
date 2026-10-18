@@ -230,7 +230,7 @@ describe("Media tab and amp view", () => {
     // the legend row: the quick outputs on F1 / F3
     expect(
       Array.from(picker.querySelectorAll("[data-soft-key]")).map((b) => b.textContent),
-    ).toEqual(["R-N500", "\u00a0", "Kitchen", "Move here"]); // the free right-most key moves the music (task 021)
+    ).toEqual(["R-N500", "Sync", "Kitchen", "Move here"]); // free keys: move (task 021), sync (task 022)
     press("ArrowDown");
     expect(options()[1]).toHaveAttribute("aria-selected", "true");
     // Back: closes with no change (it opened by itself, so back to the Media tab)
@@ -325,6 +325,124 @@ describe("Media tab and amp view", () => {
         data: { type: "output.move", entity: "media_player.ma_amp_dlna" },
       }),
     );
+  });
+
+  it("sync groups in the picker (task 022): members under the leader with a link, Sync / Unsync key, Left = sync, group label", async () => {
+    const r = liveResult();
+    const row = (entity_id: string, name: string, extra: Record<string, unknown> = {}) => ({
+      entity_id,
+      name,
+      state: "idle",
+      now: null,
+      kind: "player" as const,
+      exposed: true,
+      groupWith: [] as string[],
+      groupMembers: [] as string[],
+      syncedTo: null as string | null,
+      ...extra,
+    });
+    const AIR = "media_player.ma_amp_airplay";
+    const TV = "media_player.tv_3";
+    const PIX = "media_player.pixel_phone";
+    r.snapshot!.output = {
+      entity: AIR,
+      name: "R-N500 AirPlay",
+      groupName: "R-N500 AirPlay + TV",
+      valid: true,
+      outputs: [
+        row(PIX, "Pixel phone", { groupWith: [AIR, TV] }),
+        row(AIR, "R-N500 AirPlay", {
+          state: "playing",
+          now: "Holiday · Scorpions",
+          groupWith: [TV, PIX],
+          groupMembers: [AIR, TV],
+        }),
+        row(TV, "TV", { state: "playing", groupWith: [AIR, PIX], syncedTo: AIR }),
+        row("media_player.ma_amp_dlna", "R-N500 DLNA"),
+      ],
+      unexposed: [],
+      keys: ["media_player.ma_amp_dlna", "none", "none", "none"],
+      moving: null,
+      playingElsewhere: null,
+      moveError: null,
+    };
+    r.snapshot!.amp = { ...r.snapshot!.amp, source: "SERVER", state: "on" };
+    r.snapshot!.nowPlaying = { ...r.snapshot!.nowPlaying, kind: "music", station: null };
+    mocks.getMediaSnapshot.mockResolvedValue(r);
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
+    press("F1");
+    expect(screen.getByRole("dialog").textContent).toContain("R-N500 AirPlay + TV");
+    press("F3"); // Output
+    const picker = screen.getByRole("dialog", { name: "Play music on" });
+    const rows = () => Array.from(picker.querySelectorAll('[role="option"]'));
+    const legend = () =>
+      Array.from(picker.querySelectorAll("[data-soft-key]")).map((b) => b.textContent);
+    expect(rows()[2]).toHaveAttribute("data-member", "true");
+    expect(rows()[2]?.textContent).toContain("in sync with R-N500 AirPlay");
+    expect(rows()[2]?.querySelector(".source-row-link")).not.toBeNull();
+    // cursor on the current output (the leader): no sync for itself
+    expect(legend()).toEqual(["R-N500 DLNA", "\u00a0", "Sync", "Move here"]);
+    press("ArrowDown"); // TV, a member: Unsync
+    expect(legend()[2]).toBe("Unsync");
+    press("F3");
+    await waitFor(() =>
+      expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
+        data: { type: "output.sync", entity: TV, join: false },
+      }),
+    );
+    // Pixel phone (can sync): Left joins it to AirPlay's group
+    press("ArrowUp");
+    press("ArrowUp");
+    press("ArrowLeft");
+    await waitFor(() =>
+      expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
+        data: { type: "output.sync", entity: PIX, join: true },
+      }),
+    );
+  });
+
+  it("a refused move (task 022): the output label stays and the music screen shows HA's reason", async () => {
+    const r = liveResult();
+    r.snapshot!.output = {
+      entity: "media_player.ma_amp_airplay",
+      name: "R-N500 AirPlay",
+      valid: true,
+      outputs: [
+        {
+          entity_id: "media_player.ma_amp_airplay",
+          name: "R-N500 AirPlay",
+          state: "playing",
+          kind: "player",
+          exposed: true,
+        },
+        {
+          entity_id: "media_player.ma_amp_dlna",
+          name: "R-N500 DLNA",
+          state: "idle",
+          kind: "player",
+          exposed: true,
+        },
+      ],
+      unexposed: [],
+      keys: ["none", "none", "none", "none"],
+      moving: null,
+      playingElsewhere: null,
+      moveError: {
+        name: "R-N500 DLNA",
+        error: "Cannot move: the receiver is busy (movie mode)",
+        at: Date.now(),
+      },
+    };
+    r.snapshot!.amp = { ...r.snapshot!.amp, source: "SERVER", state: "on" };
+    r.snapshot!.nowPlaying = { ...r.snapshot!.nowPlaying, kind: "music", station: null };
+    mocks.getMediaSnapshot.mockResolvedValue(r);
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
+    press("F1");
+    const now = screen.getByRole("dialog");
+    expect(now.textContent).toContain("Cannot move: the receiver is busy (movie mode)");
+    expect(now.textContent).toContain("R-N500 AirPlay");
   });
 
   it("the music screen follows its output: idle DLNA while AirPlay plays shows the hint line (task 021)", async () => {
@@ -474,7 +592,7 @@ describe("Media tab and amp view", () => {
     const picker = screen.getByRole("dialog", { name: "Play music on" });
     expect(
       Array.from(picker.querySelectorAll("[data-soft-key]")).map((b) => b.textContent),
-    ).toEqual(["Amp over DLNA", "Kitchen", "\u00a0", "Move here"]);
+    ).toEqual(["Amp over DLNA", "Kitchen", "Sync", "Move here"]);
     press("F1");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
@@ -523,7 +641,7 @@ describe("Media tab and amp view", () => {
       }),
     );
     // Optimistic: shown right away, before the server answers; back to the snapshot once it does.
-    expect(dialog.querySelector(".transport-db")?.textContent).toBe("-42.5dB");
+    expect(dialog.querySelector(".transport-db")?.textContent).toBe("-43.5dB");
     await act(async () => settle({ ok: true }));
     await waitFor(() => expect(dialog.querySelector(".transport-db")?.textContent).toBe("-44.5dB"));
     press("ArrowDown");

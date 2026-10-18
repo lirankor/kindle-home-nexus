@@ -211,6 +211,8 @@ export type PanelConfig = {
     keys: string[];
     /** Output picker F1..F4: an MA media_player or "none", always 4 entries. */
     output_keys: string[];
+    /** The picker also lists unavailable / not-in-HA players, greyed (debugging; bus task 022). Absent = off. */
+    show_unavailable_outputs?: boolean;
   };
   sensors: {
     indoor_temperature?: string | null;
@@ -383,7 +385,8 @@ export const LEGACY_HOUSE_MEDIA: LegacyMedia = {
   tv: "media_player.bravia_xr_65x90k",
   movie_on: "script.movie_mode",
   movie_off: "script.movie_mode_off",
-  movie_active: "input_boolean.movie_mode_active",
+  // the Movie mode script itself: on while it runs (bus task 022: Movie mode is a script, not a toggle)
+  movie_active: "script.movie_mode",
   ynca_entry_id: "01M0ZMQXMTWAAW7BXTBCXD1YZR",
 };
 DEFAULT_CONFIG.media = migrateMedia({ ...LEGACY_HOUSE_MEDIA, music_backend: "app" });
@@ -517,5 +520,6 @@ export function mergeMedia(
     nodes,
     keys: m.keys ? padTo4(m.keys) : defaultMediaKeys(nodes),
     output_keys: m.output_keys?.length ? padTo4(m.output_keys) : defaultOutputKeys(nodes),
+    ...(m.show_unavailable_outputs ? { show_unavailable_outputs: true } : {}),
   };
 }
