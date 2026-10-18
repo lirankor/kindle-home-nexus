@@ -125,6 +125,9 @@ export type HaMusicState = {
   };
   queue: {
     title: string;
+    /** "mix": one of the nightly Music Assistant mix playlists (bus task 018), `title` = the mix. */
+    kind?: "queue" | "mix";
+    mix?: { id: string; title: string; he: string } | null;
     status: "playing" | "paused" | "stopped";
     stall: string | null;
     index: number;
@@ -418,7 +421,8 @@ export function queueListFrom(
   if (!q) return null;
   if (full && full.items.length)
     return {
-      title: full.name ?? q.title,
+      // MA names the queue after the player; a mix playlist's name comes from music_state
+      title: s.queue?.kind === "mix" ? q.title : (full.name ?? q.title),
       index: full.current_index ?? q.index,
       status: q.status,
       tracks: full.items.map(panelItemTrack),
@@ -525,11 +529,46 @@ async function queueJumpHa(index: number) {
 }
 
 type PlayAnswer = { ok: boolean; error?: string; status?: string };
-/** The panel picks the tracks (its mixes, an album in order, an artist shuffle) and MA plays exactly those. */
+type PlayMixAnswer = PlayAnswer & { chosen?: { title?: string; mt?: string } };
+/** A mix plays the nightly Music Assistant playlist of that name (bus task 018: bin/ma-mixes.py rebuilds them at
+ *  04:45, so the Kindle, the MA app, HA and voice share the same lists). Null = MA has no such playlist (yet): the
+ *  caller falls back to the panel's own mix. */
+async function playMixPlaylistHa(sel: PlaySelection): Promise<QueueProgress | null> {
+  const r = await haScript<PlayMixAnswer>(
+    "play_music",
+    { query: sel.id, kind: "mix", fallback: false, ...outputFields() },
+    30_000,
+  );
+  if (!r.ok) {
+    if ((r.error ?? "").startsWith("nothing found")) return null;
+    throw new HomeError(r.error ?? "Music Assistant refused");
+  }
+  if (r.status === "powering_on") powerStartedAt = Date.now();
+  lastState = null;
+  sentQueue = null; // MA's queue is the list now (kindle_panel.get_queue / music_state)
+  return {
+    title: r.chosen?.title ?? sel.id,
+    index: 0,
+    count: 0,
+    track: null,
+    positionMs: 0,
+    durationMs: 0,
+    status: "playing",
+    prevTrack: null,
+    nextTracks: [],
+    stall: null,
+  };
+}
+/** The panel picks the tracks (an album in order, an artist shuffle; a mix only when MA has no playlist for it) and
+ *  MA plays exactly those. */
 export async function playSelectionHa(
   sel: PlaySelection,
   tracksFor: (sel: PlaySelection) => Promise<{ title: string; tracks: MusicTrack[] }>,
 ): Promise<QueueProgress | null> {
+  if (sel.kind === "mix") {
+    const q = await playMixPlaylistHa(sel);
+    if (q) return q;
+  }
   const { title, tracks } = await tracksFor(sel);
   if (!tracks.length) throw new HomeError("Nothing to play");
   const r = await haScript<PlayAnswer>(

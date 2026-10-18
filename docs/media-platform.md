@@ -19,6 +19,11 @@ What this branch changes in the app:
   Assistant queue and "jump" plays the chosen item (`kindle_panel.get_queue` / `play_index`). Without it, it falls back
   to the list the panel itself sent, or current + next.
 - F2 (favourite) says favourites are kept in Music Assistant.
+- Mixes in HA mode (bus task 018): Enter on a mix plays the nightly Music Assistant playlist of that mix
+  (`script.play_music kind: mix`, query = the mix id, `fallback: false`); homeserver-cloud's `bin/ma-mixes.py` rebuilds
+  those playlists every night at 04:45, so the Kindle, the MA app, HA and voice share the same lists. The list title is
+  the mix (`music_state` `queue.kind: mix`). Only when MA has no playlist for the mix does the panel build and send its
+  own list as before. The Mixes tab itself (ids, labels, track counts) is unchanged.
 
 ## Control center: the panel is configured in Home Assistant (`kindle_panel`)
 
