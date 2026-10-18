@@ -16,13 +16,12 @@ from homeassistant.helpers import selector as sel
 
 from .config import default_power_keys, effective_sources, normalize
 from .const import (
-    CARD_ICONS,
     CARD_TYPES,
     CONF_MA_ENTRY,
     CUSTOM_PREFIX,
     DOMAIN,
+    ICONS,
     LANGUAGES,
-    LIGHT_ICONS,
     MA_DOMAIN,
     MEDIA_KEY_MUSIC,
     MUSIC_BACKENDS,
@@ -34,12 +33,9 @@ from .const import (
     POWER_KEY_ALL_OFF,
     POWER_KEY_COUNT,
     POWER_KEY_NONE,
-    ROOM_ICONS,
-    SCENE_ICONS,
     SOURCE_IMMICH_FAVORITES,
     SOURCE_MEDIA,
     TOGGLE_DOMAINS,
-    TOGGLE_ICONS,
 )
 from .photos import discover_sources
 
@@ -77,6 +73,14 @@ def _entity(domain: str | list[str]) -> sel.EntitySelector:
 
 def _select(options: list[str], key: str, multiple: bool = False) -> sel.SelectSelector:
     return sel.SelectSelector(sel.SelectSelectorConfig(options=options, translation_key=key, multiple=multiple))
+
+
+# Every icon column offers the whole pack (bus task 019): a searchable dropdown, sorted, no free text. Labels are spelled
+# out: the frontend does not translate fields nested in an object list.
+ICON_FIELD: dict[str, Any] = {
+    "label": "Icon",
+    "selector": {"select": {"options": sorted(ICONS), "mode": "dropdown", "custom_value": False, "sort": True}},
+}
 
 
 TAB_LABELS = {"lights": "Lights", "vacuum": "Vacuum", "power": "Power", "media": "Media"}
@@ -239,6 +243,7 @@ NODE_COLUMNS: dict[str, dict[str, Any]] = {
         "selector": {"entity": {"domain": "media_player"}},
     },
     "ynca_entry_id": {"label": "Receiver, app backend only: yamaha_ynca entry id", "selector": {"text": {}}},
+    "icon": {**ICON_FIELD, "label": "Icon (empty: receiver speaker, TV tv)"},
 }
 
 
@@ -265,6 +270,8 @@ def _nodes_from_rows(rows: Any, old: list[dict[str, Any]] | None = None) -> list
         node = {"id": str(row.get("id") or "").strip(), "type": kind, "name": str(row.get("name") or "").strip()}
         node[t["entity"][0]] = row.get("entity")
         node |= {k: row[k] for k in t["optional"] if row.get(k) not in (None, "", [])}
+        if row.get("icon"):
+            node["icon"] = row["icon"]
         if node["id"] in inputs:
             node["inputs"] = inputs[node["id"]]
         nodes.append(node)
@@ -429,7 +436,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                             "name": {"required": True, "selector": {"text": {}}},
                             "name_he": NAME_HE,
                             "room": {"selector": {"text": {}}},
-                            "icon": {"selector": {"select": {"options": LIGHT_ICONS}}},
+                            "icon": ICON_FIELD,
                         },
                         "name",
                     ),
@@ -448,7 +455,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                             },
                             "name": {"label": "Name", "required": True, "selector": {"text": {}}},
                             "name_he": NAME_HE,
-                            "icon": {"label": "Icon", "selector": {"select": {"options": SCENE_ICONS}}},
+                            "icon": ICON_FIELD,
                         },
                         "name",
                     ),
@@ -483,7 +490,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                             },
                             "name": {"required": True, "selector": {"text": {}}},
                             "name_he": NAME_HE,
-                            "icon": {"selector": {"select": {"options": ROOM_ICONS}}},
+                            "icon": ICON_FIELD,
                         },
                         "name",
                     ),
@@ -528,6 +535,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                                     }
                                 }
                             },
+                            "icon": {**ICON_FIELD, "label": "Icon (empty: plug)"},
                         },
                         "name",
                     ),
@@ -589,7 +597,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                             },
                             "title": {"label": "Title", "required": True, "selector": {"text": {}}},
                             "title_he": {"label": "Hebrew title", "selector": {"text": {}}},
-                            "icon": {"label": "Icon", "selector": {"select": {"options": TOGGLE_ICONS}}},
+                            "icon": ICON_FIELD,
                         },
                         "title",
                     ),
@@ -640,7 +648,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                             },
                             "name": {"label": "Name", "required": True, "selector": {"text": {}}},
                             "name_he": NAME_HE,
-                            "icon": {"label": "Icon", "selector": {"select": {"options": TOGGLE_ICONS}}},
+                            "icon": ICON_FIELD,
                         },
                         "name",
                     ),
@@ -759,6 +767,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                             "name": {"label": "Name (empty: the device's own title)", "selector": {"text": {}}},
                             "name_he": NAME_HE,
                             "hidden": {"label": "Hidden on the panel", "selector": {"boolean": {}}},
+                            "icon": {**ICON_FIELD, "label": "Icon (empty: none)"},
                         },
                         "input",
                     ),
@@ -823,7 +832,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                             },
                             "entity_id": {"label": "Entity (sensor card)", "selector": {"entity": {}}},
                             "label": {"label": "Label (sensor card)", "selector": {"text": {}}},
-                            "icon": {"label": "Icon (sensor card)", "selector": {"select": {"options": CARD_ICONS}}},
+                            "icon": {**ICON_FIELD, "label": "Icon (sensor card)"},
                         },
                         "type",
                     ),

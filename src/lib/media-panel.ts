@@ -21,13 +21,13 @@ import {
   Shuffle,
   Space,
   Speaker,
-  Tv,
   VolumeX,
   X,
   Zap,
 } from "lucide-react";
 import type { DeviceAction } from "@/components/device-actions";
 import { useFullRefresh } from "@/lib/eink";
+import { nodeIcon } from "@/lib/icons";
 import { isRtl, makeT } from "@/lib/i18n";
 import type { Lang } from "@/lib/i18n";
 import {
@@ -1069,7 +1069,7 @@ export function useMediaPanel({
     if (!n) return null;
     return {
       label: nodeLabel(lang, n.name),
-      icon: n.type === "tv" ? Tv : Speaker,
+      icon: nodeIcon(n),
       pressed: n.on,
       disabled: !n.available,
       onClick: () => openNode(n.id),

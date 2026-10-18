@@ -25,7 +25,11 @@ export const isNetbridge = (s: HaState | undefined) =>
 export function nodeInputs(
   n: MediaNode,
   sourceList: string[],
-): { sources: string[]; inputNames: Record<string, InputName> } {
+): {
+  sources: string[];
+  inputNames: Record<string, InputName>;
+  inputIcons?: Record<string, string>;
+} {
   const rows = (n.inputs ?? []).filter((r) => r && typeof r.input === "string");
   const hidden = new Set(rows.filter((r) => r.hidden).map((r) => r.input));
   const inputNames: Record<string, InputName> = {};
@@ -35,7 +39,12 @@ export function nodeInputs(
     if (r.name_he) name.name_he = r.name_he;
     if (name.name || name.name_he) inputNames[r.input] = name;
   }
-  return { sources: sourceList.filter((s) => !hidden.has(s)), inputNames };
+  const icons = rows.filter((r) => r.icon).map((r) => [r.input, r.icon as string] as const);
+  return {
+    sources: sourceList.filter((s) => !hidden.has(s)),
+    inputNames,
+    ...(icons.length ? { inputIcons: Object.fromEntries(icons) } : {}),
+  };
 }
 
 /** The NET RADIO station select's stations, paired with its options by position (pure; unit tested). */
@@ -70,6 +79,7 @@ export function nodeView(n: MediaNode, states: Map<string, HaState>): NodeView {
     id: n.id,
     type: n.type,
     name: n.name,
+    ...(n.icon ? { icon: n.icon } : {}),
     available: available || plugOff,
     on: available && !plugOff && state !== "off" && state !== "standby",
     state: plugOff ? "off" : state,

@@ -62,6 +62,8 @@ export type PlugMeta = {
   energy: string | null;
   /** energy is converted to Wh with energyToWh. */
   energyToWh: number;
+  /** icon pack name (src/data/icons.json); empty or unknown draws the plug icon. */
+  icon: string;
 };
 export const PLUGS: PlugMeta[] = [];
 
@@ -131,6 +133,7 @@ export function applyHomeConfig(c: {
     power_entity?: string | null;
     energy_entity?: string | null;
     energy_to_wh?: number;
+    icon?: string | null;
   }[];
   media?: { nodes?: MediaNode[] };
   sensors?: {
@@ -169,6 +172,7 @@ export function applyHomeConfig(c: {
       power: p.power_entity ?? null,
       energy: p.energy_entity ?? null,
       energyToWh: p.energy_to_wh ?? 1,
+      icon: p.icon ?? "plug",
     })),
   );
   if (c.media) {

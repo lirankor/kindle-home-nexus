@@ -52,10 +52,12 @@ import {
   formatDb,
   musicItemDetail,
   musicItemTitle,
+  ampNode,
   inputLabel,
   nodeLabel,
   powerOnStepKey,
 } from "@/lib/media-ui";
+import { nodeIcon, optionalIcon } from "@/lib/icons";
 import { QUEUE_PAGE_SIZE, RADIO_PAGE_SIZE } from "@/lib/media-panel";
 import type { MediaPanel } from "@/lib/media-panel";
 import {
@@ -213,7 +215,7 @@ export function MediaCards({ panel }: { panel: MediaPanel }) {
             return (
               <DeviceRow
                 key={n.id}
-                icon={n.type === "tv" ? Tv : Speaker}
+                icon={nodeIcon(n)}
                 name={name}
                 on={n.on}
                 state={line}
@@ -240,7 +242,7 @@ export function MediaCards({ panel }: { panel: MediaPanel }) {
 function NodeScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   const { t, lang, node: n } = panel;
   if (!n) return null;
-  const Icon = n.type === "tv" ? Tv : Speaker;
+  const Icon = nodeIcon(n);
   return (
     <FullModal label={t("node.label")} actions={panel.modalActions} status={status}>
       <header className="modal-heading">
@@ -297,6 +299,8 @@ function NodeSourceList({ panel, status }: { panel: MediaPanel; status: string }
         {sourceWindow(n.sources, cursor).map((src) => {
           const index = n.sources.indexOf(src);
           const current = n.on && n.source === src;
+          // an input row's icon (bus task 019); none set: no icon, as before
+          const Icon = optionalIcon(n.inputIcons?.[src]);
           return (
             <Button
               key={src}
@@ -308,6 +312,11 @@ function NodeSourceList({ panel, status }: { panel: MediaPanel; status: string }
               data-current={current}
               onClick={() => panel.setCursor(index)}
             >
+              {Icon && (
+                <span className="source-row-icon">
+                  <Icon size={30} strokeWidth={1.6} />
+                </span>
+              )}
               <span className="source-row-text">
                 <strong>{panel.nodeSourceName(src)}</strong>
               </span>
@@ -641,7 +650,7 @@ function SourceList({ panel, status }: { panel: MediaPanel; status: string }) {
       <div className="source-rows" role="listbox" aria-label={t("source.title")}>
         {sourceWindow(panel.sourceRows, cursor).map((source) => {
           const index = panel.sourceRows.indexOf(source);
-          const Icon = sourceIcon(source);
+          const Icon = optionalIcon(ampNode(s)?.inputIcons?.[source]) ?? sourceIcon(source);
           const current = s?.amp.on && s.amp.source === source;
           return (
             <Button

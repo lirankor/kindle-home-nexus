@@ -230,6 +230,10 @@ export type NodeView = {
   sources: string[];
   /** Inputs renamed in the node's `inputs` rows (absent: the device's own title). */
   inputNames?: Record<string, InputName>;
+  /** Input icons from the node's `inputs` rows (icon pack names, bus task 019; absent: the input's own glyph). */
+  inputIcons?: Record<string, string>;
+  /** The node's icon pack name (absent: by type, receiver "speaker", tv "tv"). */
+  icon?: string;
   volumeDb: number | null;
   /** 0..1 */
   volume: number | null;

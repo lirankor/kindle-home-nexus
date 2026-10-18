@@ -5,8 +5,6 @@ import {
   Home,
   Sun,
   Lightbulb,
-  LampCeiling,
-  Sofa,
   Power,
   Plug,
   Music2,
@@ -14,15 +12,8 @@ import {
   Play,
   Pause,
   Moon,
-  Film,
   RotateCcw,
   MapPin,
-  Bed,
-  Utensils,
-  Bath,
-  DoorOpen,
-  Baby,
-  ShowerHead,
   Battery,
   ArrowLeft,
   Palette,
@@ -41,15 +32,7 @@ import {
   Wind,
   CalendarDays,
   Snowflake,
-  Gauge,
-  Zap,
-  Leaf,
-  BookOpen,
-  Star,
   Sparkles,
-  Lamp,
-  Fan,
-  Tv,
 } from "lucide-react";
 import { DeviceRow } from "@/components/device-row";
 import { Button } from "@/components/ui/button";
@@ -65,7 +48,7 @@ import { useMediaPanel } from "@/lib/media-panel";
 import { loadPanelState, persistableScreen, savePanelState, type TabName } from "@/lib/panel-state";
 import { isCustomTab } from "@/lib/panel-config";
 import type { PanelView, TabId } from "@/lib/panel-config";
-import { SpotLightIcon, StripLightIcon } from "@/components/light-icons";
+import { ICON_DEFAULTS, iconFor, type IconComponent } from "@/lib/icons";
 import { useFullRefresh } from "@/lib/eink";
 import { BatteryBadge } from "@/components/battery-badge";
 import { useKindleBattery } from "@/lib/battery";
@@ -123,7 +106,7 @@ export const Route = createFileRoute("/")({
 });
 
 /** A tab of the bar; custom tabs carry their (English) title, shown through the names mechanism. */
-type TabEntry = { name: TabName; icon: typeof Lightbulb; title?: string };
+type TabEntry = { name: TabName; icon: IconComponent; title?: string };
 const ALL_TABS: Record<Exclude<TabId, `custom:${string}`>, TabEntry> = {
   lights: { name: "Lights", icon: Lightbulb },
   vacuum: { name: "Vacuum", icon: Bot },
@@ -134,37 +117,6 @@ const ALL_TABS: Record<Exclude<TabId, `custom:${string}`>, TabEntry> = {
 const tabs: TabEntry[] = (["lights", "vacuum", "power", "media"] as const).map(
   (id) => ALL_TABS[id],
 );
-type IconComponent = (props: { size?: number; strokeWidth?: number }) => ReactNode;
-const LIGHT_ICONS: Record<string, IconComponent> = {
-  lamp_ceiling: LampCeiling,
-  spot: SpotLightIcon,
-  strip: StripLightIcon,
-  lamp: LampCeiling,
-  bulb: Lightbulb,
-};
-const ROOM_ICONS: Record<string, IconComponent> = {
-  shower: ShowerHead,
-  baby: Baby,
-  door: DoorOpen,
-  utensils: Utensils,
-  home: Home,
-  bath: Bath,
-  bed: Bed,
-  sofa: Sofa,
-  room: Home,
-};
-const CARD_ICONS: Record<string, IconComponent> = {
-  thermometer: Thermometer,
-  droplets: Droplets,
-  gauge: Gauge,
-  zap: Zap,
-  plug: Plug,
-  wind: Wind,
-  sun: Sun,
-  leaf: Leaf,
-  home: Home,
-  battery: Battery,
-};
 /** The configuration that came with the snapshot, applied to the shared constants before anything renders. */
 let appliedPanel = "";
 function applyPanel(panel: PanelView | undefined) {
@@ -181,7 +133,7 @@ function applyPanel(panel: PanelView | undefined) {
       const custom = panel.custom_tabs[id.slice("custom:".length)];
       return {
         name: id,
-        icon: TOGGLE_ICONS[custom?.icon ?? ""] ?? Star,
+        icon: iconFor(custom?.icon, ICON_DEFAULTS.custom_tab),
         title: custom?.title ?? id,
       };
     }),
@@ -206,32 +158,6 @@ const weatherIcons: Record<string, typeof Sun> = {
 };
 const weatherIcon = (condition: string | null) =>
   (condition && weatherIcons[condition]) || (condition === null ? CloudDrizzle : CloudMoon);
-/** Scene button icons (panel config: scenes[].icon). */
-const SCENE_ICONS: Record<string, typeof Sun> = {
-  sun: Sun,
-  moon: Moon,
-  film: Film,
-  sofa: Sofa,
-  bed: Bed,
-  book: BookOpen,
-  utensils: Utensils,
-  star: Star,
-  sparkles: Sparkles,
-  power: Power,
-};
-/** Custom tab and toggle icons (panel config: custom_tabs[].icon, toggles[].icon). */
-const TOGGLE_ICONS: Record<string, typeof Sun> = {
-  plug: Plug,
-  bulb: Lightbulb,
-  lamp: Lamp,
-  fan: Fan,
-  power: Power,
-  tv: Tv,
-  zap: Zap,
-  leaf: Leaf,
-  home: Home,
-  star: Star,
-};
 /** Keeps numbers and units in reading order inside right-to-left text. */
 const Ltr = ({ children }: { children: ReactNode }) => <bdi dir="ltr">{children}</bdi>;
 const fmt = (value: number | null, digits = 1) => (value === null ? "—" : value.toFixed(digits));
@@ -733,7 +659,7 @@ function HomeControl() {
       const row = custom.toggles[target.index]!;
       return {
         label: localName(lang, row.name),
-        icon: TOGGLE_ICONS[row.icon] ?? Plug,
+        icon: iconFor(row.icon, ICON_DEFAULTS.toggle),
         pressed: customOn(target.index),
         onClick: () => act({ type: "custom.toggle", tab: customId, entity: row.entity_id }),
       };
@@ -749,7 +675,7 @@ function HomeControl() {
             return row
               ? {
                   label: sceneLabel(lang, row.name),
-                  icon: SCENE_ICONS[row.icon] ?? Star,
+                  icon: iconFor(row.icon, ICON_DEFAULTS.scene),
                   pressed: scene === row.entity_id,
                   onClick: () => applyScene(row),
                 }
@@ -809,7 +735,7 @@ function HomeControl() {
                 const meta = PLUGS[target.index]!;
                 return {
                   label: localName(lang, meta.name),
-                  icon: Plug,
+                  icon: iconFor(meta.icon, ICON_DEFAULTS.plug),
                   pressed: plugOn(target.index),
                   onClick: () => act({ type: "switch.toggle", entity: meta.id }),
                 };
@@ -981,7 +907,7 @@ function HomeControl() {
                     </section>
                   );
                 // Any Home Assistant entity: its state with its unit.
-                const Icon = CARD_ICONS[card.icon ?? ""] ?? Gauge;
+                const Icon = iconFor(card.icon, ICON_DEFAULTS.card);
                 const r = card.entity_id ? readings.cards?.[card.entity_id] : undefined;
                 return (
                   <section className="photo-block" key={i}>
@@ -1076,7 +1002,7 @@ function HomeControl() {
                   {data.lights.map((light, index) => {
                     const meta = LIGHTS[index];
                     if (!meta) return null;
-                    const Icon = LIGHT_ICONS[meta.icon] ?? Lightbulb;
+                    const Icon = iconFor(meta.icon, ICON_DEFAULTS.light);
                     const name = localName(lang, meta.name);
                     return (
                       <Button
@@ -1133,7 +1059,7 @@ function HomeControl() {
                       <div className="subheading">{t("vacuum.roomsLabel")}</div>
                       <div className="room-grid">
                         {ROOMS.map(({ name, id }, index) => {
-                          const Icon = ROOM_ICONS[ROOMS[index]?.icon ?? "room"] ?? Home;
+                          const Icon = iconFor(ROOMS[index]?.icon, ICON_DEFAULTS.room);
                           if (!Icon) return null;
                           return (
                             <Button
@@ -1184,7 +1110,7 @@ function HomeControl() {
                           return (
                             <DeviceRow
                               key={meta.id}
-                              icon={Plug}
+                              icon={iconFor(meta.icon, ICON_DEFAULTS.plug)}
                               name={name}
                               on={plug.on}
                               title={t("lights.open", { name })}
@@ -1228,7 +1154,7 @@ function HomeControl() {
                     </p>
                   </div>
                   {(() => {
-                    const Icon = TOGGLE_ICONS[custom.icon] ?? Star;
+                    const Icon = iconFor(custom.icon, ICON_DEFAULTS.custom_tab);
                     return <Icon size={25} />;
                   })()}
                 </div>
@@ -1239,7 +1165,7 @@ function HomeControl() {
                     return (
                       <DeviceRow
                         key={row.entity_id}
-                        icon={TOGGLE_ICONS[row.icon] ?? Plug}
+                        icon={iconFor(row.icon, ICON_DEFAULTS.toggle)}
                         name={name}
                         on={on}
                         state={on ? t("state.on") : t("state.off")}

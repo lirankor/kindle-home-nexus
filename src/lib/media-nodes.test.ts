@@ -85,6 +85,22 @@ describe("media nodes", () => {
       "HDMI 1",
     ]);
     expect(nodeView(tv, m)).toMatchObject({ sources: ["HDMI 1", "Netflix"], inputNames: {} });
+    // icons (task 019): a node's own icon and input row icons pass through; none set, none added
+    expect(v.inputIcons).toBeUndefined();
+    expect(nodeView(tv, m).icon).toBeUndefined();
+    const iconic = nodeView(
+      {
+        ...rx,
+        icon: "radio",
+        inputs: [
+          { input: "CD", icon: "bluetooth" },
+          { input: "SERVER", name: "Server" },
+        ],
+      },
+      m,
+    );
+    expect(iconic.icon).toBe("radio");
+    expect(iconic.inputIcons).toEqual({ CD: "bluetooth" });
     // selecting sends the device's own title
     expect(nodeCalls(rx, { type: "node", id: "amp", op: "source", source: "CD" }, m)).toEqual([
       {

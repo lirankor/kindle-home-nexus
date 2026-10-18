@@ -82,6 +82,111 @@ sequence:
 
 `kindle_panel.set_output` takes any Music Assistant player; the panel shows the new output within 30 s.
 
+## Icons: one pack for every button
+
+Every icon field in Configure offers the same 80 icons (since 0.7.0, bus task 019): lights, vacuum rooms, scene
+buttons, custom tabs and their toggles, screensaver sensor cards, Power tab plugs, Media devices and receiver input rows.
+Each is a searchable dropdown in alphabetical order (no free text). An empty field takes the row type's default:
+
+| row | default |
+|---|---|
+| light | `bulb` |
+| vacuum room | `room` |
+| scene button | `star` |
+| custom tab | `star` |
+| custom toggle | `plug` |
+| sensor card | gauge (`gauge`) |
+| Power plug | `plug` (new field; an old config gets it on load) |
+| Media device | receiver `speaker`, TV `tv` (new field; an old config gets it on load) |
+| receiver input row | none: no icon on the device's input list (the music screen's source list keeps its own glyphs) |
+
+The names live in `const.ICONS`; the app's `src/data/icons.json` maps each name to the icon it draws (lucide-react 0.575,
+tree-shaken). A pytest (`test_icon_pack_equals_the_app_json`) and a vitest (`src/lib/icons.test.ts`) fail when the two
+differ, so adding an icon means a row in both. A name the pack does not have is refused when the config is saved.
+
+| name | drawn as (lucide export) | note |
+|---|---|---|
+| `air_vent` | `AirVent` |  |
+| `alarm` | `AlarmClock` | AlarmClock |
+| `armchair` | `Armchair` |  |
+| `baby` | `Baby` |  |
+| `bath` | `Bath` |  |
+| `battery` | `Battery` |  |
+| `bed` | `Bed` |  |
+| `bell` | `Bell` |  |
+| `blinds` | `Blinds` |  |
+| `bluetooth` | `Bluetooth` |  |
+| `book` | `BookOpen` | BookOpen |
+| `bot` | `Bot` |  |
+| `bulb` | `Lightbulb` | Lightbulb |
+| `cable` | `Cable` |  |
+| `calendar` | `CalendarDays` | CalendarDays |
+| `camera` | `Camera` |  |
+| `car` | `Car` |  |
+| `cat` | `Cat` |  |
+| `coffee` | `Coffee` |  |
+| `disc` | `Disc3` | Disc3 |
+| `dog` | `Dog` |  |
+| `door` | `DoorOpen` | DoorOpen |
+| `droplets` | `Droplets` |  |
+| `fan` | `Fan` |  |
+| `film` | `Film` |  |
+| `flame` | `Flame` |  |
+| `flower` | `Flower2` | Flower2 |
+| `gamepad` | `Gamepad2` | Gamepad2 |
+| `garage` | `Warehouse` | no garage icon: Warehouse |
+| `gauge` | `Gauge` |  |
+| `headphones` | `Headphones` |  |
+| `heater` | `Heater` |  |
+| `home` | `House` | House (lucide's Home alias) |
+| `key` | `Key` |  |
+| `kitchen` | `CookingPot` | no kitchen icon: CookingPot |
+| `lamp` | `Lamp` | Lamp (before 0.7.0 a *light* with `lamp` drew LampCeiling; no configured light used it) |
+| `lamp_ceiling` | `LampCeiling` |  |
+| `lamp_desk` | `LampDesk` |  |
+| `lamp_floor` | `LampFloor` |  |
+| `laptop` | `Laptop` |  |
+| `leaf` | `Leaf` |  |
+| `lock` | `Lock` |  |
+| `mic` | `Mic` |  |
+| `monitor` | `Monitor` |  |
+| `moon` | `Moon` |  |
+| `music` | `Music` |  |
+| `phone` | `Smartphone` | Smartphone |
+| `plant` | `Sprout` | Sprout |
+| `plug` | `Plug` |  |
+| `power` | `Power` |  |
+| `printer` | `Printer` |  |
+| `radio` | `Radio` |  |
+| `refrigerator` | `Refrigerator` |  |
+| `room` | `House` | default room icon (same as home) |
+| `shield` | `Shield` |  |
+| `shower` | `ShowerHead` | ShowerHead |
+| `snowflake` | `Snowflake` |  |
+| `sofa` | `Sofa` |  |
+| `sparkles` | `Sparkles` |  |
+| `speaker` | `Speaker` |  |
+| `spot` | `SpotLightIcon` | the app's own spot-light icon (not lucide) |
+| `stairs` | `Footprints` | no stairs icon in lucide 0.575: Footprints (nearest) |
+| `star` | `Star` |  |
+| `strip` | `StripLightIcon` | the app's own LED-strip icon (not lucide) |
+| `sun` | `Sun` |  |
+| `thermometer` | `Thermometer` |  |
+| `timer` | `Timer` |  |
+| `toilet` | `Toilet` |  |
+| `toy` | `ToyBrick` | ToyBrick |
+| `trash` | `Trash2` | Trash2 |
+| `tree` | `TreeDeciduous` | TreeDeciduous |
+| `tv` | `Tv` |  |
+| `umbrella` | `Umbrella` |  |
+| `usb` | `Usb` |  |
+| `utensils` | `Utensils` |  |
+| `washing_machine` | `WashingMachine` |  |
+| `water_heater` | `Cylinder` | no boiler / water heater icon: Cylinder (a tank) |
+| `wifi` | `Wifi` |  |
+| `wind` | `Wind` |  |
+| `zap` | `Zap` |  |
+
 ## Scene buttons are Home Assistant scenes
 
 The panel has no scenes of its own (since 0.4.0). The Lights tab's F1–F3 each run an HA **scene** (`scene.turn_on`) or

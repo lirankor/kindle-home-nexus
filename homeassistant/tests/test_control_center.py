@@ -754,6 +754,7 @@ def test_version_1_media_becomes_two_nodes() -> None:
             "players": ["media_player.ma_amp_dlna", "media_player.ma_amp_airplay"],
             "dlna_player": "media_player.yamaha_r_n500",
             "ynca_entry_id": "01M0ZMQXMTWAAW7BXTBCXD1YZR",
+            "icon": "speaker",  # bus task 019: the type's default icon
         },
         {
             "id": "tv",
@@ -763,6 +764,7 @@ def test_version_1_media_becomes_two_nodes() -> None:
             "movie_on": "script.movie_mode",
             "movie_off": "script.movie_mode_off",
             "movie_active": "input_boolean.movie_mode_active",
+            "icon": "tv",
         },
     ]
     assert m["keys"] == ["music", "amp", "tv", "none"]
@@ -905,6 +907,7 @@ async def test_media_page_edits_nodes_and_keys(hass, panel) -> None:
             "movie_on": "script.movie_mode",
             "movie_off": "script.movie_mode_off",
             "movie_active": "input_boolean.movie_mode_active",
+            "icon": "tv",
         }
     ]
     assert m["keys"] == ["tv", "script.movie_mode", "none", "music"]
@@ -1063,3 +1066,134 @@ async def test_receiver_node_finds_the_net_radio_select(hass, panel) -> None:
         ][0]["net_radio"]
         == "select.x"
     )
+
+
+# ---- bus task 019: one icon pack for every icon field
+
+
+def test_icon_pack_equals_the_app_json() -> None:
+    """kindle_panel's ICONS is the app's src/data/icons.json (names), sorted; every name used before is still there."""
+    import json
+    from pathlib import Path
+
+    from custom_components.kindle_panel.const import ICON_DEFAULTS, ICONS, NODE_ICON_DEFAULTS
+
+    pack = json.loads((Path(__file__).parents[2] / "src" / "data" / "icons.json").read_text())
+    assert ICONS == sorted(pack)
+    assert 60 <= len(ICONS) <= 80
+    before = {
+        *("lamp_ceiling", "spot", "strip", "lamp", "bulb"),
+        *("shower", "baby", "door", "utensils", "home", "bath", "bed", "sofa", "room"),
+        *("sun", "moon", "film", "book", "star", "sparkles", "power"),
+        *("plug", "fan", "tv", "zap", "leaf"),
+        *("thermometer", "droplets", "gauge", "wind", "battery"),
+    }
+    assert before <= set(ICONS)
+    assert {*ICON_DEFAULTS.values(), *NODE_ICON_DEFAULTS.values()} <= set(ICONS)
+
+
+def test_icon_fields_take_the_whole_pack_and_old_configs_get_defaults() -> None:
+    import voluptuous as vol
+
+    from custom_components.kindle_panel.config import normalize
+
+    rx = {**RX_NODE, "inputs": [{"input": "CD", "icon": "bluetooth"}, {"input": "PHONO", "name": "Records"}]}
+    cfg = normalize(
+        {
+            **HOUSE,
+            "vacuum": {"rooms": [{"entity_id": "input_boolean.robo_grid_5", "name": "Guest toilet", "icon": "toilet"}]},
+            "lights": [{"entity_id": "light.desk", "name": "Desk", "icon": "lamp_desk"}],
+            "scenes": [{"entity_id": "scene.coffee", "name": "Coffee", "icon": "coffee"}],
+            "media": {"nodes": [rx, TV_NODE | {"entity": "media_player.tv", "icon": "monitor"}]},
+            "screensaver": {"cards": [{"type": "sensor", "entity_id": "sensor.boiler", "icon": "water_heater"}]},
+        }
+    )
+    assert cfg["vacuum"]["rooms"][0]["icon"] == "toilet"
+    assert cfg["lights"][0]["icon"] == "lamp_desk" and cfg["scenes"][0]["icon"] == "coffee"
+    assert cfg["screensaver"]["cards"][0]["icon"] == "water_heater"
+    # plugs and nodes had no icon before: an old config gets the defaults (plug; receiver speaker, tv tv)
+    assert cfg["plugs"][0]["icon"] == "plug"
+    amp, tv = cfg["media"]["nodes"]
+    assert amp["icon"] == "speaker" and tv["icon"] == "monitor"
+    # an input row may carry only an icon (kept); no icon = none (nothing added)
+    assert amp["inputs"] == [{"input": "CD", "icon": "bluetooth"}, {"input": "PHONO", "name": "Records"}]
+    assert normalize(cfg) == cfg  # stable
+    old = normalize({**HOUSE, "media": {"nodes": [RX_NODE, TV_NODE]}})
+    assert [n["icon"] for n in old["media"]["nodes"]] == ["speaker", "tv"]
+    assert old["vacuum"]["rooms"][0]["icon"] == "shower"
+    for bad in (
+        {"plugs": [{"entity_id": "switch.x", "name": "X", "icon": "nope"}]},
+        {"lights": [{"entity_id": "light.x", "name": "X", "icon": "nope"}]},
+        {"media": {"nodes": [{**TV_NODE, "icon": "nope"}]}},
+        {"media": {"nodes": [{**RX_NODE, "inputs": [{"input": "CD", "icon": "nope"}]}]}},
+    ):
+        with pytest.raises(vol.Invalid):
+            normalize(bad)
+
+
+async def test_every_icon_column_offers_the_whole_pack(hass, panel) -> None:
+    from custom_components.kindle_panel.const import ICONS
+
+    hass.states.async_set("media_player.r_n500", "off", {"source_list": ["CD", "PHONO"]})
+    await call(hass, "seed", config={**HOUSE, "media": {"music_backend": "ha", "nodes": [RX_NODE, TV_NODE]}})
+    pages = {
+        "lights": ["lights", "scenes"],
+        "vacuum": ["rooms"],
+        "power": ["plugs"],
+        "custom_tabs": ["custom_tabs"],
+        "media": ["nodes"],
+        "screensaver": ["cards"],
+    }
+    seen = 0
+    for page, lists in pages.items():
+        flow = await hass.config_entries.options.async_init(panel.entry_id)
+        flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": page})
+        schema = {str(k): v for k, v in flow["data_schema"].schema.items()}
+        for name in lists:
+            fields = schema[name].config["fields"]
+            sel = fields["icon"]["selector"]["select"]
+            assert sel["options"] == ICONS and sel["mode"] == "dropdown" and sel["custom_value"] is False, (page, name)
+            seen += 1
+        hass.config_entries.options.async_abort(flow["flow_id"])
+    assert seen == 7
+    # the inputs page of the receiver
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "media"})
+    nodes = {str(k): k for k in flow["data_schema"].schema}["nodes"].description["suggested_value"]
+    flow = await hass.config_entries.options.async_configure(
+        flow["flow_id"],
+        {
+            "music_backend": "ha",
+            "nodes": nodes,
+            **{f"key_f{i}": "none" for i in range(1, 5)},
+            **{f"out_f{i}": "none" for i in range(1, 5)},
+            "inputs_for": "amp",
+        },
+    )
+    assert flow["step_id"] == "media_inputs"
+    fields = {str(k): v for k, v in flow["data_schema"].schema.items()}["inputs"].config["fields"]
+    assert fields["icon"]["selector"]["select"]["options"] == ICONS
+    res = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"inputs": [{"input": "CD", "icon": "bluetooth"}, {"input": "PHONO"}]}
+    )
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    amp = (await call(hass, "get_config"))["config"]["media"]["nodes"][0]
+    assert amp["inputs"] == [{"input": "CD", "icon": "bluetooth"}] and amp["icon"] == "speaker"
+
+
+async def test_rooms_round_trip_keeps_rows_identical(hass, panel) -> None:
+    """Re-submitting the Vacuum page with its suggested rows changes nothing (the field check of task 019)."""
+    await call(hass, "seed", config=HOUSE)
+    before = (await call(hass, "get_config"))["config"]
+    flow = await hass.config_entries.options.async_init(panel.entry_id)
+    flow = await hass.config_entries.options.async_configure(flow["flow_id"], {"next_step_id": "vacuum"})
+    schema = {str(k): k for k in flow["data_schema"].schema}
+    rows = schema["rooms"].description["suggested_value"]
+    res = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"entity_id": before["vacuum"]["entity_id"], "rooms": rows}
+    )
+    assert res["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    after = (await call(hass, "get_config"))["config"]
+    assert after["vacuum"]["rooms"] == before["vacuum"]["rooms"] and after["names"] == before["names"]

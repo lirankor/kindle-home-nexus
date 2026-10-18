@@ -30,25 +30,106 @@ MAX_TABS = 6  # the tab bar is 600 px wide
 MAX_CUSTOM_TABS = 4
 MAX_TOGGLES = 4  # rows that fit on one screen above the footer
 TOGGLE_DOMAINS = ["switch", "light", "input_boolean", "fan"]
-TOGGLE_ICONS = ["plug", "bulb", "lamp", "fan", "power", "tv", "zap", "leaf", "home", "star"]
-LANGUAGES = ["he", "en"]
-LIGHT_ICONS = ["lamp_ceiling", "spot", "strip", "lamp", "bulb"]
-ROOM_ICONS = [
-    "shower",
+# The panel's one icon pack (bus task 019): every icon field (lights, rooms, scenes, custom tabs, toggles, sensor
+# cards, plugs, media nodes, receiver inputs) offers these names, sorted. The app's src/data/icons.json maps each to a
+# lucide icon (two are the app's own light icons); a pytest and a vitest keep this list equal to that file.
+ICONS = [
+    "air_vent",
+    "alarm",
+    "armchair",
     "baby",
-    "door",
-    "utensils",
-    "home",
     "bath",
+    "battery",
     "bed",
-    "sofa",
+    "bell",
+    "blinds",
+    "bluetooth",
+    "book",
+    "bot",
+    "bulb",
+    "cable",
+    "calendar",
+    "camera",
+    "car",
+    "cat",
+    "coffee",
+    "disc",
+    "dog",
+    "door",
+    "droplets",
+    "fan",
+    "film",
+    "flame",
+    "flower",
+    "gamepad",
+    "garage",
+    "gauge",
+    "headphones",
+    "heater",
+    "home",
+    "key",
+    "kitchen",
+    "lamp",
+    "lamp_ceiling",
+    "lamp_desk",
+    "lamp_floor",
+    "laptop",
+    "leaf",
+    "lock",
+    "mic",
+    "monitor",
+    "moon",
+    "music",
+    "phone",
+    "plant",
+    "plug",
+    "power",
+    "printer",
+    "radio",
+    "refrigerator",
     "room",
+    "shield",
+    "shower",
+    "snowflake",
+    "sofa",
+    "sparkles",
+    "speaker",
+    "spot",
+    "stairs",
+    "star",
+    "strip",
+    "sun",
+    "thermometer",
+    "timer",
+    "toilet",
+    "toy",
+    "trash",
+    "tree",
+    "tv",
+    "umbrella",
+    "usb",
+    "utensils",
+    "washing_machine",
+    "water_heater",
+    "wifi",
+    "wind",
+    "zap",
 ]
+# Each row type's default icon (an old config without the field gets this one)
+ICON_DEFAULTS = {
+    "light": "bulb",
+    "room": "room",
+    "scene": "star",
+    "toggle": "plug",
+    "custom_tab": "star",
+    "plug": "plug",
+}
+NODE_ICON_DEFAULTS = {"receiver": "speaker", "tv": "tv"}
+LANGUAGES = ["he", "en"]
 # Lights tab scene buttons (F1..F3, F4 stays "all off"): each runs an HA scene or script (the panel has no scenes of its own).
 MAX_SCENES = 3
 # kindle_panel <= 0.3.0 had built-in Bright / Evening rows; saved ones now run these HA scenes (see the README).
 LEGACY_BUILTIN_SCENES = {"bright": "scene.bright", "evening": "scene.evening"}
-SCENE_ICONS = ["sun", "moon", "film", "sofa", "bed", "book", "utensils", "star", "sparkles", "power"]
 # Power tab soft keys F1..F4: a plug (its switch entity id), all plugs off, or nothing.
 POWER_KEY_COUNT = 4
 POWER_KEY_ALL_OFF = "all_off"
@@ -107,18 +188,6 @@ LEGACY_MEDIA_KEYS = (
 PHOTO_MODES = ["curate", "all_but_skipped", "kept_only"]
 MUSIC_BACKENDS = ["app", "ha"]
 CARD_TYPES = ["outdoor", "indoor", "calendar", "sensor"]
-CARD_ICONS = [
-    "thermometer",
-    "droplets",
-    "gauge",
-    "zap",
-    "plug",
-    "wind",
-    "sun",
-    "leaf",
-    "home",
-    "battery",
-]
 DEFAULT_CARDS = [{"type": "outdoor"}, {"type": "indoor"}, {"type": "calendar"}]
 MAX_CARDS = 3  # the panel is 600 px wide
 PHOTO_FALLBACKS = ["unsplash", "sample"]

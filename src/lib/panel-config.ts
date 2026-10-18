@@ -15,36 +15,12 @@ export const CUSTOM_PREFIX = "custom:";
 export const CUSTOM_ID = /^[a-z0-9_]{1,24}$/;
 export const MAX_TABS = 6;
 export const MAX_TOGGLES = 4;
-export const TOGGLE_ICON_NAMES = [
-  "plug",
-  "bulb",
-  "lamp",
-  "fan",
-  "power",
-  "tv",
-  "zap",
-  "leaf",
-  "home",
-  "star",
-] as const;
 /** A row of a custom tab: a switch, light, input_boolean or fan; Enter switches it. */
 export type CustomToggle = { entity_id: string; name: string; icon: string };
 /** A custom tab: its title (English; Hebrew from names), icon, up to 4 toggles and F1..F4 (soft-key strings). */
 export type CustomTab = { title: string; icon: string; toggles: CustomToggle[]; keys: string[] };
 export const isCustomTab = (t: string): t is `custom:${string}` =>
   t.startsWith(CUSTOM_PREFIX) && CUSTOM_ID.test(t.slice(CUSTOM_PREFIX.length));
-export const LIGHT_ICON_NAMES = ["lamp_ceiling", "spot", "strip", "lamp", "bulb"] as const;
-export const ROOM_ICON_NAMES = [
-  "shower",
-  "baby",
-  "door",
-  "utensils",
-  "home",
-  "bath",
-  "bed",
-  "sofa",
-  "room",
-] as const;
 
 export type PanelLight = { entity_id: string; name: string; room: string; icon: string };
 export type PanelRoom = { entity_id: string; name: string; icon: string };
@@ -54,21 +30,11 @@ export type PanelPlug = {
   power_entity?: string | null;
   energy_entity?: string | null;
   energy_to_wh: number;
+  /** icon pack name (src/data/icons.json, bus task 019); default "plug". */
+  icon?: string | null;
 };
 /** Lights tab scene buttons (F1..F3; F4 stays "all off"). */
 export const MAX_SCENES = 3;
-export const SCENE_ICON_NAMES = [
-  "sun",
-  "moon",
-  "film",
-  "sofa",
-  "bed",
-  "book",
-  "utensils",
-  "star",
-  "sparkles",
-  "power",
-] as const;
 /** A scene button: an HA scene or script. The name is English; its Hebrew comes from `names` (Bright / Evening / Movie
  *  also from the app's own translations). The panel has no scenes of its own (owner, 2026-10-17). */
 export type SceneButton = {
@@ -115,6 +81,8 @@ export type MediaNode = {
   movie_active?: string | null;
   /** Any type: renamed / hidden entries of its entity's source_list (bus task 015). */
   inputs?: NodeInput[] | null;
+  /** icon pack name (bus task 019); default by type: receiver "speaker", tv "tv". */
+  icon?: string | null;
 };
 /** One row of a node's inputs: `input` as the entity lists it, a name (+ Hebrew) to show instead, or hidden. */
 export type NodeInput = {
@@ -122,6 +90,8 @@ export type NodeInput = {
   name?: string | null;
   name_he?: string | null;
   hidden?: boolean | null;
+  /** icon pack name (bus task 019); none by default (no icon shown). */
+  icon?: string | null;
 };
 export const nodeEntity = (n: MediaNode): string =>
   (n[NODE_TYPES[n.type].entity] as string | null) ?? "";
@@ -204,18 +174,6 @@ export const movieScript = (m: PanelConfig["media"] | undefined) =>
   m?.nodes?.find((n) => n.movie_on)?.movie_on ?? null;
 
 export const CARD_TYPES = ["outdoor", "indoor", "calendar", "sensor"] as const;
-export const CARD_ICON_NAMES = [
-  "thermometer",
-  "droplets",
-  "gauge",
-  "zap",
-  "plug",
-  "wind",
-  "sun",
-  "leaf",
-  "home",
-  "battery",
-] as const;
 /** A card on the screensaver (at most 3, in this order). `sensor` shows any HA entity's state with its unit. */
 export type SaverCard = {
   type: (typeof CARD_TYPES)[number];
