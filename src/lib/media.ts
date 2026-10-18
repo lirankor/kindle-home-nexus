@@ -145,16 +145,37 @@ export function setRadioLists(lists: RadioList[]) {
 /** The YTuner bookmark list (app backend) / Music Assistant favourites (HA backend), shown as the "favourites" band. */
 export const FAVOURITES_LIST_ID = "favourites";
 export const radioListIds = () => [FAVOURITES_LIST_ID, ...RADIO_LISTS.map((l) => l.id)];
+/** Music Assistant favourite radios the bridge's list does not have (HA backend, bus task 024): id `ma:<slug>`, the
+ *  logo MA reports. Filled server side from MA's favourites and from what MA plays, never from the page. */
+const MA_STATIONS = new Map<string, RadioStation>();
+export function rememberMaStation(id: string, name: string, logo: unknown) {
+  if (!id.startsWith("ma:")) return;
+  MA_STATIONS.set(id, {
+    id,
+    name,
+    url: "",
+    codec: "",
+    bitrate: 0,
+    fm: null,
+    logo: cleanLogo(logo),
+  });
+}
 export const findStation = (id: string): RadioStation | undefined =>
-  RADIO_LISTS.flatMap((l) => l.stations).find((s) => s.id === id);
+  RADIO_LISTS.flatMap((l) => l.stations).find((s) => s.id === id) ?? MA_STATIONS.get(id);
 /** Hosts the image route may fetch logos from (besides the configured servers). */
 export const catalogLogoHosts = () =>
   Array.from(
     new Set(
-      RADIO_LISTS.flatMap((l) => l.stations)
+      [...RADIO_LISTS.flatMap((l) => l.stations), ...MA_STATIONS.values()]
         .map((s) => s.logo)
         .filter((u): u is string => u !== null)
-        .map((u) => new URL(u).hostname),
+        .flatMap((u) => {
+          try {
+            return [new URL(u).hostname];
+          } catch {
+            return [];
+          }
+        }),
     ),
   );
 

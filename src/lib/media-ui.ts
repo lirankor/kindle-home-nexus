@@ -66,6 +66,10 @@ export const screenForSource = (source: AmpSource | null | undefined): "radio" |
 export const sourceHomeScreen = (source: AmpSource | null | undefined): "radio" | "now" =>
   source === INPUT_NET_RADIO ? "radio" : "now";
 
+/** The line under a station's name: the song MA / the receiver reports ("title · artist"), "" without one. */
+export const radioSongLine = (n: Pick<NowPlaying, "title" | "artist">): string =>
+  [n.title, n.artist].filter((x): x is string => !!x).join(" · ");
+
 /** The receiver the amp screens belong to: the node whose entity is the amp player, else the first receiver. */
 export const ampNode = (s: MediaSnapshot | null | undefined): NodeView | null =>
   s?.nodes?.find((n) => n.type === "receiver") ?? null;

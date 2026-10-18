@@ -15,6 +15,7 @@ import {
   OUTPUT_KEYS,
   RADIO_LISTS,
   isAmpSource,
+  rememberMaStation,
   syncActionFor,
   syncLeaderOf,
 } from "./media";
@@ -275,6 +276,10 @@ export type HaMusicState = {
     album: string | null;
     station: string | null;
     artUrl: string | null;
+    /** Radio: the station's logo (MA's image of the radio item). */
+    logo?: string | null;
+    /** Radio: the ICY track title MA reports (HA's media_title), null when it is just the station (bus task 024). */
+    track?: string | null;
   };
   queue: {
     title: string;
@@ -334,6 +339,22 @@ export function stationByName(name: string | null | undefined) {
   if (!name) return undefined;
   const n = normName(name);
   return RADIO_LISTS.flatMap((l) => l.stations).find((s) => normName(s.name) === n);
+}
+/** The dial id of a Music Assistant radio the bridge's list does not have (same rule as the favourites band). */
+export const maStationId = (name: string) => `ma:${normName(name).replace(/ /g, "-")}`;
+/** The station a radio name stands for on the dial: the bridge's list entry, else the MA favourite id. */
+export const radioStationIdOf = (name: string | null | undefined): string | null =>
+  !name ? null : (stationByName(name)?.id ?? maStationId(name));
+/** The ICY line of MA radio (bus task 024): the track and artist MA reports, null when the "track" is only the
+ *  station's own name. */
+export function radioTrackOf(n: HaMusicState["nowPlaying"]): {
+  title: string | null;
+  artist: string | null;
+} {
+  const track = n.track !== undefined ? n.track : n.title;
+  if (!track || normName(track) === normName(n.station ?? "")) return { title: null, artist: null };
+  const artist = n.artist && normName(n.artist) !== normName(n.station ?? "") ? n.artist : null;
+  return { title: track, artist };
 }
 /** Dial position of a station name (first band that has it). */
 export function positionOf(name: string | null | undefined): RadioPosition | null {
@@ -517,20 +538,18 @@ export function projectStates(
 /** Radio now playing (MA radio over AirPlay): the snapshot builder only knows NET RADIO, so patch it. */
 export function withRadio(snap: MediaSnapshot, s: HaMusicState): MediaSnapshot {
   if (s.nowPlaying.kind !== "radio" || !snap.amp.on) return snap;
-  const st = stationByName(s.nowPlaying.station);
+  const icy = radioTrackOf(s.nowPlaying);
   return {
     ...snap,
     nowPlaying: {
       kind: "radio",
-      title:
-        s.nowPlaying.title && s.nowPlaying.title !== s.nowPlaying.station
-          ? s.nowPlaying.title
-          : null,
-      artist: null,
+      title: icy.title,
+      artist: icy.artist,
       album: null,
       station: s.nowPlaying.station,
       artItemId: null,
-      stationId: st?.id ?? null,
+      // the station's art goes through /media/img?station= like the dial's (bus task 024)
+      stationId: radioStationIdOf(s.nowPlaying.station),
       preset: null,
     },
     radio: positionOf(s.nowPlaying.station) ?? snap.radio,
@@ -653,6 +672,10 @@ export async function readMediaSnapshotHa(
     radio: lastRadio,
     powerOn: currentPowerOn(s),
   });
+  // MA radio the bridge's list does not have: its logo (from MA) for /media/img?station=ma:… (bus task 024)
+  const np = s.nowPlaying;
+  if (np.kind === "radio" && np.station && !stationByName(np.station))
+    rememberMaStation(maStationId(np.station), np.station, np.logo ?? np.artUrl);
   // the nodes from the real states (the projection rewrites the receiver's entry for the music screen)
   const output = outputView(states);
   return withRadio(
@@ -780,10 +803,11 @@ export async function readRadioListsHa(): Promise<RadioListsResult> {
     );
     favourites = r.stations.map((f) => {
       const cat = stationByName(f.name);
+      if (!cat) rememberMaStation(maStationId(f.name), f.name, f.image);
       return cat
         ? { ...cat, ytunerId: null, favourite: true }
         : {
-            id: `ma:${normName(f.name).replace(/ /g, "-")}`,
+            id: maStationId(f.name),
             name: f.name,
             url: "",
             codec: "",

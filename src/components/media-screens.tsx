@@ -58,6 +58,7 @@ import {
   inputLabel,
   nodeLabel,
   powerOnStepKey,
+  radioSongLine,
 } from "@/lib/media-ui";
 import { nodeIcon, optionalIcon, pickIcon } from "@/lib/icons";
 import { OUTPUT_PAGE_SIZE, QUEUE_PAGE_SIZE, RADIO_PAGE_SIZE } from "@/lib/media-panel";
@@ -115,7 +116,8 @@ function nowPlayingLines(panel: MediaPanel, s: MediaSnapshot | null): [string, s
   const n = s.nowPlaying;
   switch (n.kind) {
     case "radio":
-      return [n.station ?? t("source.NET RADIO"), n.title ?? "", ""];
+      // the station stays the title; the song MA / the receiver reports is the second line (bus task 024)
+      return [n.station ?? t("source.NET RADIO"), radioSongLine(n), ""];
     case "music":
       return [n.title ?? t("amp.nothing"), n.artist ?? "", n.album ?? ""];
     case "fm":
@@ -636,6 +638,10 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
   const line3 = hint ?? line3plain;
   const on = s?.amp.on ?? false;
   const art = on && s?.nowPlaying.artItemId ? s.nowPlaying.artItemId : null;
+  // radio has no cover item: the station's picture, through the dial's path (bus task 024)
+  const stationArt =
+    !art && on && s?.nowPlaying.kind === "radio" ? (s.nowPlaying.stationId ?? null) : null;
+  const [artFailed, setArtFailed] = useState<string | null>(null);
   const Glyph = on && s?.amp.source ? sourceIcon(s.amp.source) : Power;
   const queue = on && s?.nowPlaying.kind === "music" ? s.queue : null;
   const position = useTrackPosition(queue);
@@ -685,6 +691,15 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
                 alt=""
                 width={240}
                 height={240}
+              />
+            ) : stationArt && artFailed !== stationArt ? (
+              <img
+                className="amp-art-station"
+                src={`/media/img?station=${encodeURIComponent(stationArt)}&w=240`}
+                alt=""
+                width={240}
+                height={240}
+                onError={() => setArtFailed(stationArt)}
               />
             ) : (
               <Glyph size={64} strokeWidth={1.4} />
@@ -821,7 +836,14 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
         : s.nowPlaying.kind === "radio"
           ? (playing?.name ?? s.nowPlaying.station ?? t("source.NET RADIO"))
           : t("amp.nothing");
-  const song = !s || !s.amp.available ? "" : !on ? t("radio.offHint") : (s.nowPlaying.title ?? "");
+  const song =
+    !s || !s.amp.available
+      ? ""
+      : !on
+        ? t("radio.offHint")
+        : s.nowPlaying.kind === "radio"
+          ? radioSongLine(s.nowPlaying)
+          : (s.nowPlaying.title ?? "");
   const detail = on && playing ? stationDetail(playing) : "";
   const db = on && s ? displayDb(s.amp) : null;
   const loading = panel.radioListsLoading && !radioLists;
@@ -839,7 +861,12 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
             </div>
             <div className="radio-cover" data-on={on}>
               <StationLogo
-                station={on ? playing : dialStation}
+                station={
+                  on
+                    ? (playing ??
+                      (playingId ? ({ id: playingId, name } as RadioStationView) : null))
+                    : dialStation
+                }
                 size={200}
                 alt={t("radio.logoAlt")}
               />

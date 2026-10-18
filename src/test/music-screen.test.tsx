@@ -405,6 +405,32 @@ describe("Music screen", () => {
     expect(screen.getByRole("dialog", { name: "מוזיקה" })).toBeVisible();
   });
 
+  it("MA radio on the amp view: the station's picture as the hero, the station as title, the ICY line below (bus task 024)", async () => {
+    const r = liveResult();
+    const s = r.snapshot!;
+    s.amp.source = "AirPlay";
+    s.nowPlaying = {
+      kind: "radio",
+      title: "קול זיכרון ישן",
+      artist: "עידן עמדי",
+      album: null,
+      station: "100FM Israeli",
+      artItemId: null,
+      stationId: "ma:100fm-israeli",
+      preset: null,
+    };
+    s.queue = null;
+    mocks.getMediaSnapshot.mockResolvedValue(r);
+    renderPanel();
+    await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
+    press("F1");
+    const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
+    expect(dialog.querySelector(".amp-title")?.textContent).toBe("100FM Israeli");
+    expect(dialog.querySelector(".amp-sub")?.textContent).toBe("קול זיכרון ישן · עידן עמדי");
+    const img = dialog.querySelector<HTMLImageElement>(".amp-art img");
+    expect(img?.getAttribute("src")).toBe("/media/img?station=ma%3A100fm-israeli&w=240");
+  });
+
   it("amp view with music: progress bar and track position, right / left / Enter drive the queue, the bar counts on between polls", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mocks.getMediaSnapshot.mockResolvedValue(musicResult());

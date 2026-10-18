@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HaState } from "./home.server";
-import { AMP, RADIO_LISTS } from "./media";
+import { AMP, RADIO_LISTS, catalogLogoHosts, findStation, rememberMaStation } from "./media";
 import type { MusicTrack } from "./media";
 import {
   movingView,
@@ -23,6 +23,8 @@ import {
   stationByName,
   streamOptionFor,
   withRadio,
+  maStationId,
+  radioTrackOf,
 } from "./media-ha.server";
 import type { HaMusicState } from "./media-ha.server";
 import { buildMediaSnapshot } from "./media.server";
@@ -208,6 +210,61 @@ describe("snapshot through the panel's own builder", () => {
     expect(snap.nowPlaying.kind).toBe("radio");
     expect(snap.nowPlaying.stationId).toBe(station.id);
     expect(snap.radio).toEqual({ list: RADIO_LISTS[1]!.id, index: 0 });
+  });
+  it("MA radio the bridge's list lacks gets the favourites' ma: id and the ICY line (bus task 024)", () => {
+    const states = new Map([[BRIDGE, st(BRIDGE, "on", { source: "AirPlay" })]]);
+    const s = music({
+      amp: { ...music().amp, source: "AirPlay" },
+      nowPlaying: {
+        kind: "radio",
+        title: "Kol Rega FM",
+        artist: "עידן עמדי",
+        album: null,
+        station: "Kol Rega FM",
+        artUrl: "https://cdn.example/logo.png",
+        logo: "https://cdn.example/logo.png",
+        track: "קול זיכרון ישן",
+      },
+      queue: null,
+      radio: { station: "Kol Rega FM" },
+    });
+    const snap = withRadio(buildMediaSnapshot(projectStates(states, s), {}), s);
+    expect(snap.nowPlaying.stationId).toBe("ma:kol-rega-fm");
+    expect(snap.nowPlaying.stationId).toBe(maStationId("Kol Rega FM"));
+    expect(snap.nowPlaying.station).toBe("Kol Rega FM");
+    expect(snap.nowPlaying.title).toBe("קול זיכרון ישן");
+    expect(snap.nowPlaying.artist).toBe("עידן עמדי");
+    expect(snap.nowPlaying.artItemId).toBeNull();
+  });
+  it("radio ICY: a track equal to the station (or none) leaves the second line empty", () => {
+    const base = { kind: "radio" as const, album: null, artUrl: null, station: "Galgalatz" };
+    expect(radioTrackOf({ ...base, title: "Galgalatz", artist: null })).toEqual({
+      title: null,
+      artist: null,
+    });
+    expect(radioTrackOf({ ...base, title: "Galgalatz", artist: "x", track: null })).toEqual({
+      title: null,
+      artist: null,
+    });
+    expect(radioTrackOf({ ...base, title: "Galgalatz", artist: null, track: "Song" })).toEqual({
+      title: "Song",
+      artist: null,
+    });
+    // an older music_state without `track`: the title when it differs from the station
+    expect(radioTrackOf({ ...base, title: "Song", artist: "A" })).toEqual({
+      title: "Song",
+      artist: "A",
+    });
+  });
+  it("an MA station is served by its ma: id once remembered (the /media/img path)", () => {
+    expect(findStation("ma:kol-rega-fm-2")).toBeUndefined();
+    rememberMaStation("ma:kol-rega-fm-2", "Kol Rega FM 2", "https://logos.example/k.png");
+    expect(findStation("ma:kol-rega-fm-2")?.logo).toBe("https://logos.example/k.png");
+    expect(catalogLogoHosts()).toContain("logos.example");
+    rememberMaStation("ma:bad", "Bad", "javascript:alert(1)");
+    expect(findStation("ma:bad")?.logo).toBeNull();
+    rememberMaStation("plain-id", "Not MA", "https://x.example/a.png");
+    expect(findStation("plain-id")).toBeUndefined();
   });
   it("the receiver playing its own input (bridge 0.2.0: state on + foreign_state) is playing (Q18)", () => {
     const amp = { ...music().amp, source: "NET RADIO", playing: false };
