@@ -41,3 +41,4 @@ bridge/node_modules
 # Python (homeassistant/ companion integration)
 __pycache__/
 *.pyc
+docker-compose.override.yml

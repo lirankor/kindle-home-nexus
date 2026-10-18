@@ -39,7 +39,7 @@ import {
   AMP,
   MEDIA_KEYS,
   OUTPUT_KEYS,
-  CATALOG_LOGO_HOSTS,
+  catalogLogoHosts,
   FAVOURITES_LIST_ID,
   MIX_IDS,
   MUSIC_PAGE_SIZE,
@@ -397,6 +397,10 @@ export const avTransport = {
 };
 
 // ---- YTuner ----
+/** Stations from HA carry no stream URL (bus task 016): the app backend matches YTuner's entries by name then. */
+const nameKey = (name: string) => `name:${name.trim().toLowerCase()}`;
+const stationKey = (s: { url: string; name: string }) =>
+  s.url ? normalizeStreamUrl(s.url) : nameKey(s.name);
 const YT_QS = "ytuner=true&mac=KINDLE&fver=W&dlang=eng&startitems=1&enditems=100";
 async function ytunerGet(pathAndQuery: string): Promise<string> {
   let res: { status: number; body: Buffer };
@@ -432,7 +436,10 @@ export const ytuner = {
     const lists = await Promise.all(
       RADIO_LISTS.map((l) => ytuner.listCategoryStations(l.ytunerCategory)),
     );
-    for (const s of lists.flat()) byUrl.set(normalizeStreamUrl(s.url), s);
+    for (const s of lists.flat()) {
+      byUrl.set(normalizeStreamUrl(s.url), s);
+      byUrl.set(nameKey(s.name), s);
+    }
     rt.ytunerIds = { at: Date.now(), byUrl };
     return byUrl;
   },
@@ -751,7 +758,7 @@ export function imageHostAllowed(url: URL): boolean {
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
   if (maImageAllowed(url)) return true;
   const host = url.hostname.toLowerCase();
-  const allowed = new Set<string>([YTUNER_HOST, ...CATALOG_LOGO_HOSTS.map((h) => h.toLowerCase())]);
+  const allowed = new Set<string>([YTUNER_HOST, ...catalogLogoHosts().map((h) => h.toLowerCase())]);
   for (const v of [env("AMP_HOST"), env("JELLYFIN_URL"), ytunerBase()]) {
     if (!v) continue;
     try {
@@ -1457,7 +1464,7 @@ export async function readMediaSnapshot(): Promise<MediaSnapshot> {
 // ---- Radio: lists + tuning by index ----
 const bookmarkView = (b: YtunerStation): RadioStationView => {
   const cat = RADIO_LISTS.flatMap((l) => l.stations).find(
-    (s) => normalizeStreamUrl(s.url) === normalizeStreamUrl(b.url),
+    (s) => stationKey(s) === normalizeStreamUrl(b.url) || stationKey(s) === nameKey(b.name),
   );
   return cat
     ? { ...cat, ytunerId: b.id, favourite: true }
@@ -1484,7 +1491,7 @@ export async function readRadioLists(): Promise<RadioListsResult> {
   } catch (e) {
     error = mediaErrorMessage(e);
   }
-  const favUrls = new Set(bookmarks.map((b) => normalizeStreamUrl(b.url)));
+  const favUrls = new Set(bookmarks.flatMap((b) => [normalizeStreamUrl(b.url), nameKey(b.name)]));
   return {
     configured: true,
     ...(error === undefined ? {} : { error }),
@@ -1492,10 +1499,11 @@ export async function readRadioLists(): Promise<RadioListsResult> {
       { id: FAVOURITES_LIST_ID, stations: bookmarks.map(bookmarkView) },
       ...RADIO_LISTS.map((l) => ({
         id: l.id,
+        name: l.ytunerCategory,
         stations: l.stations.map((s) => ({
           ...s,
-          ytunerId: byUrl.get(normalizeStreamUrl(s.url))?.id ?? null,
-          favourite: favUrls.has(normalizeStreamUrl(s.url)),
+          ytunerId: byUrl.get(stationKey(s))?.id ?? null,
+          favourite: favUrls.has(stationKey(s)),
         })),
       })),
     ],
@@ -1564,7 +1572,7 @@ async function radioStep(delta: 1 | -1): Promise<RadioPosition> {
 async function setFavourite(stationId: string, add: boolean) {
   const station = findStation(stationId);
   if (!station) throw new MediaError("No such station");
-  const yt = (await ytuner.stationsByUrl()).get(normalizeStreamUrl(station.url));
+  const yt = (await ytuner.stationsByUrl()).get(stationKey(station));
   if (!yt) throw new MediaError("Station unknown to YTuner");
   if (add) await ytuner.addBookmark(yt);
   else await ytuner.removeBookmark(yt.id);

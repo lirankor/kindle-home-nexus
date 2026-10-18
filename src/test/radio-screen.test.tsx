@@ -130,7 +130,8 @@ describe("Radio screen", () => {
     const now = document.querySelector(".radio-now-text")!;
     expect(now.querySelector(".radio-now-name")?.textContent).toBe("WDR 5");
     expect(now.querySelector(".radio-now-song")?.textContent).toBe("Zara Larsson - Memory Lane");
-    expect(now.querySelector(".radio-now-detail")?.textContent).toBe("128k · MP3");
+    // stations come from HA (bridge select) without codec / bitrate: no detail line text
+    expect(now.querySelector(".radio-now-detail")?.textContent?.trim() ?? "").toBe("");
     expect(document.querySelector(".radio-cover img")?.getAttribute("src")).toBe(
       "/media/img?station=wdr-5&w=200",
     );
@@ -257,7 +258,7 @@ describe("Radio screen", () => {
     const rows = Array.from(list.querySelectorAll('[role="option"]'));
     expect(rows).toHaveLength(8);
     expect(rows[0]?.querySelector("strong")?.textContent).toBe("WDR 5");
-    expect(rows[0]?.querySelector(".radio-row-detail")?.textContent).toBe("128k MP3");
+    expect(rows[0]?.querySelector(".radio-row-detail")?.textContent?.trim() ?? "").toBe("");
     expect(rows[0]).toHaveAttribute("aria-selected", "true");
     expect(rows[0]?.querySelector("img")?.getAttribute("src")).toBe(
       "/media/img?station=wdr-5&w=48",

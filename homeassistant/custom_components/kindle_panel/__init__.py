@@ -39,6 +39,7 @@ from .const import (
     IMMICH_DOMAIN,
     LEGACY_MA_PLAYERS,
     MA_DOMAIN,
+    NET_RADIO_SELECT_SUFFIX,
     OPT_CONFIG,
     OPT_EDITED,
     OPT_SEEDED,
@@ -107,6 +108,23 @@ def ma_players(hass: HomeAssistant) -> list[dict[str, Any]]:
         name = (st.name if st else None) or e.name or e.original_name or e.entity_id
         out.append({"entity_id": e.entity_id, "name": name, "state": st.state if st else "unavailable"})
     return out
+
+
+def fill_net_radio(hass: HomeAssistant, nodes: list[dict[str, Any]]) -> None:
+    """A receiver node without `net_radio` gets the NET RADIO station select of its receiver's device
+    (yamaha_netbridge >= 0.3.0 with a station list), so the panel needs no extra setup. Only in get_config's answer;
+    the stored config is not changed."""
+    reg = er.async_get(hass)
+    for n in nodes:
+        if n.get("type") != "receiver" or n.get("net_radio"):
+            continue
+        main = reg.async_get(n.get("power_device") or "")
+        if main is None or main.device_id is None:
+            continue
+        for e in er.async_entries_for_device(reg, main.device_id):
+            if e.domain == "select" and (e.unique_id or "").endswith(NET_RADIO_SELECT_SUFFIX) and not e.disabled_by:
+                n["net_radio"] = e.entity_id
+                break
 
 
 @dataclass
@@ -235,6 +253,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
 
     async def get_config(call: ServiceCall) -> ServiceResponse:
         cfg = normalize(entry.options.get(OPT_CONFIG))
+        fill_net_radio(hass, cfg["media"]["nodes"])
         outputs = ma_players(hass)
         ids = [o["entity_id"] for o in outputs]
         keys = cfg["media"]["output_keys"]

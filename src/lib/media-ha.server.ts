@@ -598,6 +598,7 @@ export async function readRadioListsHa(): Promise<RadioListsResult> {
       { id: FAVOURITES_LIST_ID, stations: favourites },
       ...RADIO_LISTS.map((l) => ({
         id: l.id,
+        name: l.ytunerCategory,
         stations: l.stations.map((s) => ({
           ...s,
           ytunerId: null,

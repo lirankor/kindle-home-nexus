@@ -2,15 +2,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { parseLang } from "@/lib/i18n";
-import {
-  AMP,
-  MUSIC_TABS,
-  RADIO_LIST_IDS,
-  RADIO_STATION_IDS,
-  SEARCH_MAX_CHARS,
-  demoMediaSnapshot,
-  demoRadioLists,
-} from "@/lib/media";
+import { AMP, MUSIC_TABS, SEARCH_MAX_CHARS, demoMediaSnapshot, demoRadioLists } from "@/lib/media";
 import type {
   ArtistAlbumsResult,
   MediaAction,
@@ -80,7 +72,7 @@ const actionSchema = z.union([
   z.object({ type: z.literal("radio.step"), delta: z.union([z.literal(1), z.literal(-1)]) }),
   z.object({
     type: z.literal("radio.favourite"),
-    stationId: z.enum(RADIO_STATION_IDS),
+    stationId: z.string().min(1).max(120),
     add: z.boolean(),
   }),
   z.object({ type: z.literal("radio.playback"), op: z.enum(["play", "stop"]) }),
@@ -94,11 +86,11 @@ const actionSchema = z.union([
     .object({
       type: z.literal("node"),
       id: z.string().regex(/^[a-z0-9_]{1,24}$/),
-      op: z.enum(["power", "volume", "source", "stream", "movie"]),
+      op: z.enum(["power", "volume", "source", "stream", "station", "movie"]),
       on: z.boolean().optional(),
       delta: z.union([z.literal(1), z.literal(-1)]).optional(),
       source: z.string().min(1).max(64).optional(),
-      option: z.string().min(1).max(64).optional(),
+      option: z.string().min(1).max(160).optional(),
     })
     .refine(
       (a) =>
@@ -171,14 +163,16 @@ export const runMediaAction = createServerFn({ method: "POST" })
 export const getRadioLists = createServerFn({ method: "GET" }).handler(
   async (): Promise<RadioListsResult> => {
     if (!ampConfigured() && !haConfigured()) return demoRadioLists();
+    await ensurePanelConfig(); // also refreshes the station list from HA
     return haBackend() ? readRadioListsHa() : readRadioLists();
   },
 );
 
 export type TuneResult = { ok: boolean; error?: string; current?: RadioPosition };
 export const tuneRadioStation = createServerFn({ method: "POST" })
-  .validator(z.object({ list: z.enum(RADIO_LIST_IDS), index: z.number().int().min(0) }))
+  .validator(z.object({ list: z.string().min(1).max(80), index: z.number().int().min(0) }))
   .handler(async ({ data }): Promise<TuneResult> => {
+    await ensurePanelConfig();
     try {
       return {
         ok: true,

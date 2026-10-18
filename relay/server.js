@@ -1,7 +1,7 @@
 // Stream relay for the Yamaha R-N500: it only plays plain http streams, many stations only offer https.
 // GET /s/<station id>  ->  fetches the station's https (or http) stream from the catalog and pipes it
 // unchanged (no transcoding; Icecast MP3/AAC in, same bytes out). HLS is not supported here.
-// Allowlist = src/data/radio-stations.json (mounted read-only); nothing else can be relayed.
+// Allowlist = the catalog JSON mounted read-only at CATALOG (see README); nothing else can be relayed.
 import http from "node:http";
 import https from "node:https";
 import { readFileSync } from "node:fs";

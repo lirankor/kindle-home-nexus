@@ -18,3 +18,9 @@ Object.defineProperty(window, "matchMedia", {
     dispatchEvent: () => {},
   }),
 });
+
+// The radio bands come from HA at run time; tests start with the fixture list.
+import { radioListsFromBridge, setRadioLists } from "@/lib/media";
+import { BRIDGE_STATIONS } from "./radio-fixture";
+import { beforeEach } from "vitest";
+beforeEach(() => setRadioLists(radioListsFromBridge(BRIDGE_STATIONS)));

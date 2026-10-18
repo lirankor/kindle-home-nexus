@@ -113,18 +113,21 @@ export function RadioDial({
   bandName,
   stations,
   list,
+  fmBand,
   index,
   emptyText,
 }: {
   bandName: string;
   stations: RadioStationView[];
   list: string;
+  /** The local FM band: labels are FM frequencies where a station has one. */
+  fmBand: boolean;
   index: number;
   emptyText: string;
 }) {
   const n = stations.length;
   const labels = planDialLabels(
-    stations.map((s) => stationLabel(s, list)),
+    stations.map((s) => stationLabel(s, fmBand)),
     n > 0 ? index : -1,
     [0, estimateWidth(bandName, DIAL.namePx)],
   );

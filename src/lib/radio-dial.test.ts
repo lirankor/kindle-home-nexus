@@ -12,6 +12,9 @@ import {
   shortName,
   stationDetail,
   stationLabel,
+  radioBands,
+  bandLabel,
+  isFmBand,
   stationX,
   toggleFavouriteInLists,
   wrapIndex,
@@ -34,13 +37,13 @@ describe("radio dial helpers", () => {
 
   it("labels the local band with FM MHz and the others with names", () => {
     const first = RADIO_LISTS.find((l) => l.id === "local")!.stations[0]!;
-    expect(stationLabel(first, "local")).toBe("88.8");
-    expect(stationLabel({ name: "Deutschlandfunk Nova", fm: null }, "local")).toBe("Deutschlan…");
-    expect(stationLabel(first, "english")).toBe("WDR 5");
+    expect(stationLabel(first, true)).toBe("88.8");
+    expect(stationLabel({ name: "Deutschlandfunk Nova", fm: null }, true)).toBe("Deutschlan…");
+    expect(stationLabel(first, false)).toBe("WDR 5");
     // The 100FM channels drop the brand prefix on the dial.
-    expect(stationLabel({ name: "100FM Oldies", fm: null }, "music")).toBe("Oldies");
-    expect(stationLabel({ name: "100FM Classic Rock", fm: null }, "music")).toBe("Classic");
-    expect(stationLabel({ name: "Radios 100FM", fm: 100 }, "israel")).toBe("Radios");
+    expect(stationLabel({ name: "100FM Oldies", fm: null }, false)).toBe("Oldies");
+    expect(stationLabel({ name: "100FM Classic Rock", fm: null }, false)).toBe("Classic");
+    expect(stationLabel({ name: "Radios 100FM", fm: 100 }, false)).toBe("Radios");
     expect(stationDetail({ bitrate: 128, codec: "MP3" })).toBe("128k · MP3");
     expect(stationDetail({ bitrate: 0, codec: "" })).toBe("");
     expect(stationDetail({ bitrate: 56, codec: "" })).toBe("56k");
@@ -94,7 +97,7 @@ describe("radio dial helpers", () => {
 
   it("always labels the current station and never overlaps labels on one side", () => {
     const english = RADIO_LISTS.find((l) => l.id === "english")!.stations.map(view);
-    const texts = english.map((s) => stationLabel(s, "english"));
+    const texts = english.map((s) => stationLabel(s, false));
     for (const current of [0, 5, english.length - 1]) {
       const labels = planDialLabels(texts, current, [0, estimateWidth("Favourites", DIAL.namePx)]);
       const cur = labels.find((l) => l.index === current);
@@ -130,7 +133,7 @@ describe("radio dial helpers", () => {
     // Almost all twelve FM numbers fit (the band name takes the top-left), alternating sides.
     const local = RADIO_LISTS.find((l) => l.id === "local")!.stations.map(view);
     const fm = planDialLabels(
-      local.map((s) => stationLabel(s, "local")),
+      local.map((s) => stationLabel(s, true)),
       0,
       [0, estimateWidth("דיסלדורף", DIAL.namePx)],
     );
@@ -161,5 +164,20 @@ describe("radio dial helpers", () => {
     const removed = toggleFavouriteInLists(added, live, false);
     expect(removed.lists[0]!.stations).toEqual([]);
     expect(removed.lists.find((l) => l.id === "local")!.stations[0]!.favourite).toBe(false);
+  });
+
+  it("bands follow the station list's groups; labels translate known ids, else the group name (task 016)", () => {
+    const lists = [
+      { id: "favourites", stations: [] },
+      { id: "duesseldorf-fm", name: "Duesseldorf FM", stations: [] },
+      { id: "jazz-club", name: "Jazz Club", stations: [] },
+    ];
+    expect(radioBands(lists)).toEqual(["favourites", "duesseldorf-fm", "jazz-club"]);
+    expect(radioBands(null)).toEqual(["favourites"]);
+    expect(bandLabel("en", "duesseldorf-fm", lists)).toBe("Düsseldorf");
+    expect(bandLabel("he", "duesseldorf-fm", lists)).toBe("דיסלדורף");
+    expect(bandLabel("en", "jazz-club", lists)).toBe("Jazz Club");
+    expect(isFmBand(lists, "duesseldorf-fm")).toBe(true);
+    expect(isFmBand(lists, "jazz-club")).toBe(false);
   });
 });

@@ -8,15 +8,25 @@ import type {
   RadioPosition,
   RadioStationView,
 } from "./media";
-import type { Key } from "./i18n";
+import { tryT } from "./i18n";
+import type { Key, Lang } from "./i18n";
 import type { RadioPanelState } from "./panel-state";
 
-/** Band switch order: favourites (YTuner bookmarks), then the catalog lists. */
-export const RADIO_BANDS = [FAVOURITES_LIST_ID, "local", "israel", "english", "music"] as const;
-export type RadioBand = (typeof RADIO_BANDS)[number];
-export const isRadioBand = (id: string): id is RadioBand =>
-  (RADIO_BANDS as readonly string[]).includes(id);
+export const FAVOURITES_BAND = FAVOURITES_LIST_ID;
+/** Band switch order: favourites, then the station list's groups in their order (from HA, bus task 016). */
+export const radioBands = (lists: RadioListView[] | null | undefined): string[] => [
+  FAVOURITES_LIST_ID,
+  ...(lists ?? []).map((l) => l.id).filter((id) => id !== FAVOURITES_LIST_ID),
+];
+export const isRadioBand = (id: string, lists: RadioListView[] | null | undefined) =>
+  radioBands(lists).includes(id);
 export const bandKey = (id: string): Key => `radio.band.${id}` as Key;
+/** A band's name: a translation when the panel has one for its id (radio.band.<id>), else the group's own name. */
+export const bandLabel = (lang: Lang, id: string, lists: RadioListView[] | null | undefined) =>
+  tryT(lang, `radio.band.${id}`) ?? listById(lists, id)?.name ?? id;
+/** The first group is the local FM band: its dial shows FM frequencies (where a station has one). */
+export const isFmBand = (lists: RadioListView[] | null | undefined, id: string) =>
+  radioBands(lists)[1] === id;
 
 /** 0..n-1 with wrap-around; -1 when the list is empty. */
 export const wrapIndex = (index: number, size: number): number =>
@@ -45,7 +55,7 @@ export function findStationPosition(
   stationId: string,
   preferList?: string | null,
 ): RadioPosition | null {
-  const order = [preferList, ...RADIO_BANDS].filter(
+  const order = [preferList, ...radioBands(lists)].filter(
     (id, i, all): id is string => typeof id === "string" && all.indexOf(id) === i,
   );
   for (const list of order) {
@@ -57,7 +67,9 @@ export function findStationPosition(
 
 /** First band with stations: favourites when there are any, else the local list. */
 export const defaultBand = (lists: RadioListView[] | null | undefined): string =>
-  (listById(lists, FAVOURITES_LIST_ID)?.stations.length ?? 0) > 0 ? FAVOURITES_LIST_ID : "local";
+  (listById(lists, FAVOURITES_LIST_ID)?.stations.length ?? 0) > 0
+    ? FAVOURITES_LIST_ID
+    : (radioBands(lists)[1] ?? FAVOURITES_LIST_ID);
 
 /**
  * The position the dial shows: the user's band + remembered index, clamped to the list; before the
@@ -68,8 +80,8 @@ export function dialPosition(
   lists: RadioListView[] | null | undefined,
   snapshot: MediaSnapshot | null,
 ): RadioPosition {
-  if (!lists || lists.length === 0) return { list: state?.list ?? "local", index: 0 };
-  if (state && isRadioBand(state.list) && listById(lists, state.list)) {
+  if (!lists || lists.length === 0) return { list: state?.list ?? FAVOURITES_LIST_ID, index: 0 };
+  if (state && isRadioBand(state.list, lists) && listById(lists, state.list)) {
     const size = listById(lists, state.list)?.stations.length ?? 0;
     const index = state.indexByList[state.list] ?? 0;
     return { list: state.list, index: size === 0 ? 0 : Math.min(index, size - 1) };
@@ -92,7 +104,7 @@ export function playingPosition(
     if (found) return found;
   }
   const cur = snapshot.radio;
-  if (cur && isRadioBand(cur.list) && stationAt(lists, cur)) return cur;
+  if (cur && isRadioBand(cur.list, lists) && stationAt(lists, cur)) return cur;
   return null;
 }
 
@@ -135,9 +147,9 @@ export const stationDetail = (s: Pick<RadioStationView, "bitrate" | "codec">, se
 /** Brand prefix the dial drops so "100FM Oldies" reads "Oldies" (the station list keeps the full name). */
 const DIAL_PREFIX = /^100FM /;
 
-/** Dial label: FM MHz for stations that have one on the local band, else a short name. */
-export const stationLabel = (s: Pick<RadioStationView, "name" | "fm">, list: string): string =>
-  list === "local" && s.fm !== null ? s.fm.toFixed(1) : shortName(s.name.replace(DIAL_PREFIX, ""));
+/** Dial label: FM MHz for stations that have one on the local FM band, else a short name. */
+export const stationLabel = (s: Pick<RadioStationView, "name" | "fm">, fmBand: boolean): string =>
+  fmBand && s.fm !== null ? s.fm.toFixed(1) : shortName(s.name.replace(DIAL_PREFIX, ""));
 
 /** About ten characters: cut at a word boundary when that keeps enough, else hard-cut with an ellipsis. */
 export function shortName(name: string, max = 10): string {

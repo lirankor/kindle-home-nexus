@@ -604,6 +604,7 @@ export const Route = createFileRoute("/api/voice/$")({
         }
         if (!env("VOICE_TOKEN")) return fail("voice API disabled (VOICE_TOKEN unset)", 503);
         if (!authorized(request)) return fail("unauthorized", 401);
+        await ensurePanelConfig().catch(() => null); // the station list comes from HA with the config
         switch (sub(request)) {
           case "state":
             return json(await currentState());
@@ -618,6 +619,7 @@ export const Route = createFileRoute("/api/voice/$")({
       POST: async ({ request }) => {
         if (!env("VOICE_TOKEN")) return fail("voice API disabled (VOICE_TOKEN unset)", 503);
         if (!authorized(request)) return fail("unauthorized", 401);
+        await ensurePanelConfig().catch(() => null); // the station list comes from HA with the config
         // MUSIC_BACKEND=ha: Music Assistant owns playback and HA's scripts are the way in. The panel's own queue and
         // direct amp control must stay idle, so the write half of this API is closed (search/list/state stay open).
         if (haBackend())

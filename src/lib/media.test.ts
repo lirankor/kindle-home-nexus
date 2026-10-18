@@ -22,7 +22,8 @@ import {
 } from "./media-protocol";
 import {
   AMP,
-  CATALOG_LOGO_HOSTS,
+  catalogLogoHosts,
+  radioListsFromBridge,
   FAVOURITES_LIST_ID,
   MIX_IDS,
   RADIO_LISTS,
@@ -153,12 +154,34 @@ describe("YTuner XML", () => {
     expect(parseYtunerStations(YTUNER_EMPTY)).toEqual([]);
     expect(parseYtunerStations("")).toEqual([]);
   });
-  it("maps a YTuner station onto the local catalog by stream url", () => {
-    const urls = RADIO_LISTS.find((l) => l.id === "local")!.stations.map((s) => s.url);
-    expect(urls).toContain(parseYtunerStations(YTUNER_STATIONS)[0]!.url);
+  it("finds a YTuner station in the station list by name (stations from HA carry no URL)", () => {
+    const names = RADIO_LISTS.find((l) => l.id === "local")!.stations.map((s) => s.name);
+    expect(names).toContain(parseYtunerStations(YTUNER_STATIONS)[0]!.name);
     expect(RADIO_LISTS.map((l) => l.id)).toContain("local");
     expect(FAVOURITES_LIST_ID).toBe("favourites");
-    expect(CATALOG_LOGO_HOSTS).toContain("www1.wdr.de");
+    expect(catalogLogoHosts()).toContain("www1.wdr.de");
+  });
+
+  it("builds bands from the bridge select's stations attribute (groups in first-appearance order)", () => {
+    const lists = radioListsFromBridge([
+      { id: "a", name: "A", group: "Düsseldorf FM", fm_mhz: 88.8, logo: "https://x.example/a.png" },
+      { id: "b", name: "B", group: "Israel" },
+      { id: "c", name: "C", group: "Düsseldorf FM", logo: "not a url" },
+      { id: "f", name: "F", group: "Favourites" },
+      { name: "broken" },
+    ]);
+    expect(lists.map((l) => [l.id, l.ytunerCategory, l.stations.map((s) => s.id)])).toEqual([
+      ["dusseldorf-fm", "Düsseldorf FM", ["a", "c"]],
+      ["israel", "Israel", ["b"]],
+      ["favourites-2", "Favourites", ["f"]],
+    ]);
+    expect(lists[0]!.stations[0]).toMatchObject({
+      fm: 88.8,
+      logo: "https://x.example/a.png",
+      url: "",
+    });
+    expect(lists[0]!.stations[1]!.logo).toBeNull();
+    expect(radioListsFromBridge(undefined)).toEqual([]);
   });
 });
 

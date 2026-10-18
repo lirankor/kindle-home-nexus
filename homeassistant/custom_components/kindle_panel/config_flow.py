@@ -223,6 +223,10 @@ NODE_COLUMNS: dict[str, dict[str, Any]] = {
         "label": "Receiver: stream output (DLNA/AirPlay select)",
         "selector": {"entity": {"domain": "select"}},
     },
+    "net_radio": {
+        "label": "Receiver: NET RADIO station select (empty: the receiver's own, yamaha_netbridge >= 0.3.0)",
+        "selector": {"entity": {"domain": "select"}},
+    },
     "players": {
         "label": "Receiver: its Music Assistant players",
         "selector": {"entity": {"domain": "media_player", "integration": MA_DOMAIN, "multiple": True}},

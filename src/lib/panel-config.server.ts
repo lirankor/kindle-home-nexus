@@ -4,7 +4,7 @@
 import { HomeError, ha, haConfigured } from "./home.server";
 import { applyHomeConfig } from "./home";
 import { parseLang } from "./i18n";
-import { applyMediaConfig } from "./media";
+import { applyMediaConfig, radioListsFromBridge, setRadioLists } from "./media";
 import {
   DEFAULT_CONFIG,
   LEGACY_HOUSE_MEDIA,
@@ -209,12 +209,27 @@ function apply(l: Loaded) {
   applyMediaConfig(l.config.media);
 }
 
+/** The radio bands come from Home Assistant only: the first receiver node's NET RADIO station select (its `stations`
+ *  attribute, in the bridge's list order). No select or HA down: the last list stays. */
+async function refreshRadioLists(l: Loaded) {
+  if (!haConfigured()) return;
+  const select = l.config.media.nodes.find((n) => n.type === "receiver" && n.net_radio)?.net_radio;
+  if (!select) return;
+  try {
+    const st = await ha<{ attributes?: { stations?: unknown } }>("GET", `/api/states/${select}`);
+    setRadioLists(radioListsFromBridge(st.attributes?.stations));
+  } catch (e) {
+    console.warn(`[radio] ${select} not readable, keeping the last station list:`, e);
+  }
+}
+
 /** The current config (cached for 30 s), applied to the shared constants. */
 export async function ensurePanelConfig(): Promise<Loaded> {
   if (current && Date.now() - current.at < TTL_MS) return current;
   inflight ??= load()
-    .then((l) => {
+    .then(async (l) => {
       apply(l);
+      await refreshRadioLists(l);
       current = l;
       return l;
     })

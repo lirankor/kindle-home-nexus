@@ -4,7 +4,7 @@
 import { HomeError, service } from "./home.server";
 import type { HaState } from "./home.server";
 import { AMP, MEDIA_NODES } from "./media";
-import type { InputName, MediaAction, NodeView } from "./media";
+import type { InputName, MediaAction, NodeStation, NodeView } from "./media";
 import { nodeEntity } from "./panel-config";
 import type { MediaNode } from "./panel-config";
 
@@ -38,6 +38,22 @@ export function nodeInputs(
   return { sources: sourceList.filter((s) => !hidden.has(s)), inputNames };
 }
 
+/** The NET RADIO station select's stations, paired with its options by position (pure; unit tested). */
+export function nodeStations(sel: HaState | undefined): NodeStation[] {
+  const a = attrs(sel);
+  const options = strList(a["options"]);
+  const stations = Array.isArray(a["stations"]) ? (a["stations"] as Record<string, unknown>[]) : [];
+  return options.map((option, i) => {
+    const s = stations[i] ?? {};
+    return {
+      option,
+      name: typeof s["name"] === "string" ? s["name"] : option,
+      group: typeof s["group"] === "string" ? s["group"] : "",
+      fm: num(s["fm_mhz"]),
+    };
+  });
+}
+
 /** A node's live state from the HA states (pure; unit tested). */
 export function nodeView(n: MediaNode, states: Map<string, HaState>): NodeView {
   const st = states.get(nodeEntity(n));
@@ -47,6 +63,9 @@ export function nodeView(n: MediaNode, states: Map<string, HaState>): NodeView {
   const plugOff = !!n.plug && states.get(n.plug)?.state === "off";
   const vol = n.volume ? states.get(n.volume) : undefined;
   const sel = n.stream_output ? states.get(n.stream_output) : undefined;
+  const radio = n.net_radio ? states.get(n.net_radio) : undefined;
+  const station =
+    radio && radio.state !== "unavailable" && radio.state !== "unknown" ? radio.state : null;
   return {
     id: n.id,
     type: n.type,
@@ -61,6 +80,14 @@ export function nodeView(n: MediaNode, states: Map<string, HaState>): NodeView {
     muted: a["is_volume_muted"] === true,
     stream: sel && sel.state !== "unavailable" && sel.state !== "unknown" ? sel.state : null,
     streams: strList(attrs(sel)["options"]),
+    ...(radio
+      ? {
+          stations: nodeStations(radio),
+          station,
+          nowTitle: typeof a["media_title"] === "string" ? a["media_title"] : null,
+          nowArtist: typeof a["media_artist"] === "string" ? a["media_artist"] : null,
+        }
+      : {}),
     movie: !!n.movie_on,
     movieActive: !!n.movie_active && states.get(n.movie_active)?.state === "on",
   };
@@ -140,6 +167,17 @@ export function nodeCalls(
           domain: "select",
           service: "select_option",
           data: { entity_id: n.stream_output, option: a.option },
+        },
+      ];
+    case "station":
+      if (!n.net_radio) throw new HomeError("This device has no NET RADIO stations");
+      // the bridge powers the receiver on, selects NET RADIO and walks its menu (seconds): never wait for it
+      return [
+        {
+          domain: "select",
+          service: "select_option",
+          data: { entity_id: n.net_radio, option: a.option },
+          background: true,
         },
       ];
     case "movie": {

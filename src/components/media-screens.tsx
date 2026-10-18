@@ -58,7 +58,14 @@ import {
 } from "@/lib/media-ui";
 import { QUEUE_PAGE_SIZE, RADIO_PAGE_SIZE } from "@/lib/media-panel";
 import type { MediaPanel } from "@/lib/media-panel";
-import { RADIO_BANDS, bandKey, listById, stationDetail } from "@/lib/radio-dial";
+import {
+  FAVOURITES_BAND,
+  bandLabel,
+  isFmBand,
+  listById,
+  radioBands,
+  stationDetail,
+} from "@/lib/radio-dial";
 
 const Ltr = ({ children }: { children: ReactNode }) => <bdi dir="ltr">{children}</bdi>;
 const POWER_ON_STEPS: PowerOnStep[] = ["plug", "wait", "reload", "turn_on", "source"];
@@ -252,6 +259,14 @@ function NodeScreen({ panel, status }: { panel: MediaPanel; status: string }) {
           ? `${t("media.source")} · ${n.source ? panel.nodeSourceName(n.source) : t("node.noSource")}`
           : "\u00a0"}
       </p>
+      {n.on && n.source === "NET RADIO" && (n.nowTitle || n.station) && (
+        // the receiver's own NET RADIO: station and song as the bridge reports them
+        <p className="modal-look node-now">
+          {n.nowArtist && n.nowTitle
+            ? `${n.nowArtist} · ${n.nowTitle}`
+            : (n.nowTitle ?? n.station?.split(" · ").pop())}
+        </p>
+      )}
       <p className="modal-look node-volume">
         {n.on && n.volumeDb !== null ? (
           <>
@@ -295,6 +310,48 @@ function NodeSourceList({ panel, status }: { panel: MediaPanel; status: string }
             >
               <span className="source-row-text">
                 <strong>{panel.nodeSourceName(src)}</strong>
+              </span>
+              {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
+            </Button>
+          );
+        })}
+      </div>
+      <p className="modal-hint">{t("source.hint")}</p>
+    </FullModal>
+  );
+}
+
+/** A receiver's NET RADIO stations (the bridge's station select, in its list order): up / down, Enter plays (the
+ *  bridge turns the receiver on, selects NET RADIO and walks its menu), Back returns. Dial style: the FM frequency
+ *  where the list has one, else the group. */
+function NodeStationList({ panel, status }: { panel: MediaPanel; status: string }) {
+  const { t, lang, node: n, cursor } = panel;
+  if (!n) return null;
+  const stations = n.stations ?? [];
+  return (
+    <FullModal label={t("node.stations")} actions={panel.modalActions} status={status}>
+      <header className="modal-heading">
+        <h1>{t("node.stations")}</h1>
+        <p>{nodeLabel(lang, n.name)}</p>
+      </header>
+      <div className="source-rows" role="listbox" aria-label={t("node.stations")}>
+        {sourceWindow(stations, cursor).map((st) => {
+          const index = stations.indexOf(st);
+          const current = n.on && n.source === "NET RADIO" && n.station === st.option;
+          return (
+            <Button
+              key={st.option}
+              variant="eink"
+              className="source-row"
+              role="option"
+              aria-selected={index === cursor}
+              aria-pressed={index === cursor}
+              data-current={current}
+              onClick={() => panel.setCursor(index)}
+            >
+              <span className="source-row-text">
+                <strong>{st.name}</strong>
+                <small>{st.fm !== null ? <Ltr>{`FM ${st.fm.toFixed(1)}`}</Ltr> : st.group}</small>
               </span>
               {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
             </Button>
@@ -669,7 +726,7 @@ function StationLogo({
 }
 
 function RadioDialView({ panel, status }: { panel: MediaPanel; status: string }) {
-  const { t, data: s, dialPos, dialStation, radioLists } = panel;
+  const { t, lang, data: s, dialPos, dialStation, radioLists } = panel;
   const list = listById(radioLists, dialPos.list);
   const on = s?.amp.on ?? false;
   const playingId = on && s?.nowPlaying.kind === "radio" ? s.nowPlaying.stationId : null;
@@ -709,14 +766,15 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
               />
             </div>
             <RadioDial
-              bandName={t(bandKey(dialPos.list))}
+              bandName={bandLabel(lang, dialPos.list, radioLists)}
               stations={list?.stations ?? []}
               list={dialPos.list}
+              fmBand={isFmBand(radioLists, dialPos.list)}
               index={dialPos.index}
               emptyText={
                 loading
                   ? ""
-                  : dialPos.list === RADIO_BANDS[0]
+                  : dialPos.list === FAVOURITES_BAND
                     ? t("radio.noFavourites")
                     : t("radio.empty")
               }
@@ -747,7 +805,7 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
 
 /** Enter on the dial: the stations of the current band, 8 per page (F2 / F3 page), Enter tunes. */
 function RadioStationList({ panel, status }: { panel: MediaPanel; status: string }) {
-  const { t, dialPos, radioLists, cursor } = panel;
+  const { t, lang, dialPos, radioLists, cursor } = panel;
   const stations = listById(radioLists, dialPos.list)?.stations ?? [];
   const page = Math.floor(cursor / RADIO_PAGE_SIZE);
   const pages = Math.max(1, Math.ceil(stations.length / RADIO_PAGE_SIZE));
@@ -760,7 +818,7 @@ function RadioStationList({ panel, status }: { panel: MediaPanel; status: string
       hint={t("radio.listHint")}
     >
       <header className="modal-heading radio-list-heading">
-        <h1>{t(bandKey(dialPos.list))}</h1>
+        <h1>{bandLabel(lang, dialPos.list, radioLists)}</h1>
         <p>
           {t("radio.count", { n: stations.length })}
           {pages > 1 && (
@@ -776,7 +834,7 @@ function RadioStationList({ panel, status }: { panel: MediaPanel; status: string
       <div className="source-rows radio-rows" role="listbox" aria-label={t("radio.stationsTitle")}>
         {rows.length === 0 && (
           <p className="radio-empty">
-            {dialPos.list === RADIO_BANDS[0] ? t("radio.noFavourites") : t("radio.empty")}
+            {dialPos.list === FAVOURITES_BAND ? t("radio.noFavourites") : t("radio.empty")}
           </p>
         )}
         {rows.map((station, i) => {
@@ -812,7 +870,7 @@ function RadioStationList({ panel, status }: { panel: MediaPanel; status: string
 
 /** F1 on the dial: the bands; Enter / F4 shows the chosen one on the dial (nothing is tuned). */
 function RadioBandList({ panel, status }: { panel: MediaPanel; status: string }) {
-  const { t, dialPos, radioLists, cursor } = panel;
+  const { t, lang, dialPos, radioLists, cursor } = panel;
   return (
     <FullModal
       label={t("radio.bandsTitle")}
@@ -825,9 +883,9 @@ function RadioBandList({ panel, status }: { panel: MediaPanel; status: string })
         <p>{t("radio.bandsSub")}</p>
       </header>
       <div className="source-rows" role="listbox" aria-label={t("radio.bandsTitle")}>
-        {RADIO_BANDS.map((band, index) => {
+        {radioBands(radioLists).map((band, index) => {
           const n = listById(radioLists, band)?.stations.length ?? 0;
-          const Icon = band === RADIO_BANDS[0] ? Heart : Radio;
+          const Icon = band === FAVOURITES_BAND ? Heart : Radio;
           return (
             <Button
               key={band}
@@ -843,7 +901,7 @@ function RadioBandList({ panel, status }: { panel: MediaPanel; status: string })
                 <Icon size={30} strokeWidth={1.6} />
               </span>
               <span className="source-row-text">
-                <strong>{t(bandKey(band))}</strong>
+                <strong>{bandLabel(lang, band, radioLists)}</strong>
                 <span>{t("radio.count", { n })}</span>
               </span>
             </Button>
@@ -1231,6 +1289,8 @@ export function MediaModal({ panel, status }: { panel: MediaPanel; status: strin
       return <NodeScreen panel={panel} status={status} />;
     case "nodesource":
       return <NodeSourceList panel={panel} status={status} />;
+    case "nodestation":
+      return <NodeStationList panel={panel} status={status} />;
     case "output":
       return <OutputPicker panel={panel} status={status} />;
     case "radio":

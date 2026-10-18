@@ -23,18 +23,26 @@ http://radioyamaha.vtuner.com, http://radioyamaha2.vtuner.com, http://*.vtuner.c
 
 ## Stations
 
-`config/stations.yaml`:
+Since bus task 016 (2026-10-18) the station list is **owned by Home Assistant**: the
+[yamaha_netbridge](https://github.com/lirankor/yamaha-netbridge) integration (>= 0.3.0) keeps it in its options
+(*Configure → NET RADIO stations*, backend `ytuner`) and writes YTuner's `stations.yaml` on every save (and on
+`yamaha_netbridge.export_stations`), in the order the amp's menu shows it. The panel reads the same list from the
+bridge's `select.<receiver>_net_radio_station`, so the amp, HA and the Kindle never disagree.
 
-```
-Category name:
-  Station name: http://stream-url|http://logo-url
+`config/stations.yaml` in this repo is only an example. Mount the bridge's file instead with a
+`docker-compose.override.yml` next to `docker-compose.yml` (git-ignored here), e.g.
+
+```yaml
+services:
+  ytuner:
+    volumes:
+      - /path/to/homeassistant/config/yamaha_netbridge/stations.yaml:/app/config/stations.yaml:ro
 ```
 
-No comment lines: YTuner's YAML reader is minimal and a `#` line makes it drop the whole file
-("No station(s) found"). Streams must be plain `http://` MP3 or AAC (no HTTPS, HLS, OGG, Opus); the
-R-N500 cannot follow https redirects. URLs were verified 2026-10-14 (`scripts/radio-stations.py` writes this file).
-The file is bind-mounted read-only into the container: edit, commit, `docker compose restart ytuner`; the log should say
-`Successfully loaded N my stations`.
+Format (`Category:` then `  Station name: http://stream-url|http://logo-url`), no comment lines: YTuner's YAML reader
+is minimal and a `#` line makes it drop the whole file ("No station(s) found"). Streams must be plain `http://` MP3 or
+AAC (no HTTPS, HLS, OGG, Opus); https-only stations go through `relay/`. YTuner reads the file at start:
+`docker compose restart ytuner` after a change; the log should say `Successfully loaded N my stations`.
 
 Bookmarks (the amp's / Kindle's "Favourites") are written by YTuner to `config/bookmark.xml`, which lives in the
 `ytuner-config` dir (`${KINDLE_DATA_DIR:-./data}/ytuner-config`, a named volume until 2026-10-16) so rebuilds keep them (before 2026-10-14 it was container-local and a rebuild emptied the list).

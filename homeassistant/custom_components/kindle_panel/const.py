@@ -63,6 +63,8 @@ NODE_TYPES: dict[str, dict] = {
             "plug": "switch",
             "plug_power": "sensor",
             "stream_output": "select",
+            # yamaha_netbridge >= 0.3.0: its NET RADIO station select (empty = found on the receiver's device)
+            "net_radio": "select",
             # the Music Assistant players this receiver plays (an output among them wakes the receiver)
             "players": "media_player[]",
             # only for the panel's own (app) music backend
@@ -87,6 +89,8 @@ MEDIA_KEY_MUSIC = "music"
 # the app: those become an "amp" receiver and a "tv" node, and the panel's output starts as the amp's DLNA player.
 LEGACY_POWER_DEVICE = "media_player.r_n500"
 LEGACY_STREAM_OUTPUT = "select.r_n500_stream_output"
+# unique_id suffix of yamaha_netbridge's NET RADIO station select (found on the receiver's device when not named)
+NET_RADIO_SELECT_SUFFIX = "_net_radio_station"
 LEGACY_MA_PLAYERS = ["media_player.ma_amp_dlna", "media_player.ma_amp_airplay"]
 LEGACY_MEDIA_KEYS = (
     "amp_player",

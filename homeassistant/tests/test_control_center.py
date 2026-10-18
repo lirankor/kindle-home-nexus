@@ -1017,3 +1017,49 @@ async def test_media_inputs_page(hass, panel) -> None:
         {"input": "CD", "name": "Bluetooth & TV", "name_he": "בלוטות׳ וטלוויזיה"},
         {"input": "LINE3", "hidden": True},
     ]
+
+
+async def test_receiver_node_finds_the_net_radio_select(hass, panel) -> None:
+    """0.6.0: a receiver node without `net_radio` gets yamaha_netbridge's station select from its device."""
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+
+    from custom_components.kindle_panel.config import normalize
+
+    other = MockConfigEntry(domain="yamaha_netbridge", data={})
+    other.add_to_hass(hass)
+    dev = dr.async_get(hass).async_get_or_create(
+        config_entry_id=other.entry_id, identifiers={("yamaha_netbridge", "X")}
+    )
+    reg = er.async_get(hass)
+    reg.async_get_or_create(
+        "media_player", "yamaha_netbridge", "X_media_player", suggested_object_id="r_n500", device_id=dev.id
+    )
+    reg.async_get_or_create(
+        "select", "yamaha_netbridge", "X_stream_output", suggested_object_id="r_n500_stream_output", device_id=dev.id
+    )
+    reg.async_get_or_create(
+        "select",
+        "yamaha_netbridge",
+        "X_net_radio_station",
+        suggested_object_id="r_n500_net_radio_station",
+        device_id=dev.id,
+    )
+    media = {
+        "music_backend": "ha",
+        "nodes": [
+            {"id": "amp", "type": "receiver", "name": "Amp", "power_device": "media_player.r_n500"},
+            {"id": "amp2", "type": "receiver", "name": "Other", "power_device": "media_player.nope"},
+        ],
+    }
+    await call(hass, "seed", config={**HOUSE, "media": media})
+    nodes = (await call(hass, "get_config"))["config"]["media"]["nodes"]
+    assert nodes[0]["net_radio"] == "select.r_n500_net_radio_station"
+    assert "net_radio" not in nodes[1]  # no device, nothing guessed
+    # an explicit select wins and is a valid node field
+    assert (
+        normalize({**HOUSE, "media": {**media, "nodes": [{**media["nodes"][0], "net_radio": "select.x"}]}})["media"][
+            "nodes"
+        ][0]["net_radio"]
+        == "select.x"
+    )

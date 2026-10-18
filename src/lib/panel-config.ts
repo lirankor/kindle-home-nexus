@@ -100,6 +100,9 @@ export type MediaNode = {
   plug_power?: string | null;
   /** receiver: its DLNA/AirPlay select. */
   stream_output?: string | null;
+  /** receiver: the bridge's NET RADIO station select (yamaha_netbridge >= 0.3.0; kindle_panel fills it in from the
+   *  receiver's device when the node does not name one). Its `stations` attribute is the panel's radio list. */
+  net_radio?: string | null;
   /** receiver: the Music Assistant players it plays (an output among them wakes the receiver). */
   players?: string[] | null;
   /** receiver, app backend only. */

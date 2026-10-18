@@ -69,6 +69,9 @@ services:
       # YTuner keeps the amp's bookmarks ("Favourites") in config/bookmark.xml next to the station list: a persistent
       # dir so a rebuild keeps them, with the versioned files bind-mounted read-only on top (edit + `docker compose restart ytuner`).
       - ${KINDLE_DATA_DIR:-./data}/ytuner-config:/app/config
+      # Station list: an example here. The real one is owned by the yamaha_netbridge HA integration (>= 0.3.0, options
+      # -> NET RADIO stations, backend ytuner), which writes stations.yaml into HA's config folder; a
+      # docker-compose.override.yml (not in this repo) mounts that file here instead. See ytuner/README.md.
       - ./ytuner/config/stations.yaml:/app/config/stations.yaml:ro
       - ./ytuner/config/avr.ini:/app/config/avr.ini:ro
 
@@ -79,7 +82,8 @@ services:
     ports:
       - "192.168.1.15:8792:8792"
     volumes:
-      - ./src/data/radio-stations.json:/app/radio-stations.json:ro
+      # Allowlist (station id -> https source); an empty example here, the real one comes from an override file.
+      - ./relay/stations.example.json:/app/radio-stations.json:ro
 
 networks:
   cover-forge:

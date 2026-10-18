@@ -25,6 +25,15 @@ stored on the device as `inputs: [{input, name, name_he, hidden}]`; selecting an
 `media_player.select_source` with the device's own title, and a receiver in standby is turned on by that (yamaha_netbridge
 ≥ 0.2.1 does it itself, through its power supply switch when the plug is off).
 
+**NET RADIO stations** (since 0.6.0): a receiver whose bridge has a station list (yamaha_netbridge ≥ 0.3.0, options →
+*NET RADIO stations*) gets it on the panel with no setup: choosing the NET RADIO input opens the station list instead of
+switching right away (name, FM frequency where the list has one, else its group; up / down, select plays, Back
+returns). Playing calls `select.select_option` on the bridge's `select.<receiver>_net_radio_station`, which turns the
+receiver on, selects NET RADIO and walks its menu; the node screen then shows the station and song the receiver reports.
+The select is found on the receiver's device; the optional node field *NET RADIO station select* (`net_radio`) names
+another one. The panel's radio bands (music screen) come from the same list: favourites, then its groups in order; the
+panel ships no station file.
+
 The **F1–F4 keys of the Media tab** each open the music screen, open one device's controls, run a script, switch all
 media off, or do nothing. A new panel starts with F1 = music, F2 = the first receiver, F3 = the first TV.
 

@@ -152,4 +152,48 @@ describe("media nodes", () => {
       nodeCalls(tv, { type: "node", id: "tv", op: "stream", option: "dlna" }, m),
     ).toThrow();
   });
+
+  it("NET RADIO stations from the bridge's station select (task 016)", () => {
+    const withRadio: MediaNode = { ...amp, net_radio: "select.r_n500_net_radio_station" };
+    const sel = st("select.r_n500_net_radio_station", "Local · WDR 5", {
+      options: ["Local · WDR 5", "Israel · Galgalatz"],
+      stations: [
+        { id: "wdr-5", name: "WDR 5", group: "Local", fm_mhz: 88.8 },
+        { id: "galgalatz", name: "Galgalatz", group: "Israel", fm_mhz: null },
+      ],
+    });
+    const radioAmp = st("media_player.r_n500", "on", {
+      source: "NET RADIO",
+      source_list: ["SERVER", "NET RADIO"],
+      media_title: "Some Song",
+      media_artist: "WDR 5",
+    });
+    const s = states(radioAmp);
+    s.set(sel.entity_id, sel);
+    const v = nodeView(withRadio, s);
+    expect(v.stations).toEqual([
+      { option: "Local · WDR 5", name: "WDR 5", group: "Local", fm: 88.8 },
+      { option: "Israel · Galgalatz", name: "Galgalatz", group: "Israel", fm: null },
+    ]);
+    expect(v.station).toBe("Local · WDR 5");
+    expect([v.nowArtist, v.nowTitle]).toEqual(["WDR 5", "Some Song"]);
+    expect(nodeView(amp, s).stations).toBeUndefined(); // no select configured: nothing changes
+    expect(
+      nodeCalls(
+        withRadio,
+        { type: "node", id: "amp", op: "station", option: "Israel · Galgalatz" },
+        s,
+      ),
+    ).toEqual([
+      {
+        domain: "select",
+        service: "select_option",
+        data: { entity_id: "select.r_n500_net_radio_station", option: "Israel · Galgalatz" },
+        background: true,
+      },
+    ]);
+    expect(() =>
+      nodeCalls(amp, { type: "node", id: "amp", op: "station", option: "x" }, s),
+    ).toThrow();
+  });
 });
