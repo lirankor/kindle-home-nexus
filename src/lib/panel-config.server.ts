@@ -21,7 +21,22 @@ const TTL_MS = 30_000;
 const MISSING_RETRY_MS = 60_000;
 
 /** A Music Assistant player as kindle_panel lists it (players and MA groups, names from HA). */
-export type MaOutput = { entity_id: string; name: string; state: string };
+export type MaOutput = {
+  entity_id: string;
+  name: string;
+  state: string;
+  now?: string | null;
+  kind?: "player" | "group";
+};
+/** An MA player kindle_panel found in MA without an HA entity (bus task 021). */
+export type MaUnexposed = {
+  player_id: string;
+  name: string;
+  state: string;
+  now?: string | null;
+  kind?: "player" | "group";
+  hidden_in_ma?: boolean;
+};
 type Loaded = {
   config: PanelConfig;
   source: "ha" | "default";
@@ -31,6 +46,7 @@ type Loaded = {
   /** The stored output is one of `outputs` (else the panel asks again). */
   musicOutputValid?: boolean;
   outputs?: MaOutput[];
+  outputsUnexposed?: MaUnexposed[];
 };
 let current: Loaded | null = null;
 let missingUntil = 0;
@@ -73,6 +89,7 @@ type GetConfig = {
   music_output?: string | null;
   music_output_valid?: boolean;
   outputs?: MaOutput[];
+  outputs_unexposed?: MaUnexposed[];
 };
 
 async function call<T>(service: string, data: Record<string, unknown> = {}): Promise<T> {
@@ -201,6 +218,7 @@ async function load(): Promise<Loaded> {
     musicOutput: got.music_output ?? null,
     musicOutputValid: got.music_output_valid ?? false,
     outputs: got.outputs ?? [],
+    outputsUnexposed: got.outputs_unexposed ?? [],
   };
 }
 

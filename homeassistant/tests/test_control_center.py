@@ -1280,3 +1280,146 @@ async def test_auto_rows_round_trip_unchanged(hass, panel) -> None:
         await hass.async_block_till_done()
     after = (await call(hass, "get_config"))["config"]
     assert after == before
+
+
+# ---------------------------------------------------------------- bus task 021: picker = MA's players, move, art
+
+
+class _FakePlayers:
+    def __init__(self, players):
+        self._p = {p.player_id: p for p in players}
+
+    def get(self, pid):
+        return self._p.get(pid)
+
+    def __iter__(self):
+        return iter(self._p.values())
+
+
+def _mp(pid, name, *, type_="player", state="idle", members=(), title=None, artist=None, hidden=False, enabled=True):
+    return SimpleNamespace(
+        player_id=pid,
+        name=name,
+        display_name=name,
+        type=SimpleNamespace(value=type_),
+        playback_state=SimpleNamespace(value=state),
+        available=True,
+        enabled=enabled,
+        hide_in_ui=hidden,
+        group_members=list(members),
+        static_group_members=list(members) if type_ == "group" else [],
+        current_media=SimpleNamespace(title=title, artist=artist) if title else None,
+    )
+
+
+async def test_picker_lists_ma_players_groups_and_unexposed(hass, panel, monkeypatch) -> None:
+    import custom_components.kindle_panel as kp
+
+    _ma_player(hass, "media_player.ma_amp_dlna", "R-N500 DLNA")
+    _ma_player(hass, "media_player.ma_amp_airplay", "R-N500 AirPlay")
+    _ma_player(hass, "media_player.ma_house", "Whole house")
+    hass.states.async_set(
+        "media_player.ma_amp_airplay",
+        "playing",
+        {"friendly_name": "R-N500 AirPlay", "media_title": "Holiday", "media_artist": "Scorpions"},
+    )
+    mass = SimpleNamespace(
+        players=_FakePlayers(
+            [
+                _mp("media_player.ma_amp_dlna", "R-N500 DLNA"),
+                _mp("media_player.ma_amp_airplay", "R-N500 AirPlay", state="playing", title="Holiday"),
+                _mp("media_player.ma_house", "Whole house", type_="group", members=["a", "b"]),
+                _mp("updcd23cf6", "TV"),
+                _mp("pixel", "Pixel phone", hidden=True, title="Song", artist="Band", state="playing"),
+                _mp("disp", "Kitchen display", type_="display"),
+                _mp("off", "Old speaker", enabled=False),
+            ]
+        )
+    )
+    monkeypatch.setattr(kp, "_mass_client", lambda hass: mass)
+    await call(hass, "seed", config=HOUSE)
+    r = await call(hass, "get_config")
+    rows = {o["entity_id"]: o for o in r["outputs"]}
+    assert rows["media_player.ma_amp_airplay"]["now"] == "Holiday · Scorpions"
+    assert rows["media_player.ma_amp_airplay"]["state"] == "playing"
+    assert rows["media_player.ma_amp_dlna"]["now"] is None and rows["media_player.ma_amp_dlna"]["kind"] == "player"
+    assert rows["media_player.ma_house"]["kind"] == "group" and rows["media_player.ma_house"]["members"] == ["a", "b"]
+    un = r["outputs_unexposed"]
+    assert [u["name"] for u in un] == ["Pixel phone", "TV"]  # no display, no disabled player
+    assert un[0] == {
+        "player_id": "pixel",
+        "name": "Pixel phone",
+        "state": "playing",
+        "now": "Song · Band",
+        "kind": "player",
+        "hidden_in_ma": True,
+    }
+
+
+async def test_picker_without_music_assistant_loaded(hass, panel) -> None:
+    _ma_player(hass, "media_player.ma_amp_dlna", "R-N500 DLNA")
+    await call(hass, "seed", config=HOUSE)
+    r = await call(hass, "get_config")
+    assert r["outputs"][0]["kind"] == "player" and r["outputs_unexposed"] == []
+
+
+async def test_move_queue_transfers_and_switches_the_output(hass, panel, monkeypatch) -> None:
+    import custom_components.kindle_panel as kp
+
+    _ma_player(hass, "media_player.ma_amp_dlna", "R-N500 DLNA")
+    _ma_player(hass, "media_player.ma_amp_airplay", "R-N500 AirPlay")
+    moved = []
+
+    class Queues:
+        async def get_active_queue(self, pid):
+            return SimpleNamespace(queue_id=f"q-{pid}", items=26 if pid == "media_player.ma_amp_airplay" else 0)
+
+        async def transfer_queue(self, src, dst, auto_play):
+            moved.append((src, dst, auto_play))
+
+    mass = SimpleNamespace(player_queues=Queues())
+    monkeypatch.setattr(kp, "_mass_and_player", lambda hass, entry, eid: (mass, eid))
+    await call(hass, "seed", config=HOUSE)
+    await call(hass, "set_output", entity_id="media_player.ma_amp_airplay")
+    r = await call(hass, "move_queue", entity_id="media_player.ma_amp_dlna")
+    assert moved == [("q-media_player.ma_amp_airplay", "media_player.ma_amp_dlna", True)]
+    assert r == {"music_output": "media_player.ma_amp_dlna", "moved_from": "media_player.ma_amp_airplay", "items": 26}
+    assert (await call(hass, "get_config"))["music_output"] == "media_player.ma_amp_dlna"
+    # nothing to move from the (now idle, empty) DLNA queue; same player refused
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "move_queue", entity_id="media_player.ma_amp_airplay")
+    with pytest.raises(ServiceValidationError):
+        await call(hass, "move_queue", entity_id="media_player.ma_amp_dlna")
+    assert len(moved) == 1
+
+
+def test_ma_image_only_from_the_ma_server() -> None:
+    from yarl import URL
+
+    from custom_components.kindle_panel import ma_image_allowed
+
+    ma = ["http://192.168.1.15:8095"]
+    assert ma_image_allowed(URL("http://192.168.1.15:8095/imageproxy/abc?size=0"), ma)
+    assert not ma_image_allowed(URL("http://192.168.1.15:8095/api/players"), ma)
+    assert not ma_image_allowed(URL("http://192.168.1.15:8123/imageproxy/abc"), ma)
+    assert not ma_image_allowed(URL("http://evil.example/imageproxy/abc"), ma)
+    assert not ma_image_allowed(URL("file:///etc/passwd"), ma)
+    assert not ma_image_allowed(URL("http://192.168.1.15:8095/imageproxy/x"), [])
+
+
+async def test_ma_image_view_needs_auth_and_proxies(
+    hass, panel, hass_client, hass_client_no_auth, aioclient_mock
+) -> None:
+    entry = MockConfigEntry(domain="music_assistant", data={"url": "http://192.168.1.15:8095"})
+    entry.add_to_hass(hass)
+    entry.mock_state(hass, ConfigEntryState.LOADED)
+    img = "http://192.168.1.15:8095/imageproxy/abc?size=0"
+    aioclient_mock.get(img, content=b"\xff\xd8\xffjpeg", headers={"Content-Type": "image/jpeg"})
+    anon = await hass_client_no_auth()
+    assert (await anon.get("/api/kindle_panel/ma_image", params={"url": img})).status == 401
+    client = await hass_client()
+    r = await client.get("/api/kindle_panel/ma_image", params={"url": img})
+    assert r.status == 200 and r.content_type == "image/jpeg" and await r.read() == b"\xff\xd8\xffjpeg"
+    bad = await client.get("/api/kindle_panel/ma_image", params={"url": "http://192.168.1.15:8123/api/states"})
+    assert bad.status == 403
+    entry.mock_state(hass, ConfigEntryState.NOT_LOADED)  # no real music_assistant unload at teardown

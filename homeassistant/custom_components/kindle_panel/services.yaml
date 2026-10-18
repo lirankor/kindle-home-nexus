@@ -67,3 +67,20 @@ set_output:
         entity:
           integration: music_assistant
           domain: media_player
+move_queue:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          integration: music_assistant
+          domain: media_player
+    source_player:
+      selector:
+        entity:
+          integration: music_assistant
+          domain: media_player
+    auto_play:
+      default: true
+      selector:
+        boolean:

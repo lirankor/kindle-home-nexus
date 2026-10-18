@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
+  Boxes,
   Cable,
   Check,
   Compass,
@@ -133,6 +134,19 @@ function nowPlayingLines(panel: MediaPanel, s: MediaSnapshot | null): [string, s
     default:
       return [t("amp.nothing"), "", ""];
   }
+}
+
+/** The music screen's output line (bus task 021): a move under way, a failed move, or, while the chosen output is
+ *  quiet, which other output plays ("R-N500 AirPlay is playing · F3 to switch"). Null = nothing to say. */
+function outputHint(panel: MediaPanel, s: MediaSnapshot | null): string | null {
+  const o = s?.output;
+  if (!o) return null;
+  if (o.moving)
+    return o.moving.failed
+      ? panel.t("output.moveFailed", { name: o.moving.name })
+      : panel.t("output.moving", { name: o.moving.name });
+  if (o.playingElsewhere) return panel.t("output.elsewhere", { name: o.playingElsewhere.name });
+  return null;
 }
 
 /** One-liner for the amp card: "1LIVE · Zara Larsson - Memory Lane". */
@@ -381,13 +395,32 @@ function OutputPicker({ panel, status }: { panel: MediaPanel; status: string }) 
     <FullModal label={t("output.title")} actions={panel.modalActions} status={status}>
       <header className="modal-heading">
         <h1>{t("output.title")}</h1>
-        <p>{output?.entity && output.valid ? (output.name ?? output.entity) : t("output.none")}</p>
+        <p>
+          {output?.moving
+            ? outputHint(panel, panel.data)
+            : output?.entity && output.valid
+              ? (output.name ?? output.entity)
+              : t("output.none")}
+        </p>
       </header>
       <div className="source-rows" role="listbox" aria-label={t("output.title")}>
         {outputRows.slice(first, first + 7).map((o, i) => {
           const index = first + i;
           const current = o.entity_id === output?.entity;
-          const OutputIcon = pickIcon(null, panel.data?.icons?.[o.entity_id], Speaker);
+          const OutputIcon = pickIcon(
+            null,
+            panel.data?.icons?.[o.entity_id],
+            o.kind === "group" ? Boxes : Speaker,
+          );
+          // one line: state (+ group), then what it plays, or why it cannot be chosen
+          const detail = [
+            current ? t("output.current") : null,
+            stateLabel(panel.lang, o.state),
+            o.kind === "group" ? t("output.group") : null,
+            o.exposed === false ? t("output.notInHa") : (o.now ?? null),
+          ]
+            .filter(Boolean)
+            .join(" · ");
           return (
             <Button
               key={o.entity_id}
@@ -397,6 +430,7 @@ function OutputPicker({ panel, status }: { panel: MediaPanel; status: string }) 
               aria-selected={index === cursor}
               aria-pressed={index === cursor}
               data-current={current}
+              data-exposed={o.exposed === false ? "false" : undefined}
               onClick={() => panel.chooseOutput(o.entity_id)}
             >
               <span className="source-row-icon">
@@ -404,7 +438,7 @@ function OutputPicker({ panel, status }: { panel: MediaPanel; status: string }) 
               </span>
               <span className="source-row-text">
                 <strong>{o.name}</strong>
-                <span>{current ? `${t("output.current")} · ${o.state}` : o.state}</span>
+                <span>{detail}</span>
               </span>
               {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
             </Button>
@@ -566,7 +600,10 @@ function transportMode(s: MediaSnapshot | null): TransportMode {
 
 function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
   const { t, data: s } = panel;
-  const [line1, line2, line3] = nowPlayingLines(panel, s);
+  const [line1, line2, line3plain] = nowPlayingLines(panel, s);
+  // the third line tells about the other outputs (moving / another output plays) when there is something to say
+  const hint = outputHint(panel, s);
+  const line3 = hint ?? line3plain;
   const on = s?.amp.on ?? false;
   const art = on && s?.nowPlaying.artItemId ? s.nowPlaying.artItemId : null;
   const Glyph = on && s?.amp.source ? sourceIcon(s.amp.source) : Power;
@@ -583,7 +620,9 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
             <span className="amp-meta">
               <strong className="amp-title">{line1}</strong>
               <span className="amp-sub">{line2 || " "}</span>
-              <span className="amp-sub amp-sub2">{line3 || " "}</span>
+              <span className="amp-sub amp-sub2" data-hint={hint ? "true" : undefined}>
+                {line3 || " "}
+              </span>
             </span>
           </header>
         )}

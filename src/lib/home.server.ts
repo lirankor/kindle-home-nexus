@@ -80,6 +80,21 @@ export async function ha<T>(
   return (await res.json()) as T;
 }
 
+/** Raw bytes of an HA GET (e.g. kindle_panel's Music Assistant image proxy); null on any failure. */
+export async function haBytes(path: string, timeoutMs = 15000): Promise<Buffer | null> {
+  const base = env("HA_BASE_URL") || "http://host.docker.internal:8123";
+  try {
+    const res = await fetch(`${base}${path}`, {
+      headers: { Authorization: `Bearer ${env("HA_TOKEN")}` },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok || !(res.headers.get("content-type") ?? "").startsWith("image/")) return null;
+    return Buffer.from(await res.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
 export const fetchStates = async () =>
   new Map((await ha<HaState[]>("GET", "/api/states")).map((s) => [s.entity_id, s]));
 export const service = (domain: string, name: string, data: Record<string, unknown>) =>

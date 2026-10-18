@@ -105,6 +105,10 @@ const actionSchema = z.union([
     ),
   z.object({ type: z.literal("script"), entity: z.string().regex(/^script\.[a-z0-9_]+$/) }),
   z.object({ type: z.literal("output"), entity: z.string().regex(/^media_player\.[a-z0-9_]+$/) }),
+  z.object({
+    type: z.literal("output.move"),
+    entity: z.string().regex(/^media_player\.[a-z0-9_]+$/),
+  }),
 ]);
 
 const flags = () => ({ amp: ampConfigured() || haBackend(), jellyfin: jellyfinConfigured() });

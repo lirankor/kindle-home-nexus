@@ -320,6 +320,24 @@
           "description": "A Music Assistant media player."
         }
       }
+    },
+    "move_queue": {
+      "name": "Move the music to another player",
+      "description": "Music Assistant moves the queue (with the position) from the panel's output, or the given source player, to this player and stops the source; this player then becomes the panel's output.",
+      "fields": {
+        "entity_id": {
+          "name": "Target player",
+          "description": "The Music Assistant player that plays the music from now on."
+        },
+        "source_player": {
+          "name": "Source player",
+          "description": "Where the music is now. Leave empty: the panel's current output."
+        },
+        "auto_play": {
+          "name": "Play at once",
+          "description": "Start playing on the target right away (default on)."
+        }
+      }
     }
   }
 }

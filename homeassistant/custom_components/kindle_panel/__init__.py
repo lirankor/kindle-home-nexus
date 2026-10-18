@@ -7,7 +7,12 @@
   the panel's F1 keep / F4 skip decisions are stored here (`pick_photo`, `mark_photo`).
 * Music Assistant queues the HA integration does not pass on: `get_queue` (the whole queue) and `play_index`.
 * The panel's music output (one MA player or MA group per panel, picked on the panel): `set_output`, stored here;
-  `get_config` answers it with every MA player HA has (`music_output`, `outputs`).
+  `get_config` answers it with every MA player HA has (`music_output`, `outputs`: name, state, what it plays, player
+  or group) plus the MA players HA has no entity for (`outputs_unexposed`, MA's "Expose to Home Assistant" is off).
+* `move_queue`: Music Assistant's transfer_queue from the panel's output (or `source_player`) to another player, then
+  that player becomes the panel's output (bus task 021).
+* `/api/kindle_panel/ma_image?url=…` (HA auth): Music Assistant's image proxy through HA, so cover art reaches a panel
+  that can only talk to HA (bus task 021). Only the loaded MA server's /imageproxy URLs are fetched.
 The panel only ever talks to Home Assistant.
 """
 
@@ -17,6 +22,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import voluptuous as vol
+from aiohttp import ClientError, ClientTimeout, web
+from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import ATTR_ENTITY_ID, Platform
 from homeassistant.core import (
@@ -28,8 +35,10 @@ from homeassistant.core import (
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
+from yarl import URL
 
 from .config import effective_sources, needs_media_migration, normalize
 from .const import (
@@ -75,6 +84,15 @@ SEED_SCHEMA = vol.Schema(
 )
 PICK_SCHEMA = vol.Schema({vol.Optional("previous_id"): vol.Any(None, cv.string)})
 SET_OUTPUT_SCHEMA = vol.Schema({vol.Required(ATTR_ENTITY_ID): vol.All(cv.entity_id, cv.entity_domain("media_player"))})
+MOVE_QUEUE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_ENTITY_ID): vol.All(cv.entity_id, cv.entity_domain("media_player")),
+        # left out: the panel's current output
+        vol.Optional("source_player"): vol.All(cv.entity_id, cv.entity_domain("media_player")),
+        vol.Optional("auto_play", default=True): cv.boolean,
+    }
+)
+MA_IMAGE_MAX_BYTES = 8 * 1024 * 1024
 MARK_SCHEMA = vol.Schema(
     {
         vol.Required("photo_id"): vol.All(cv.string, vol.Length(min=1, max=512)),
@@ -98,16 +116,94 @@ class OutputStore:
         await self._store.async_save({"output": output})
 
 
-def ma_players(hass: HomeAssistant) -> list[dict[str, Any]]:
-    """Every Music Assistant media_player HA has (players and MA groups), names from HA, in entity id order."""
+def _mass_client(hass: HomeAssistant) -> Any | None:
+    """The music_assistant integration's client (its first loaded entry), None when MA is not loaded."""
+    for e in hass.config_entries.async_loaded_entries(MA_DOMAIN):
+        mass = getattr(getattr(e, "runtime_data", None), "mass", None)
+        if mass is not None:
+            return mass
+    return None
+
+
+def _enum(v: Any) -> str | None:
+    return None if v is None else str(getattr(v, "value", v))
+
+
+def _ma_kind(p: Any) -> str:
+    """ "group" for an MA group player (sync group / universal group), else "player"."""
+    if _enum(getattr(p, "type", None)) == "group" or getattr(p, "static_group_members", None):
+        return "group"
+    return "player"
+
+
+def _now_line(st: Any) -> str | None:
+    """What an HA media_player plays, in one line ("Title · Artist")."""
+    if st is None:
+        return None
+    a = st.attributes
+    parts = [x for x in (a.get("media_title"), a.get("media_artist")) if x]
+    return " · ".join(str(x) for x in parts) or None
+
+
+# MA player types that can play (MA's transfer_queue refuses the others: displays, visualisers, lights, protocols)
+MA_PLAYBACK_TYPES = {"player", "stereo_pair", "group"}
+
+
+def ma_players(hass: HomeAssistant, mass: Any | None = None) -> list[dict[str, Any]]:
+    """Every Music Assistant media_player HA has (players and MA groups), names from HA, in entity id order, with
+    its state, what it plays (`now`) and `kind` player | group (from MA's own player list when MA is loaded)."""
     out = []
     for e in sorted(er.async_get(hass).entities.values(), key=lambda x: x.entity_id):
         if e.platform != MA_DOMAIN or e.domain != "media_player" or e.disabled_by is not None:
             continue
         st = hass.states.get(e.entity_id)
         name = (st.name if st else None) or e.name or e.original_name or e.entity_id
-        out.append({"entity_id": e.entity_id, "name": name, "state": st.state if st else "unavailable"})
+        p = mass.players.get(e.unique_id) if mass is not None else None
+        row: dict[str, Any] = {
+            "entity_id": e.entity_id,
+            "name": name,
+            "state": st.state if st else "unavailable",
+            "now": _now_line(st),
+            "kind": _ma_kind(p) if p is not None else "player",
+        }
+        if p is not None and row["kind"] == "group":
+            members = getattr(p, "group_members", None) or getattr(p, "static_group_members", None) or []
+            row["members"] = [m for m in members if m != e.unique_id]
+        out.append(row)
     return out
+
+
+def ma_unexposed(hass: HomeAssistant, mass: Any | None) -> list[dict[str, Any]]:
+    """MA players HA has no entity for (MA's per-player "Expose to Home Assistant" is off): listed so the picker
+    shows what MA has, but not playable from HA until that setting is on."""
+    if mass is None:
+        return []
+    known = {
+        e.unique_id
+        for e in er.async_get(hass).entities.values()
+        if e.platform == MA_DOMAIN and e.domain == "media_player"
+    }
+    out = []
+    for p in mass.players:
+        if p.player_id in known or not getattr(p, "enabled", True):
+            continue
+        if (_enum(getattr(p, "type", None)) or "player") not in MA_PLAYBACK_TYPES:
+            continue
+        cm = getattr(p, "current_media", None)
+        now = " · ".join(x for x in (getattr(cm, "title", None), getattr(cm, "artist", None)) if x) or None
+        out.append(
+            {
+                "player_id": p.player_id,
+                "name": getattr(p, "display_name", None) or p.name or p.player_id,
+                "state": (_enum(getattr(p, "playback_state", None)) or "unknown")
+                if getattr(p, "available", True)
+                else "unavailable",
+                "now": now,
+                "kind": _ma_kind(p),
+                "hidden_in_ma": bool(getattr(p, "hide_in_ui", False)),
+            }
+        )
+    return sorted(out, key=lambda x: str(x["name"]).lower())
 
 
 def fill_net_radio(hass: HomeAssistant, nodes: list[dict[str, Any]]) -> None:
@@ -192,6 +288,56 @@ def _item_view(mass: Any, index: int, qi: Any) -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------- Music Assistant images through HA
+
+
+def ma_image_allowed(url: URL, ma_urls: list[str]) -> bool:
+    """Only the image proxy of a loaded Music Assistant server (same scheme, host and port): no open proxy."""
+    if url.scheme not in ("http", "https") or not url.path.startswith("/imageproxy"):
+        return False
+    for raw in ma_urls:
+        try:
+            ma = URL(raw)
+        except ValueError:
+            continue
+        if (ma.scheme, ma.host, ma.port) == (url.scheme, url.host, url.port):
+            return True
+    return False
+
+
+class MaImageView(HomeAssistantView):
+    """GET /api/kindle_panel/ma_image?url=<MA imageproxy URL>: the image bytes (HA auth required). The panel runs
+    where only HA is reachable (MA's port is not open to it), so cover art goes through HA."""
+
+    url = "/api/kindle_panel/ma_image"
+    name = "api:kindle_panel:ma_image"
+    requires_auth = True
+
+    async def get(self, request: web.Request) -> web.StreamResponse:
+        hass: HomeAssistant = request.app["hass"]
+        try:
+            url = URL(request.query.get("url", ""))
+        except ValueError:
+            return web.Response(status=400)
+        ma_urls = [str(e.data.get("url") or "") for e in hass.config_entries.async_loaded_entries(MA_DOMAIN)]
+        if not ma_image_allowed(url, ma_urls):
+            return web.Response(status=403)
+        session = async_get_clientsession(hass)
+        try:
+            async with session.get(url, timeout=ClientTimeout(total=15)) as r:
+                if r.status != 200:
+                    return web.Response(status=404 if r.status == 404 else 502)
+                ctype = r.headers.get("Content-Type", "")
+                if not ctype.startswith("image/"):
+                    return web.Response(status=502)
+                body = await r.content.read(MA_IMAGE_MAX_BYTES + 1)
+        except (ClientError, TimeoutError):
+            return web.Response(status=504)
+        if len(body) > MA_IMAGE_MAX_BYTES:
+            return web.Response(status=413)
+        return web.Response(body=body, content_type=ctype.split(";")[0], headers={"Cache-Control": "max-age=3600"})
+
+
 # ---------------------------------------------------------------- setup
 
 
@@ -254,7 +400,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
     async def get_config(call: ServiceCall) -> ServiceResponse:
         cfg = normalize(entry.options.get(OPT_CONFIG))
         fill_net_radio(hass, cfg["media"]["nodes"])
-        outputs = ma_players(hass)
+        mass = _mass_client(hass)
+        outputs = ma_players(hass, mass)
         ids = [o["entity_id"] for o in outputs]
         keys = cfg["media"]["output_keys"]
         if keys[0] == POWER_KEY_NONE and all(k == POWER_KEY_NONE for k in keys) and ids:
@@ -267,6 +414,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
             "music_output": rt.output.output,
             "music_output_valid": rt.output.output in ids,
             "outputs": outputs,
+            # MA players without an HA entity (MA: Expose to Home Assistant off): shown, not playable from HA
+            "outputs_unexposed": ma_unexposed(hass, mass),
             # what pick_photo uses: an empty source list means Immich favourites
             "effective_sources": effective_sources(cfg["screensaver"]["sources"]),
         }
@@ -341,6 +490,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
         hass.bus.async_fire(EVENT_CONFIG_UPDATED, {"entry_id": entry.entry_id, "music_output": eid})
         return {"music_output": eid}
 
+    async def move_queue(call: ServiceCall) -> ServiceResponse:
+        """Move the music: MA's transfer_queue from the panel's output (or `source_player`) to `entity_id`, which then
+        becomes the panel's output. MA moves the whole queue and the position and stops the source."""
+        target = call.data[ATTR_ENTITY_ID]
+        source = call.data.get("source_player") or rt.output.output
+        if not source:
+            raise ServiceValidationError("the panel has no output to move the music from")
+        if source == target:
+            raise ServiceValidationError("the music is already on that player")
+        mass, target_id = _mass_and_player(hass, entry, target)
+        _, source_id = _mass_and_player(hass, entry, source)
+        source_queue = await mass.player_queues.get_active_queue(source_id)
+        if source_queue is None or not source_queue.items:
+            raise ServiceValidationError(f"{source} has nothing to move")
+        await mass.player_queues.transfer_queue(source_queue.queue_id, target_id, call.data["auto_play"])
+        await rt.output.async_set(target)
+        hass.bus.async_fire(EVENT_CONFIG_UPDATED, {"entry_id": entry.entry_id, "music_output": target})
+        return {"music_output": target, "moved_from": source, "items": source_queue.items}
+
     async def get_marks(call: ServiceCall) -> ServiceResponse:
         return {"kept": dict(rt.marks.kept), "skipped": dict(rt.marks.skipped)}
 
@@ -352,6 +520,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
     hass.services.async_register(DOMAIN, "mark_photo", mark_photo, MARK_SCHEMA, SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "get_marks", get_marks, None, SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, "set_output", set_output, SET_OUTPUT_SCHEMA, SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, "move_queue", move_queue, MOVE_QUEUE_SCHEMA, SupportsResponse.OPTIONAL)
+    if not hass.data.get(f"{DOMAIN}_ma_image_view"):
+        hass.http.register_view(MaImageView())
+        hass.data[f"{DOMAIN}_ma_image_view"] = True
 
     entry.async_on_unload(entry.add_update_listener(_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -373,6 +545,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "mark_photo",
         "get_marks",
         "set_output",
+        "move_queue",
     ):
         hass.services.async_remove(DOMAIN, svc)
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

@@ -5,6 +5,7 @@ import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-quer
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowRightLeft,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -465,9 +466,35 @@ export function useMediaPanel({
       ),
     );
   };
-  /** Select / a quick key in the picker: play here from now on, then back to the music screen. */
+  /** Select / a quick key in the picker: this panel controls that output from now on (nothing moves; its own queue
+   *  shows), then back to the music screen. An MA player HA has no entity for cannot be chosen. */
   const chooseOutput = (entity: string) => {
+    const row = [...(output?.outputs ?? []), ...(output?.unexposed ?? [])].find(
+      (o) => o.entity_id === entity,
+    );
+    if (row?.exposed === false) {
+      notify({ text: `${row.name}: ${t("output.notInHa")}`, error: true });
+      return;
+    }
     void act({ type: "output", entity });
+    open(outputReturn.current ?? "now");
+  };
+  /** Move the music here (bus task 021): Music Assistant moves the panel's output's queue to `entity` and plays it
+   *  there; `entity` becomes the output. Only from an output that has music (playing or paused). */
+  const moveHere = (entity: string) => {
+    const rows = output?.outputs ?? [];
+    const target = [...rows, ...(output?.unexposed ?? [])].find((o) => o.entity_id === entity);
+    if (!target || entity === output?.entity) return;
+    if (target.exposed === false) {
+      notify({ text: `${target.name}: ${t("output.notInHa")}`, error: true });
+      return;
+    }
+    const from = rows.find((o) => o.entity_id === output?.entity);
+    if (!from || !["playing", "paused", "buffering"].includes(from.state)) {
+      notify({ text: t("output.nothingToMove"), error: true });
+      return;
+    }
+    void act({ type: "output.move", entity });
     open(outputReturn.current ?? "now");
   };
   /** Back in the picker: closes it with no change. */
@@ -1134,8 +1161,9 @@ export function useMediaPanel({
     if (node && st) void act({ type: "node", id: node.id, op: "station", option: st.option });
     open("node");
   };
-  const outputRows = output?.outputs ?? [];
-  const outputKeyActions: (DeviceAction | null)[] = (output?.keys ?? []).map((k) => {
+  /** The picker's rows: the HA players / groups, then MA's players HA has no entity for (not selectable). */
+  const outputRows = [...(output?.outputs ?? []), ...(output?.unexposed ?? [])];
+  const quickOutputActions: (DeviceAction | null)[] = (output?.keys ?? []).map((k) => {
     if (k.startsWith("script."))
       // a script runs instead of picking (e.g. plug on, amp on, input SERVER, output DLNA); back to the music screen
       return {
@@ -1156,6 +1184,24 @@ export function useMediaPanel({
         }
       : null;
   });
+  /** "Move here" takes the right-most picker key the owner left free (quick keys keep working); Right does the same. */
+  const moveSlot = quickOutputActions.lastIndexOf(null);
+  const highlighted = outputRows[cursor];
+  const outputKeyActions: (DeviceAction | null)[] = quickOutputActions.map((a, i) =>
+    i === moveSlot && screen === "output"
+      ? {
+          label: t("output.move"),
+          icon: ArrowRightLeft,
+          disabled:
+            !highlighted ||
+            highlighted.exposed === false ||
+            highlighted.entity_id === output?.entity,
+          onClick: () => {
+            if (highlighted) moveHere(highlighted.entity_id);
+          },
+        }
+      : a,
+  );
   const outputKey: DeviceAction = {
     label: t("media.output"),
     icon: Speaker,
@@ -1432,6 +1478,12 @@ export function useMediaPanel({
   /** Keys while a media screen is open (soft keys are handled by the shell first). Returns handled. */
   const onKey = (event: KeyboardEvent): boolean => {
     if (!screen) return false;
+    if (screen === "output" && event.key === "ArrowRight") {
+      event.preventDefault();
+      const o = outputRows[cursor];
+      if (o) moveHere(o.entity_id);
+      return true;
+    }
     if (screen === "output")
       return onListKey(event, outputRows.length, {
         enter: () => {
@@ -1747,6 +1799,7 @@ export function useMediaPanel({
     openNode,
     output,
     outputRows,
+    moveHere,
     openOutput,
     chooseOutput,
     lang,

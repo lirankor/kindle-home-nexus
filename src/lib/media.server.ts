@@ -13,7 +13,7 @@ import http from "node:http";
 import { createConnection } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { HomeError, fetchStates, ha, haConfigured, service } from "@/lib/home.server";
+import { HomeError, fetchStates, ha, haBytes, haConfigured, service } from "@/lib/home.server";
 import { resolveStationArt } from "@/lib/station-art";
 import {
   PLAY_CONFIRM_MS,
@@ -862,6 +862,24 @@ const urlPng = (src: string, width: number, mode: PngMode) =>
     const raw = await fetchImage(src);
     return raw ? toSquarePng(raw, width, mode) : null;
   });
+/** Music Assistant cover art (bus task 021): through Home Assistant (kindle_panel >= 0.8.0 proxies MA's /imageproxy;
+ *  MA's port is not open to this container, a direct fetch only times out), then directly for setups where MA is
+ *  reachable. A miss is not retried for ten minutes. */
+const maArtPng = (src: string, width: number) => {
+  const key = `ma@${src}@${width}`;
+  const neg = rt.imgNegative.get(key);
+  if (neg && neg > Date.now()) return Promise.resolve(null);
+  return cachedPng(cacheKey([src, String(width), "grayscale"]), async () => {
+    const raw =
+      (haConfigured()
+        ? await haBytes(`/api/kindle_panel/ma_image?url=${encodeURIComponent(src)}`)
+        : null) ?? (await fetchImage(src));
+    return raw ? toSquarePng(raw, width, "grayscale") : null;
+  }).then((png) => {
+    if (!png) rt.imgNegative.set(key, Date.now() + 10 * 60_000);
+    return png;
+  });
+};
 /** Grayscale for the e-ink panel. */
 export const grayscalePng = (src: string, width: number) => urlPng(src, width, "grayscale");
 /** Colour on white (Home Assistant). */
@@ -992,7 +1010,8 @@ export async function imageFor(q: {
     } catch {
       return null;
     }
-    return maImageAllowed(url) ? grayscalePng(url.toString(), width) : null;
+    if (!maImageAllowed(url)) return null;
+    return maArtPng(url.toString(), width);
   }
   if (q.item) {
     if (!/^[0-9a-fA-F-]{8,40}$/.test(q.item) || !jellyfinConfigured()) return null;
@@ -2699,6 +2718,7 @@ export async function performMediaAction(a: MediaAction): Promise<void> {
       if (OUTPUT_KEYS.includes(a.entity)) invalidatePanelConfig();
       break;
     case "output":
+    case "output.move":
       throw new HomeError("Music outputs need music played by Home Assistant");
   }
 }

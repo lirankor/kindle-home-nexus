@@ -5,7 +5,7 @@
 // The scripts live in homeserver-cloud: stacks/homeassistant/.../packages_media_platform/music_platform.yaml.
 import { HomeError, fetchStates, ha, service } from "./home.server";
 import { mediaKeyIcons, nodeViews } from "./media-nodes.server";
-import { panelConfigNow, setMusicOutput } from "./panel-config.server";
+import { invalidatePanelConfig, panelConfigNow, setMusicOutput } from "./panel-config.server";
 import type { HaState } from "./home.server";
 import {
   AMP,
@@ -15,7 +15,7 @@ import {
   RADIO_LISTS,
   isAmpSource,
 } from "./media";
-import type { OutputView } from "./media";
+import type { OutputRow, OutputView } from "./media";
 import type { MediaNode } from "./panel-config";
 import type {
   AmpSource,
@@ -40,7 +40,8 @@ export type MusicOutput = {
   player: string;
   powerDevice: string | null;
   streamOutput: string | null;
-  /** The MA players whose activity counts as "this output plays" (the receiver's, or just the player). */
+  /** The MA players of the output's receiver (or just the player). Only `player` counts as "this output plays"
+   *  (bus task 021: the screen follows the chosen output strictly). */
   players: string[];
 };
 export function musicOutputFrom(
@@ -69,18 +70,88 @@ export const outputFields = (o: MusicOutput | null = musicOutput()): Record<stri
 /** The select option that matches an MA player: the option named in its entity id (dlna / airplay). */
 export const streamOptionFor = (player: string, options: string[]) =>
   options.find((o) => player.toLowerCase().includes(o.toLowerCase())) ?? null;
-/** What the picker shows. */
-export function outputView(): OutputView | null {
+const PLAYING_STATES = ["playing", "buffering"];
+/** "Title · Artist" of an HA media_player, null when it has nothing. */
+export const nowLineOf = (st: HaState | undefined): string | null => {
+  const a = (st?.attributes ?? {}) as Record<string, unknown>;
+  const parts = [a["media_title"], a["media_artist"]].filter(
+    (x): x is string => typeof x === "string" && x !== "",
+  );
+  return parts.length ? parts.join(" · ") : null;
+};
+/** A move under way (bus task 021): set by moveOutputHa, cleared when the target plays or after MOVE_GIVE_UP_MS. */
+type Moving = {
+  entity: string;
+  name: string;
+  startedAt: number;
+  failed?: string | null;
+  failedAt?: number;
+};
+let moving: Moving | null = null;
+export const MOVE_GIVE_UP_MS = 45_000;
+const MOVE_FAILED_SHOWN_MS = 15_000;
+/** Pure: the move's state on this snapshot (null = no move to show). */
+export function movingView(m: Moving | null, rows: OutputRow[], now: number): Moving | null {
+  if (!m) return null;
+  if (m.failed) return now - (m.failedAt ?? now) < MOVE_FAILED_SHOWN_MS ? m : null;
+  const target = rows.find((r) => r.entity_id === m.entity);
+  if (target && PLAYING_STATES.includes(target.state)) return null; // arrived
+  if (now - m.startedAt > MOVE_GIVE_UP_MS)
+    return { ...m, failed: "did not start playing", failedAt: now };
+  return m;
+}
+/** What the picker shows: MA's players (live state + what each plays from the HA states when given), the ones HA
+ *  has no entity for, the move under way and, when the chosen output is quiet, which other output plays. */
+export function outputView(
+  states?: Map<string, HaState> | null,
+  now = Date.now(),
+): OutputView | null {
   const l = panelConfigNow();
   if (!l || l.source !== "ha") return null;
-  const outputs = l.outputs ?? [];
   const entity = l.musicOutput ?? null;
+  const outputs: OutputRow[] = (l.outputs ?? []).map((o) => {
+    const st = states?.get(o.entity_id);
+    return {
+      entity_id: o.entity_id,
+      name: o.name,
+      state: st?.state ?? o.state,
+      now: st ? nowLineOf(st) : (o.now ?? null),
+      kind: o.kind ?? "player",
+      exposed: true,
+    };
+  });
+  const unexposed: OutputRow[] = (l.outputsUnexposed ?? []).map((u) => ({
+    entity_id: `ma:${u.player_id}`,
+    name: u.name,
+    state: u.state,
+    now: u.now ?? null,
+    kind: u.kind ?? "player",
+    exposed: false,
+  }));
+  const current = outputs.find((o) => o.entity_id === entity);
+  const other =
+    current && PLAYING_STATES.includes(current.state)
+      ? undefined
+      : outputs.find((o) => o.entity_id !== entity && PLAYING_STATES.includes(o.state));
+  moving = movingView(moving, outputs, now);
   return {
     entity,
-    name: outputs.find((o) => o.entity_id === entity)?.name ?? entity,
+    name: current?.name ?? entity,
     valid: !!l.musicOutputValid,
     outputs,
+    unexposed,
     keys: [...OUTPUT_KEYS],
+    moving: moving
+      ? {
+          entity: moving.entity,
+          name: moving.name,
+          startedAt: moving.startedAt,
+          failed: moving.failed ?? null,
+        }
+      : null,
+    playingElsewhere: other
+      ? { entity: other.entity_id, name: other.name, now: other.now ?? null }
+      : null,
   };
 }
 
@@ -322,9 +393,12 @@ export function projectStates(
 ): Map<string, HaState> {
   const out = new Map(states);
   const b = states.get(ampEntityOf(s));
-  const busy = (o?.players ?? [s.player])
+  // bus task 021: only the player music_state read (the chosen output, strictly) counts as playing; the receiver's
+  // other player (AirPlay while the output is DLNA) does not make this output's screen "playing"
+  void o;
+  const busy = [s.player]
     .map((id) => states.get(id))
-    .find((p) => p && ["playing", "buffering"].includes(p.state));
+    .find((p) => p && PLAYING_STATES.includes(p.state));
   const bridgeState = b?.state ?? (s.amp.available ? (s.amp.on ? "on" : "off") : "unavailable");
   // yamaha_netbridge >= 0.2.0 reports "on" (not "playing") while the receiver plays its own input (NET RADIO, CD, …)
   // and puts that play state in `foreign_state` (Q18); without this the NET RADIO play/stop key always sent "play".
@@ -498,7 +572,7 @@ export async function readMediaSnapshotHa(
     powerOn: currentPowerOn(s),
   });
   // the nodes from the real states (the projection rewrites the receiver's entry for the music screen)
-  const output = outputView();
+  const output = outputView(states);
   return withRadio(
     {
       ...snap,
@@ -676,8 +750,19 @@ async function stationAt(list: string, index: number): Promise<string> {
 
 export async function tuneRadioHa(list: string, index: number): Promise<RadioPosition> {
   const name = await stationAt(list, index);
-  const r = await haScript<PlayAnswer>("play_radio", { station: name, ...outputFields() }, 30_000);
+  const r = await haScript<PlayAnswer & { player?: string; rerouted?: boolean }>(
+    "play_radio",
+    { station: name, ...outputFields() },
+    30_000,
+  );
   if (!r.ok) throw new HomeError(r.error ?? "Music Assistant refused");
+  // HA plays radio on another player than the panel's output (house.radio_player: the amp's DLNA player hands radio
+  // to its AirPlay player): the panel's output follows, so its label, queue and keys match what plays (bus task 021).
+  // Only the output changes; the receiver's DLNA/AirPlay select (library music's path for voice) is left alone.
+  if (r.rerouted && r.player && r.player !== musicOutput()?.player)
+    await setMusicOutput(r.player).catch((e: unknown) =>
+      console.warn("[output] radio reroute not followed:", e),
+    );
   if (r.status === "powering_on") powerStartedAt = Date.now();
   lastRadio = { list, index };
   lastState = null;
@@ -740,17 +825,48 @@ export async function setOutputHa(entity: string): Promise<void> {
   await setMusicOutput(entity);
   lastState = null;
   // a receiver's DLNA/AirPlay select follows at once (the HA scripts also set it on the next music start)
+  await alignStreamSelect(entity);
+}
+
+/** The receiver's DLNA/AirPlay select follows a newly chosen output at once. */
+async function alignStreamSelect(entity: string) {
   const o = musicOutputFrom(entity, MEDIA_NODES);
-  if (o?.streamOutput) {
-    const sel = await ha<HaState>("GET", `/api/states/${o.streamOutput}`).catch(() => null);
-    const options = ((sel?.attributes as { options?: unknown } | undefined)?.options ??
-      []) as string[];
-    const option = streamOptionFor(entity, Array.isArray(options) ? options : []);
-    if (option && sel?.state !== option)
-      await service("select", "select_option", { entity_id: o.streamOutput, option }).catch(
-        (e: unknown) => console.warn("[output] stream select not set:", e),
-      );
+  if (!o?.streamOutput) return;
+  const sel = await ha<HaState>("GET", `/api/states/${o.streamOutput}`).catch(() => null);
+  const options = ((sel?.attributes as { options?: unknown } | undefined)?.options ??
+    []) as string[];
+  const option = streamOptionFor(entity, Array.isArray(options) ? options : []);
+  if (option && sel?.state !== option)
+    await service("select", "select_option", { entity_id: o.streamOutput, option }).catch(
+      (e: unknown) => console.warn("[output] stream select not set:", e),
+    );
+}
+
+/** Move the music here (bus task 021): Music Assistant's transfer_queue from the panel's output to `entity`
+ *  (kindle_panel.move_queue: whole queue + position, auto play, the source stops); `entity` becomes the output and
+ *  the picker shows "moving…" until it plays. */
+export async function moveOutputHa(entity: string): Promise<void> {
+  const l = panelConfigNow();
+  const target = (l?.outputs ?? []).find((o) => o.entity_id === entity);
+  if (!target) throw new HomeError("Not a Music Assistant player");
+  const from = musicOutput()?.player;
+  if (!from) throw new HomeError("No output to move the music from");
+  if (from === entity) throw new HomeError("The music is already there");
+  await alignStreamSelect(entity);
+  await ha(
+    "POST",
+    "/api/services/kindle_panel/move_queue",
+    { entity_id: entity, source_player: from },
+    30_000,
+  );
+  moving = { entity, name: target.name, startedAt: Date.now() };
+  if (l) {
+    l.musicOutput = entity;
+    l.musicOutputValid = true;
   }
+  invalidatePanelConfig();
+  lastState = null;
+  sentQueue = null; // MA's queue moved with the music
 }
 
 export async function powerOnStatusHa(): Promise<PowerOnStatus | null> {
@@ -839,6 +955,9 @@ export async function performMediaActionHa(
       return;
     case "output":
       await setOutputHa(a.entity);
+      return;
+    case "output.move":
+      await moveOutputHa(a.entity);
       return;
     default:
       await legacy(a);

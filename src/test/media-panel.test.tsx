@@ -230,7 +230,7 @@ describe("Media tab and amp view", () => {
     // the legend row: the quick outputs on F1 / F3
     expect(
       Array.from(picker.querySelectorAll("[data-soft-key]")).map((b) => b.textContent),
-    ).toEqual(["R-N500", "\u00a0", "Kitchen", "\u00a0"]);
+    ).toEqual(["R-N500", "\u00a0", "Kitchen", "Move here"]); // the free right-most key moves the music (task 021)
     press("ArrowDown");
     expect(options()[1]).toHaveAttribute("aria-selected", "true");
     // Back: closes with no change (it opened by itself, so back to the Media tab)
@@ -248,6 +248,131 @@ describe("Media tab and amp view", () => {
       }),
     );
     expect(screen.queryByRole("dialog", { name: "Play music on" })).toBeNull();
+  });
+
+  it("picker = MA's players (task 021): state + what plays, unexposed rows not selectable, Right / Move here moves the music", async () => {
+    const r = liveResult();
+    r.snapshot!.output = {
+      entity: "media_player.ma_amp_airplay",
+      name: "R-N500 AirPlay",
+      valid: true,
+      outputs: [
+        {
+          entity_id: "media_player.ma_amp_airplay",
+          name: "R-N500 AirPlay",
+          state: "playing",
+          now: "Holiday · Scorpions",
+          kind: "player",
+          exposed: true,
+        },
+        {
+          entity_id: "media_player.ma_amp_dlna",
+          name: "R-N500 DLNA",
+          state: "idle",
+          now: null,
+          kind: "player",
+          exposed: true,
+        },
+        {
+          entity_id: "media_player.ma_house",
+          name: "Whole house",
+          state: "idle",
+          now: null,
+          kind: "group",
+          exposed: true,
+        },
+      ],
+      unexposed: [
+        {
+          entity_id: "ma:updcd23cf6",
+          name: "TV",
+          state: "idle",
+          now: null,
+          kind: "player",
+          exposed: false,
+        },
+      ],
+      keys: ["media_player.ma_amp_dlna", "none", "none", "none"],
+      moving: null,
+      playingElsewhere: null,
+    };
+    mocks.getMediaSnapshot.mockResolvedValue(r);
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
+    press("F1");
+    press("F3"); // Output
+    const picker = screen.getByRole("dialog", { name: "Play music on" });
+    const rows = () => Array.from(picker.querySelectorAll('[role="option"]'));
+    expect(rows().map((o) => o.textContent)).toEqual([
+      expect.stringContaining("Holiday · Scorpions"),
+      expect.stringContaining("R-N500 DLNA"),
+      expect.stringContaining("group"),
+      expect.stringContaining("not in Home Assistant"),
+    ]);
+    expect(rows()[0]?.textContent).toContain("now");
+    // the unexposed TV: Enter changes nothing
+    press("ArrowDown");
+    press("ArrowDown");
+    press("ArrowDown");
+    press("Enter");
+    expect(mocks.runMediaAction).not.toHaveBeenCalled();
+    // Right on the DLNA row moves AirPlay's music there
+    press("ArrowUp");
+    press("ArrowUp");
+    press("ArrowRight");
+    await waitFor(() =>
+      expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
+        data: { type: "output.move", entity: "media_player.ma_amp_dlna" },
+      }),
+    );
+  });
+
+  it("the music screen follows its output: idle DLNA while AirPlay plays shows the hint line (task 021)", async () => {
+    const r = liveResult();
+    r.snapshot!.output = {
+      entity: "media_player.ma_amp_dlna",
+      name: "R-N500 DLNA",
+      valid: true,
+      outputs: [
+        {
+          entity_id: "media_player.ma_amp_airplay",
+          name: "R-N500 AirPlay",
+          state: "playing",
+          now: "Holiday · Scorpions",
+          kind: "player",
+          exposed: true,
+        },
+        {
+          entity_id: "media_player.ma_amp_dlna",
+          name: "R-N500 DLNA",
+          state: "idle",
+          now: null,
+          kind: "player",
+          exposed: true,
+        },
+      ],
+      unexposed: [],
+      keys: ["media_player.ma_amp_dlna", "none", "none", "none"],
+      moving: null,
+      playingElsewhere: {
+        entity: "media_player.ma_amp_airplay",
+        name: "R-N500 AirPlay",
+        now: "Holiday · Scorpions",
+      },
+    };
+    r.snapshot!.amp = { ...r.snapshot!.amp, source: "SERVER", state: "on" };
+    r.snapshot!.nowPlaying = {
+      ...r.snapshot!.nowPlaying,
+      kind: "music",
+      title: null,
+      station: null,
+    };
+    mocks.getMediaSnapshot.mockResolvedValue(r);
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
+    press("F1");
+    const now = screen.getByRole("dialog");
+    expect(now.textContent).toContain("R-N500 AirPlay is playing · F3 to switch");
   });
 
   it("output chosen: the music screen has Radio / Library / Output / Playlist, F3 opens the picker on the current one, a quick key switches", async () => {
@@ -349,7 +474,7 @@ describe("Media tab and amp view", () => {
     const picker = screen.getByRole("dialog", { name: "Play music on" });
     expect(
       Array.from(picker.querySelectorAll("[data-soft-key]")).map((b) => b.textContent),
-    ).toEqual(["Amp over DLNA", "Kitchen", "\u00a0", "\u00a0"]);
+    ).toEqual(["Amp over DLNA", "Kitchen", "\u00a0", "Move here"]);
     press("F1");
     await waitFor(() =>
       expect(mocks.runMediaAction).toHaveBeenLastCalledWith({

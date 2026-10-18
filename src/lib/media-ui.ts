@@ -144,6 +144,20 @@ export function applyMediaOptimistic(s: MediaSnapshot, action: MediaAction): Med
           name: s.output.outputs.find((o) => o.entity_id === action.entity)?.name ?? action.entity,
         };
       break;
+    case "output.move":
+      // the output switches at once and the picker says "moving…" until the target plays (server side)
+      if (s.output) {
+        const name =
+          s.output.outputs.find((o) => o.entity_id === action.entity)?.name ?? action.entity;
+        next.output = {
+          ...s.output,
+          entity: action.entity,
+          valid: true,
+          name,
+          moving: { entity: action.entity, name, startedAt: Date.now(), failed: null },
+        };
+      }
+      break;
     case "amp.power":
       next.amp.on = action.on;
       next.amp.state = action.on ? "on" : "off";
@@ -402,6 +416,11 @@ export function mediaActionLabel(action: MediaAction, lang: Lang, after?: MediaS
       return t("act.allOff");
     case "output":
       return t("act.output", {
+        name:
+          after?.output?.outputs.find((o) => o.entity_id === action.entity)?.name ?? action.entity,
+      });
+    case "output.move":
+      return t("act.move", {
         name:
           after?.output?.outputs.find((o) => o.entity_id === action.entity)?.name ?? action.entity,
       });

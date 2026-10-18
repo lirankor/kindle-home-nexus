@@ -3,7 +3,10 @@ import type { HaState } from "./home.server";
 import { AMP, RADIO_LISTS } from "./media";
 import type { MusicTrack } from "./media";
 import {
+  movingView,
+  MOVE_GIVE_UP_MS,
   musicOutputFrom,
+  nowLineOf,
   outputFields,
   panelSource,
   performMediaActionHa,
@@ -286,6 +289,58 @@ describe("the panel's music output (bus task 014)", () => {
     expect(snap.amp.on).toBe(true);
     expect(snap.amp.source).toBe("SERVER");
     expect(snap.nowPlaying.title).toBe("Hotel California");
+  });
+});
+
+describe("the screen follows the chosen output strictly (bus task 021)", () => {
+  const amp = {
+    id: "amp",
+    type: "receiver" as const,
+    name: "Yamaha R-N500",
+    power_device: BRIDGE,
+    stream_output: "select.r_n500_stream_output",
+    players: ["media_player.ma_amp_dlna", "media_player.ma_amp_airplay"],
+  };
+  it("DLNA chosen and idle while the amp's AirPlay player plays: not playing", () => {
+    const dlna = "media_player.ma_amp_dlna";
+    const s = music({ player: dlna, outputPlayer: dlna, powerDevice: BRIDGE, output: "dlna" });
+    const states = new Map([
+      [BRIDGE, st(BRIDGE, "on", { source: "AirPlay", volume_db: -47 })],
+      [dlna, st(dlna, "idle")],
+      ["media_player.ma_amp_airplay", st("media_player.ma_amp_airplay", "playing")],
+    ]);
+    const projected = projectStates(states, s, musicOutputFrom(dlna, [amp]));
+    expect(projected.get(AMP.player)?.state).toBe("on");
+    expect(projected.get(AMP.dlna)?.state).toBe("idle");
+    // the AirPlay player chosen: playing
+    const a = "media_player.ma_amp_airplay";
+    const sa = music({ player: a, outputPlayer: a, powerDevice: BRIDGE, output: "dlna" });
+    expect(projectStates(states, sa, musicOutputFrom(a, [amp])).get(AMP.player)?.state).toBe(
+      "playing",
+    );
+  });
+  it("art of an MA library track is an ma: token for the image route", () => {
+    const s = music();
+    s.queue!.track = {
+      ...s.queue!.track!,
+      id: "8969",
+      albumId: "1963",
+      artUrl: "http://192.168.1.15:8095/imageproxy/b018?size=0",
+    };
+    expect(queueFromHa(s)?.track?.artItemId).toMatch(/^ma:/);
+  });
+  it("now line and the move's life: arrives when the target plays, fails after the give-up time", () => {
+    expect(
+      nowLineOf(st("x", "playing", { media_title: "Holiday", media_artist: "Scorpions" })),
+    ).toBe("Holiday · Scorpions");
+    expect(nowLineOf(st("x", "idle"))).toBeNull();
+    const m = { entity: "media_player.ma_amp_dlna", name: "R-N500 DLNA", startedAt: 1000 };
+    const row = (state: string) => [{ entity_id: m.entity, name: m.name, state }];
+    expect(movingView(m, row("idle"), 2000)).toEqual(m);
+    expect(movingView(m, row("playing"), 2000)).toBeNull();
+    const failed = movingView(m, row("idle"), 1000 + MOVE_GIVE_UP_MS + 1);
+    expect(failed?.failed).toBe("did not start playing");
+    expect(movingView(failed, row("idle"), 1000 + MOVE_GIVE_UP_MS + 60_000)).toBeNull();
   });
 });
 

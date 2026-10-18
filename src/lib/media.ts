@@ -264,9 +264,26 @@ export type OutputView = {
   name: string | null;
   /** The chosen one still exists in HA (else the picker opens by itself). */
   valid: boolean;
-  outputs: { entity_id: string; name: string; state: string }[];
+  outputs: OutputRow[];
+  /** MA players HA has no entity for (MA's "Expose to Home Assistant" is off): listed, not selectable. */
+  unexposed?: OutputRow[];
   /** Picker F1..F4: an MA player or "none". */
   keys: string[];
+  /** A move (Music Assistant transfer_queue) to `entity` is under way: "moving…" until it plays (bus task 021). */
+  moving?: { entity: string; name: string; startedAt: number; failed?: string | null } | null;
+  /** Another output plays while the chosen one does not: the music screen's hint line. */
+  playingElsewhere?: { entity: string; name: string; now: string | null } | null;
+};
+/** One row of the output picker: an MA player or MA group, its live state and what it plays. */
+export type OutputRow = {
+  entity_id: string;
+  name: string;
+  state: string;
+  /** "Title · Artist" while it has something. */
+  now?: string | null;
+  kind?: "player" | "group";
+  /** false: an MA player without an HA entity (cannot be chosen until MA exposes it). */
+  exposed?: boolean;
 };
 export type MediaSnapshot = {
   /** Media tab rows (bus task 014); absent in old snapshots. */
@@ -450,7 +467,9 @@ export type MediaAction =
   /** A Media tab key mapped to a script. */
   | { type: "script"; entity: string }
   /** The output picker chose this Music Assistant player. */
-  | { type: "output"; entity: string };
+  | { type: "output"; entity: string }
+  /** Move the music (MA transfer_queue) from the panel's output to `entity`, which becomes the output. */
+  | { type: "output.move"; entity: string };
 export type MediaActionResult = { ok: boolean; error?: string; snapshot?: MediaSnapshot | null };
 
 // ---- Demo data (no env) ----
