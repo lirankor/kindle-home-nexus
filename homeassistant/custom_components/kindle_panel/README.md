@@ -86,19 +86,38 @@ sequence:
 
 Every icon field in Configure offers the same 80 icons (since 0.7.0, bus task 019): lights, vacuum rooms, scene
 buttons, custom tabs and their toggles, screensaver sensor cards, Power tab plugs, Media devices and receiver input rows.
-Each is a searchable dropdown in alphabetical order (no free text). An empty field takes the row type's default:
+Each is a dropdown in alphabetical order (no free text), with **auto** first.
 
-| row | default |
+### Precedence: the entity's own icon is the default (since 0.7.1, bus task 020)
+
+Every button and key draws, in this order:
+
+1. the pack icon chosen in the panel row, if one is chosen;
+2. else the icon the entity has in Home Assistant (its `icon` state attribute: a custom icon or the integration's,
+   e.g. `script.movie_mode` `mdi:theater`); Music Assistant's bare names (`speaker`) count as `mdi:speaker`;
+3. else the row type's default (table below).
+
+**auto** ("The entity's own icon (default)") is the first option of every icon select and what a new row gets; it is
+stored as no icon at all, and a row without an icon shows **auto** in Configure. Entities whose icon HA only derives from
+the domain (plain switches, most lights) carry no `icon` attribute, so they fall through to the default. Stored icons are
+left as they are, also ones equal to an old default (`plug`, `speaker`, `tv` from 0.7.0): pick **auto** to switch such a
+row to the entity's icon. Keys without a row of their own follow the same order without step 1: Media keys and output
+picker keys that run a script or pick a Music Assistant player, custom-tab keys that run a scene or script (fallback:
+their old glyph). Power keys and custom-tab toggle keys use their plug / toggle row. Changing an icon in HA shows on the
+Kindle with the next redraw (the icons ride along with the states the app already polls; the app turns the MDI name
+into its SVG path on the server).
+
+| row | default (no row icon, no HA icon) |
 |---|---|
 | light | `bulb` |
 | vacuum room | `room` |
 | scene button | `star` |
-| custom tab | `star` |
+| custom tab | `star` (a tab has no entity) |
 | custom toggle | `plug` |
 | sensor card | gauge (`gauge`) |
-| Power plug | `plug` (new field; an old config gets it on load) |
-| Media device | receiver `speaker`, TV `tv` (new field; an old config gets it on load) |
-| receiver input row | none: no icon on the device's input list (the music screen's source list keeps its own glyphs) |
+| Power plug | `plug` |
+| Media device | receiver `speaker`, TV `tv` |
+| receiver input row | none: no icon on the device's input list (an input has no entity; the music screen's source list keeps its own glyphs) |
 
 The names live in `const.ICONS`; the app's `src/data/icons.json` maps each name to the icon it draws (lucide-react 0.575,
 tree-shaken). A pytest (`test_icon_pack_equals_the_app_json`) and a vitest (`src/lib/icons.test.ts`) fail when the two

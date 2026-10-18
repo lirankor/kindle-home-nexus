@@ -48,7 +48,7 @@ import { useMediaPanel } from "@/lib/media-panel";
 import { loadPanelState, persistableScreen, savePanelState, type TabName } from "@/lib/panel-state";
 import { isCustomTab } from "@/lib/panel-config";
 import type { PanelView, TabId } from "@/lib/panel-config";
-import { ICON_DEFAULTS, iconFor, type IconComponent } from "@/lib/icons";
+import { ICON_DEFAULTS, iconFor, pickIcon, type IconComponent } from "@/lib/icons";
 import { useFullRefresh } from "@/lib/eink";
 import { BatteryBadge } from "@/components/battery-badge";
 import { useKindleBattery } from "@/lib/battery";
@@ -631,6 +631,8 @@ function HomeControl() {
           ];
 
   const plugOn = (index: number) => data.plugs[index]?.on ?? false;
+  /** The HA icons of the configured entities (bus task 020): row pack icon > entity icon > the row type's default. */
+  const haIcon = (entity: string | null | undefined) => (entity ? data.icons?.[entity] : undefined);
   /** The open custom tab (tab name `custom:<id>`), its live state, and its F1..F4 (the same key model as Power). */
   const customId = isCustomTab(tab) ? tab.slice("custom:".length) : "";
   const custom = customId ? CUSTOM_TABS[customId] : undefined;
@@ -652,14 +654,18 @@ function HomeControl() {
         const name = customState?.names[target.entity] ?? target.entity;
         return {
           label: localName(lang, name),
-          icon: target.entity.startsWith("scene.") ? Sparkles : Play,
+          icon: pickIcon(
+            null,
+            haIcon(target.entity),
+            target.entity.startsWith("scene.") ? Sparkles : Play,
+          ),
           onClick: () => act({ type: "custom.run", tab: customId, entity: target.entity, name }),
         };
       }
       const row = custom.toggles[target.index]!;
       return {
         label: localName(lang, row.name),
-        icon: iconFor(row.icon, ICON_DEFAULTS.toggle),
+        icon: pickIcon(row.icon, haIcon(row.entity_id), ICON_DEFAULTS.toggle),
         pressed: customOn(target.index),
         onClick: () => act({ type: "custom.toggle", tab: customId, entity: row.entity_id }),
       };
@@ -675,7 +681,7 @@ function HomeControl() {
             return row
               ? {
                   label: sceneLabel(lang, row.name),
-                  icon: iconFor(row.icon, ICON_DEFAULTS.scene),
+                  icon: pickIcon(row.icon, haIcon(row.entity_id), ICON_DEFAULTS.scene),
                   pressed: scene === row.entity_id,
                   onClick: () => applyScene(row),
                 }
@@ -735,7 +741,7 @@ function HomeControl() {
                 const meta = PLUGS[target.index]!;
                 return {
                   label: localName(lang, meta.name),
-                  icon: iconFor(meta.icon, ICON_DEFAULTS.plug),
+                  icon: pickIcon(meta.icon, haIcon(meta.id), ICON_DEFAULTS.plug),
                   pressed: plugOn(target.index),
                   onClick: () => act({ type: "switch.toggle", entity: meta.id }),
                 };
@@ -907,7 +913,11 @@ function HomeControl() {
                     </section>
                   );
                 // Any Home Assistant entity: its state with its unit.
-                const Icon = iconFor(card.icon, ICON_DEFAULTS.card);
+                const Icon = pickIcon(
+                  card.icon,
+                  card.entity_id ? readings.icons?.[card.entity_id] : undefined,
+                  ICON_DEFAULTS.card,
+                );
                 const r = card.entity_id ? readings.cards?.[card.entity_id] : undefined;
                 return (
                   <section className="photo-block" key={i}>
@@ -1002,7 +1012,7 @@ function HomeControl() {
                   {data.lights.map((light, index) => {
                     const meta = LIGHTS[index];
                     if (!meta) return null;
-                    const Icon = iconFor(meta.icon, ICON_DEFAULTS.light);
+                    const Icon = pickIcon(meta.icon, haIcon(meta.id), ICON_DEFAULTS.light);
                     const name = localName(lang, meta.name);
                     return (
                       <Button
@@ -1059,8 +1069,7 @@ function HomeControl() {
                       <div className="subheading">{t("vacuum.roomsLabel")}</div>
                       <div className="room-grid">
                         {ROOMS.map(({ name, id }, index) => {
-                          const Icon = iconFor(ROOMS[index]?.icon, ICON_DEFAULTS.room);
-                          if (!Icon) return null;
+                          const Icon = pickIcon(ROOMS[index]?.icon, haIcon(id), ICON_DEFAULTS.room);
                           return (
                             <Button
                               key={id}
@@ -1110,7 +1119,7 @@ function HomeControl() {
                           return (
                             <DeviceRow
                               key={meta.id}
-                              icon={iconFor(meta.icon, ICON_DEFAULTS.plug)}
+                              icon={pickIcon(meta.icon, haIcon(meta.id), ICON_DEFAULTS.plug)}
                               name={name}
                               on={plug.on}
                               title={t("lights.open", { name })}
@@ -1165,7 +1174,7 @@ function HomeControl() {
                     return (
                       <DeviceRow
                         key={row.entity_id}
-                        icon={iconFor(row.icon, ICON_DEFAULTS.toggle)}
+                        icon={pickIcon(row.icon, haIcon(row.entity_id), ICON_DEFAULTS.toggle)}
                         name={name}
                         on={on}
                         state={on ? t("state.on") : t("state.off")}

@@ -20,6 +20,8 @@ from .const import (
     CONF_MA_ENTRY,
     CUSTOM_PREFIX,
     DOMAIN,
+    ICON_AUTO,
+    ICON_AUTO_LABEL,
     ICONS,
     LANGUAGES,
     MA_DOMAIN,
@@ -75,12 +77,28 @@ def _select(options: list[str], key: str, multiple: bool = False) -> sel.SelectS
     return sel.SelectSelector(sel.SelectSelectorConfig(options=options, translation_key=key, multiple=multiple))
 
 
-# Every icon column offers the whole pack (bus task 019): a searchable dropdown, sorted, no free text. Labels are spelled
-# out: the frontend does not translate fields nested in an object list.
+# Every icon column offers "auto" first (bus task 020: the entity's own HA icon, the default), then the whole pack (bus
+# task 019): a dropdown, no free text. Options come sorted (auto first), so the frontend must not re-sort them by label.
+# Labels are spelled out: the frontend does not translate fields nested in an object list.
 ICON_FIELD: dict[str, Any] = {
     "label": "Icon",
-    "selector": {"select": {"options": sorted(ICONS), "mode": "dropdown", "custom_value": False, "sort": True}},
+    "selector": {
+        "select": {
+            "options": [
+                {"value": ICON_AUTO, "label": ICON_AUTO_LABEL},
+                *({"value": n, "label": n} for n in sorted(ICONS)),
+            ],
+            "mode": "dropdown",
+            "custom_value": False,
+            "sort": False,
+        }
+    },
 }
+
+
+def _auto_icons(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rows for a list editor: a row without an icon of its own shows "auto" (stored as no icon again on save)."""
+    return [{**r, "icon": r.get("icon") or ICON_AUTO} for r in rows]
 
 
 TAB_LABELS = {"lights": "Lights", "vacuum": "Vacuum", "power": "Power", "media": "Media"}
@@ -243,7 +261,7 @@ NODE_COLUMNS: dict[str, dict[str, Any]] = {
         "selector": {"entity": {"domain": "media_player"}},
     },
     "ynca_entry_id": {"label": "Receiver, app backend only: yamaha_ynca entry id", "selector": {"text": {}}},
-    "icon": {**ICON_FIELD, "label": "Icon (empty: receiver speaker, TV tv)"},
+    "icon": {**ICON_FIELD, "label": "Icon (auto: the entity's HA icon, else receiver speaker, TV tv)"},
 }
 
 
@@ -300,7 +318,7 @@ CARD_LABELS = {
 
 def _scene_rows(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Stored scene buttons as list-editor rows ("runs": the HA scene or script)."""
-    return [{"runs": s["entity_id"], "name": s["name"], "icon": s.get("icon", "star")} for s in scenes]
+    return [{"runs": s["entity_id"], "name": s["name"], "icon": s.get("icon") or ICON_AUTO} for s in scenes]
 
 
 def _scenes_from_rows(rows: Any) -> list[dict[str, Any]]:
@@ -308,7 +326,7 @@ def _scenes_from_rows(rows: Any) -> list[dict[str, Any]]:
         {
             "entity_id": str(row.get("runs") or ""),  # empty or wrong: normalize() refuses it and the page shows why
             "name": (row.get("name") or "").strip(),
-            "icon": row.get("icon") or "star",
+            "icon": row.get("icon") or ICON_AUTO,
         }
         for row in rows or []
     ]
@@ -427,7 +445,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
             "lights",
             vol.Schema(
                 {
-                    _opt("lights", _with_he(c, c["lights"])): _list(
+                    _opt("lights", _auto_icons(_with_he(c, c["lights"]))): _list(
                         {
                             "entity_id": {
                                 "required": True,
@@ -482,7 +500,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                     _opt("entity_id", v.get("entity_id")): _entity("vacuum"),
                     _opt("battery_entity", v.get("battery_entity")): _entity("sensor"),
                     _opt("rooms_script", v.get("rooms_script")): _entity("script"),
-                    _opt("rooms", _with_he(c, v.get("rooms") or [])): _list(
+                    _opt("rooms", _auto_icons(_with_he(c, v.get("rooms") or []))): _list(
                         {
                             "entity_id": {
                                 "required": True,
@@ -516,7 +534,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
             "power",
             vol.Schema(
                 {
-                    _opt("plugs", _with_he(c, c["plugs"])): _list(
+                    _opt("plugs", _auto_icons(_with_he(c, c["plugs"]))): _list(
                         {
                             "entity_id": {
                                 "required": True,
@@ -535,7 +553,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                                     }
                                 }
                             },
-                            "icon": {**ICON_FIELD, "label": "Icon (empty: plug)"},
+                            "icon": {**ICON_FIELD, "label": "Icon (auto: the switch's HA icon, else plug)"},
                         },
                         "name",
                     ),
@@ -555,7 +573,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 blocks[tid] = {
                     **old.get(tid, {"toggles": []}),
                     "title": row.get("title") or tid,
-                    "icon": row.get("icon") or "star",
+                    "icon": row.get("icon") or ICON_AUTO,
                 }
             c["custom_tabs"] = blocks
             # a deleted tab takes its Hebrew names along (unless another row still uses them)
@@ -582,7 +600,9 @@ class KindlePanelOptionsFlow(OptionsFlow):
             elif (done := self._save("custom_tabs")) is not None:
                 return done
         rows = _with_he(
-            c, [{"id": k, "title": v["title"], "icon": v["icon"]} for k, v in c["custom_tabs"].items()], "title"
+            c,
+            _auto_icons([{"id": k, "title": v["title"], "icon": v.get("icon")} for k, v in c["custom_tabs"].items()]),
+            "title",
         )
         return self._form(
             "custom_tabs",
@@ -639,7 +659,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
             "custom_tab",
             vol.Schema(
                 {
-                    _opt("toggles", _with_he(c, tab["toggles"])): _list(
+                    _opt("toggles", _auto_icons(_with_he(c, tab["toggles"]))): _list(
                         {
                             "entity_id": {
                                 "label": "Entity",
@@ -724,7 +744,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
             vol.Schema(
                 {
                     vol.Required("music_backend", default=m["music_backend"]): _select(MUSIC_BACKENDS, "music_backend"),
-                    _opt("nodes", _with_he(c, _node_rows(m["nodes"]))): _list(NODE_COLUMNS, "name"),
+                    _opt("nodes", _auto_icons(_with_he(c, _node_rows(m["nodes"])))): _list(NODE_COLUMNS, "name"),
                     **{vol.Required(f"key_f{i + 1}", default=k): key_select for i, k in enumerate(m["keys"])},
                     **{vol.Required(f"out_f{i + 1}", default=k): out_select for i, k in enumerate(m["output_keys"])},
                     vol.Optional("inputs_for"): sel.SelectSelector(
@@ -751,7 +771,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
         entity = node.get(NODE_TYPES[node["type"]]["entity"][0])
         st = self.hass.states.get(entity) if entity else None
         live = [str(x) for x in (st.attributes.get("source_list") or [])] if st else []
-        rows = _input_rows(node, live)
+        rows = _auto_icons(_input_rows(node, live))
         options = [*live, *[r["input"] for r in rows if r["input"] not in live]]
         return self._form(
             "media_inputs",
@@ -767,7 +787,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                             "name": {"label": "Name (empty: the device's own title)", "selector": {"text": {}}},
                             "name_he": NAME_HE,
                             "hidden": {"label": "Hidden on the panel", "selector": {"boolean": {}}},
-                            "icon": {**ICON_FIELD, "label": "Icon (empty: none)"},
+                            "icon": {**ICON_FIELD, "label": "Icon (auto: none, an input has no entity)"},
                         },
                         "input",
                     ),
@@ -818,7 +838,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                     vol.Required("mode", default=s["mode"]): _select(PHOTO_MODES, "photo_mode"),
                     vol.Required("photo_minutes", default=s["photo_minutes"]): _num(1, 240, 1, "min"),
                     vol.Required("idle_minutes", default=s["idle_minutes"]): _num(1, 120, 1, "min"),
-                    _opt("cards", s["cards"]): _list(
+                    _opt("cards", _auto_icons(s["cards"])): _list(
                         {
                             # Labels spelled out here: the frontend does not translate selects nested in an object.
                             "type": {
@@ -832,7 +852,7 @@ class KindlePanelOptionsFlow(OptionsFlow):
                             },
                             "entity_id": {"label": "Entity (sensor card)", "selector": {"entity": {}}},
                             "label": {"label": "Label (sensor card)", "selector": {"text": {}}},
-                            "icon": {**ICON_FIELD, "label": "Icon (sensor card)"},
+                            "icon": {**ICON_FIELD, "label": "Icon (sensor card; auto: the entity's HA icon)"},
                         },
                         "type",
                     ),

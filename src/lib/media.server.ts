@@ -4,7 +4,7 @@
 // without AMP_HOST / JELLYFIN_* the callers fall back to demo data (see media.functions.ts).
 import { createHash } from "node:crypto";
 import { haBackend, readMediaSnapshotHa } from "./media-ha.server";
-import { nodeViews, performNodeAction } from "./media-nodes.server";
+import { mediaKeyIcons, nodeViews, performNodeAction } from "./media-nodes.server";
 import { makeT, parseLang } from "@/lib/i18n";
 import type { Key } from "@/lib/i18n";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -1351,6 +1351,7 @@ export function buildMediaSnapshot(
           ),
         ]),
     ),
+    icons: mediaKeyIcons(states),
     output: null,
   };
 }

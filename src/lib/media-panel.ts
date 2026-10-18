@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import type { DeviceAction } from "@/components/device-actions";
 import { useFullRefresh } from "@/lib/eink";
-import { nodeIcon } from "@/lib/icons";
+import { nodeIcon, pickIcon } from "@/lib/icons";
 import { isRtl, makeT } from "@/lib/i18n";
 import type { Lang } from "@/lib/i18n";
 import {
@@ -1062,7 +1062,8 @@ export function useMediaPanel({
     if (key.startsWith("script."))
       return {
         label: data?.keyLabels?.[key] ?? t("media.script"),
-        icon: Zap,
+        // the script's own HA icon (bus task 020), else the generic script glyph
+        icon: pickIcon(null, data?.icons?.[key], Zap),
         onClick: () => void act({ type: "script", entity: key }),
       };
     const n = nodes.find((x) => x.id === key);
@@ -1139,7 +1140,7 @@ export function useMediaPanel({
       // a script runs instead of picking (e.g. plug on, amp on, input SERVER, output DLNA); back to the music screen
       return {
         label: data?.keyLabels?.[k] ?? t("media.script"),
-        icon: Zap,
+        icon: pickIcon(null, data?.icons?.[k], Zap),
         onClick: () => {
           void act({ type: "script", entity: k });
           open(outputReturn.current ?? "now");
@@ -1149,7 +1150,7 @@ export function useMediaPanel({
     return o
       ? {
           label: o.name,
-          icon: Speaker,
+          icon: pickIcon(null, data?.icons?.[o.entity_id], Speaker),
           pressed: o.entity_id === output?.entity,
           onClick: () => chooseOutput(o.entity_id),
         }

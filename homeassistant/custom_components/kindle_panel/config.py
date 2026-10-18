@@ -20,7 +20,7 @@ from .const import (
     CUSTOM_PREFIX,
     DEFAULT_CARDS,
     DEFAULT_UNSPLASH_QUERY,
-    ICON_DEFAULTS,
+    ICON_AUTO,
     ICONS,
     LANGUAGES,
     LEGACY_BUILTIN_SCENES,
@@ -37,7 +37,6 @@ from .const import (
     MAX_TOGGLES,
     MEDIA_KEY_MUSIC,
     MUSIC_BACKENDS,
-    NODE_ICON_DEFAULTS,
     NODE_TYPES,
     PHOTO_FALLBACKS,
     PHOTO_MODES,
@@ -62,47 +61,72 @@ def _hhmm(v: Any) -> str:
     return s
 
 
-# Every icon field takes a name of the one pack (bus task 019); a name the pack does not have is refused.
-ICON = vol.In(ICONS)
+# Every icon field takes a name of the one pack (bus task 019) or "auto" (bus task 020); a name the pack does not have
+# is refused. "auto" and an empty field mean the entity's own HA icon and are stored as no icon (None, dropped below):
+# the loader fills no pack default in, the app applies the row type's default at draw time.
+_PACK = vol.In(ICONS)
+
+
+def ICON(v: Any) -> str | None:  # used like the voluptuous validator it replaced
+    return None if v in (None, "", ICON_AUTO) else _PACK(v)
+
+
+def _no_icon(row: dict[str, Any]) -> dict[str, Any]:
+    """A validated row without an icon of its own carries no `icon` key at all."""
+    if row.get("icon") is None:
+        row.pop("icon", None)
+    return row
 
 
 def _opt_entity(v: Any) -> str | None:
     return None if v in (None, "") else cv.entity_id(v)
 
 
-LIGHT = vol.Schema(
-    {
-        vol.Required("entity_id"): cv.entity_id,
-        vol.Required("name"): cv.string,
-        vol.Optional("room", default=""): str,
-        vol.Optional("icon", default=ICON_DEFAULTS["light"]): ICON,
-    }
+LIGHT = vol.All(
+    vol.Schema(
+        {
+            vol.Required("entity_id"): cv.entity_id,
+            vol.Required("name"): cv.string,
+            vol.Optional("room", default=""): str,
+            vol.Optional("icon"): ICON,
+        }
+    ),
+    _no_icon,
 )
-ROOM = vol.Schema(
-    {
-        vol.Required("entity_id"): cv.entity_id,
-        vol.Required("name"): cv.string,
-        vol.Optional("icon", default=ICON_DEFAULTS["room"]): ICON,
-    }
+ROOM = vol.All(
+    vol.Schema(
+        {
+            vol.Required("entity_id"): cv.entity_id,
+            vol.Required("name"): cv.string,
+            vol.Optional("icon"): ICON,
+        }
+    ),
+    _no_icon,
 )
-PLUG = vol.Schema(
-    {
-        vol.Required("entity_id"): cv.entity_id,
-        vol.Required("name"): cv.string,
-        vol.Optional("power_entity"): _opt_entity,
-        vol.Optional("energy_entity"): _opt_entity,
-        vol.Optional("energy_to_wh", default=1): vol.Coerce(float),
-        vol.Optional("icon", default=ICON_DEFAULTS["plug"]): ICON,
-    }
+PLUG = vol.All(
+    vol.Schema(
+        {
+            vol.Required("entity_id"): cv.entity_id,
+            vol.Required("name"): cv.string,
+            vol.Optional("power_entity"): _opt_entity,
+            vol.Optional("energy_entity"): _opt_entity,
+            vol.Optional("energy_to_wh", default=1): vol.Coerce(float),
+            vol.Optional("icon"): ICON,
+        }
+    ),
+    _no_icon,
 )
 
 
-SCENE = vol.Schema(
-    {
-        vol.Required("entity_id"): vol.All(cv.entity_id, cv.entity_domain(["scene", "script"])),
-        vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=40)),
-        vol.Optional("icon", default=ICON_DEFAULTS["scene"]): ICON,
-    }
+SCENE = vol.All(
+    vol.Schema(
+        {
+            vol.Required("entity_id"): vol.All(cv.entity_id, cv.entity_domain(["scene", "script"])),
+            vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=40)),
+            vol.Optional("icon"): ICON,
+        }
+    ),
+    _no_icon,
 )
 
 
@@ -188,8 +212,8 @@ INPUT_ROW = vol.Schema(
         vol.Optional("name"): vol.Any(None, vol.All(cv.string, vol.Strip, vol.Length(max=40))),
         vol.Optional("name_he"): vol.Any(None, vol.All(cv.string, vol.Strip, vol.Length(max=40))),
         vol.Optional("hidden", default=False): cv.boolean,
-        # an icon pack name; none (the default) shows no icon on the input list
-        vol.Optional("icon"): vol.Any(None, ICON),
+        # an icon pack name; none / auto (the default: an input has no entity) shows no icon on the input list
+        vol.Optional("icon"): ICON,
     },
     extra=vol.REMOVE_EXTRA,
 )
@@ -229,13 +253,12 @@ def _node(v: Any) -> dict[str, Any]:
             vol.Required(field, msg=f"a {kind} node needs {field}"): vol.All(cv.entity_id, cv.entity_domain(domain)),
             **{vol.Optional(k): _node_entity(d) for k, d in t["optional"].items()},
             vol.Optional("inputs"): _inputs,
-            vol.Optional("icon", default=NODE_ICON_DEFAULTS[kind]): vol.Any(None, ICON),
+            vol.Optional("icon"): ICON,
         },
         extra=vol.REMOVE_EXTRA,
     )
-    node = {k: x for k, x in schema(v).items() if x not in (None, "", [])}
-    node.setdefault("icon", NODE_ICON_DEFAULTS[kind])  # an emptied icon field: the type's default again
-    return node
+    # no icon / auto: the entity's HA icon, else the type's default (applied by the app)
+    return {k: x for k, x in schema(v).items() if x not in (None, "", [])}
 
 
 def _media_key(v: Any) -> str:
@@ -279,21 +302,28 @@ def _custom_id(v: Any) -> str:
 
 
 KEYS = vol.Any(None, vol.All(cv.ensure_list, [_power_key], vol.Length(max=POWER_KEY_COUNT)))
-TOGGLE = vol.Schema(
-    {
-        vol.Required("entity_id"): vol.All(cv.entity_id, cv.entity_domain(TOGGLE_DOMAINS)),
-        vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=40)),
-        vol.Optional("icon", default=ICON_DEFAULTS["toggle"]): ICON,
-    }
+TOGGLE = vol.All(
+    vol.Schema(
+        {
+            vol.Required("entity_id"): vol.All(cv.entity_id, cv.entity_domain(TOGGLE_DOMAINS)),
+            vol.Required("name"): vol.All(cv.string, vol.Length(min=1, max=40)),
+            vol.Optional("icon"): ICON,
+        }
+    ),
+    _no_icon,
 )
-CUSTOM_TAB = vol.Schema(
-    {
-        vol.Required("title"): vol.All(cv.string, vol.Length(min=1, max=24)),
-        vol.Optional("icon", default=ICON_DEFAULTS["custom_tab"]): ICON,
-        vol.Optional("toggles", default=[]): vol.All([TOGGLE], vol.Length(max=MAX_TOGGLES)),
-        # F1..F4: a toggle of this tab, a scene or script, all_off (every toggle of this tab off) or none
-        vol.Optional("keys"): KEYS,
-    }
+CUSTOM_TAB = vol.All(
+    vol.Schema(
+        {
+            vol.Required("title"): vol.All(cv.string, vol.Length(min=1, max=24)),
+            # a tab has no entity: no icon / auto draws the custom tab default
+            vol.Optional("icon"): ICON,
+            vol.Optional("toggles", default=[]): vol.All([TOGGLE], vol.Length(max=MAX_TOGGLES)),
+            # F1..F4: a toggle of this tab, a scene or script, all_off (every toggle of this tab off) or none
+            vol.Optional("keys"): KEYS,
+        }
+    ),
+    _no_icon,
 )
 
 
@@ -302,7 +332,7 @@ def _custom_tabs(v: dict[str, Any]) -> dict[str, Any]:
 
 
 def _card(v: Any) -> dict[str, Any]:
-    card = CARD_BASE(v)
+    card = _no_icon(CARD_BASE(v))
     if card["type"] == "sensor" and not card.get("entity_id"):
         raise vol.Invalid("a sensor card needs an entity")
     return card
@@ -313,7 +343,7 @@ CARD_BASE = vol.Schema(
         vol.Required("type"): vol.In(CARD_TYPES),
         vol.Optional("entity_id"): _opt_entity,
         vol.Optional("label"): vol.Any(None, str),
-        vol.Optional("icon"): vol.Any(None, ICON),
+        vol.Optional("icon"): ICON,
     }
 )
 SOURCE = vol.Any(

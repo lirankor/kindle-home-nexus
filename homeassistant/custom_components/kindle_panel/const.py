@@ -115,16 +115,11 @@ ICONS = [
     "wind",
     "zap",
 ]
-# Each row type's default icon (an old config without the field gets this one)
-ICON_DEFAULTS = {
-    "light": "bulb",
-    "room": "room",
-    "scene": "star",
-    "toggle": "plug",
-    "custom_tab": "star",
-    "plug": "plug",
-}
-NODE_ICON_DEFAULTS = {"receiver": "speaker", "tv": "tv"}
+# Bus task 020: every icon select offers this first, and it is the default: the button draws the icon the entity has in
+# HA (its `icon` attribute), else the row type's default (the app's ICON_DEFAULTS, applied at draw time). Stored as no
+# icon at all; the options UI shows it for rows without one.
+ICON_AUTO = "auto"
+ICON_AUTO_LABEL = "The entity's own icon (default)"
 LANGUAGES = ["he", "en"]
 # Lights tab scene buttons (F1..F3, F4 stays "all off"): each runs an HA scene or script (the panel has no scenes of its own).
 MAX_SCENES = 3

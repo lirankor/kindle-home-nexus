@@ -3,7 +3,9 @@
 // amp machinery (power-on routine, the music screen's amp) is not involved: a node is "the device", music is MA.
 import { HomeError, service } from "./home.server";
 import type { HaState } from "./home.server";
-import { AMP, MEDIA_NODES } from "./media";
+import { AMP, MEDIA_KEYS, MEDIA_NODES, OUTPUT_KEYS } from "./media";
+import { entityIcons, resolveMdi } from "./mdi.server";
+import type { EntityIcons } from "./icons";
 import type { InputName, MediaAction, NodeStation, NodeView } from "./media";
 import { nodeEntity } from "./panel-config";
 import type { MediaNode } from "./panel-config";
@@ -75,11 +77,13 @@ export function nodeView(n: MediaNode, states: Map<string, HaState>): NodeView {
   const radio = n.net_radio ? states.get(n.net_radio) : undefined;
   const station =
     radio && radio.state !== "unavailable" && radio.state !== "unknown" ? radio.state : null;
+  const entityIcon = resolveMdi(a["icon"]);
   return {
     id: n.id,
     type: n.type,
     name: n.name,
     ...(n.icon ? { icon: n.icon } : {}),
+    ...(entityIcon ? { entityIcon } : {}),
     available: available || plugOff,
     on: available && !plugOff && state !== "off" && state !== "standby",
     state: plugOff ? "off" : state,
@@ -102,6 +106,14 @@ export function nodeView(n: MediaNode, states: Map<string, HaState>): NodeView {
     movieActive: !!n.movie_active && states.get(n.movie_active)?.state === "on",
   };
 }
+
+/** The HA icons of the Media tab's entity keys (scripts, MA players on F1..F4 and the output picker) and of the
+ *  picker's rows (bus task 020; pure). */
+export const mediaKeyIcons = (states: Map<string, HaState>, outputs: string[] = []): EntityIcons =>
+  entityIcons(
+    states,
+    [...MEDIA_KEYS, ...OUTPUT_KEYS, ...outputs].filter((k) => k.includes(".")),
+  );
 
 export const nodeViews = (states: Map<string, HaState>, nodes: MediaNode[] = MEDIA_NODES) =>
   nodes.map((n) => nodeView(n, states));

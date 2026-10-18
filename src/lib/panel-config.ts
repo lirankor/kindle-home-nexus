@@ -16,21 +16,23 @@ export const CUSTOM_ID = /^[a-z0-9_]{1,24}$/;
 export const MAX_TABS = 6;
 export const MAX_TOGGLES = 4;
 /** A row of a custom tab: a switch, light, input_boolean or fan; Enter switches it. */
-export type CustomToggle = { entity_id: string; name: string; icon: string };
+export type CustomToggle = { entity_id: string; name: string; icon?: string | null };
 /** A custom tab: its title (English; Hebrew from names), icon, up to 4 toggles and F1..F4 (soft-key strings). */
 export type CustomTab = { title: string; icon: string; toggles: CustomToggle[]; keys: string[] };
 export const isCustomTab = (t: string): t is `custom:${string}` =>
   t.startsWith(CUSTOM_PREFIX) && CUSTOM_ID.test(t.slice(CUSTOM_PREFIX.length));
 
-export type PanelLight = { entity_id: string; name: string; room: string; icon: string };
-export type PanelRoom = { entity_id: string; name: string; icon: string };
+/** Every row `icon` below is an icon pack name; absent, "" or "auto" = the entity's own HA icon, else the row type's
+ *  default (bus task 020, applied at draw time; src/lib/icons.ts pickIcon). */
+export type PanelLight = { entity_id: string; name: string; room: string; icon?: string | null };
+export type PanelRoom = { entity_id: string; name: string; icon?: string | null };
 export type PanelPlug = {
   entity_id: string;
   name: string;
   power_entity?: string | null;
   energy_entity?: string | null;
   energy_to_wh: number;
-  /** icon pack name (src/data/icons.json, bus task 019); default "plug". */
+  /** icon pack name (src/data/icons.json, bus task 019); absent: the entity's HA icon, else "plug". */
   icon?: string | null;
 };
 /** Lights tab scene buttons (F1..F3; F4 stays "all off"). */
@@ -40,7 +42,7 @@ export const MAX_SCENES = 3;
 export type SceneButton = {
   entity_id: string;
   name: string;
-  icon: string;
+  icon?: string | null;
 };
 /** A soft key F1..F4 (Power tab): an entity of the tab's list (a plug), "all_off" (every entity of the list off) or
  *  "none". The same string model is meant for custom tabs (task 012). */
@@ -81,7 +83,7 @@ export type MediaNode = {
   movie_active?: string | null;
   /** Any type: renamed / hidden entries of its entity's source_list (bus task 015). */
   inputs?: NodeInput[] | null;
-  /** icon pack name (bus task 019); default by type: receiver "speaker", tv "tv". */
+  /** icon pack name (bus task 019); absent: the entity's HA icon, else by type: receiver "speaker", tv "tv". */
   icon?: string | null;
 };
 /** One row of a node's inputs: `input` as the entity lists it, a name (+ Hebrew) to show instead, or hidden. */

@@ -12,12 +12,15 @@ import {
   nodeEntity,
 } from "./panel-config";
 import type { CustomTab, MediaNode, PanelView, SceneButton } from "./panel-config";
+import type { EntityIcons } from "./icons";
 
 // Display-name overrides per language, keyed by the English name used below (from the panel config: names).
 // Entities without an entry keep their English name.
 export const NAME_OVERRIDES: Record<Lang, Record<string, string>> = { en: {}, he: {} };
 export const localName = (lang: Lang, name: string) => NAME_OVERRIDES[lang][name] ?? name;
 
+/** `icon` (everywhere below): the row's icon pack name; "" / "auto" = the entity's own HA icon, else the row type's
+ *  default, applied at draw time (bus task 020: the loader no longer fills a default in). */
 export type LightMeta = { id: string; name: string; room: string; icon: string };
 /** Lights in screen order (panel config: lights). Mutated in place by applyHomeConfig. */
 export const LIGHTS: LightMeta[] = [];
@@ -62,7 +65,7 @@ export type PlugMeta = {
   energy: string | null;
   /** energy is converted to Wh with energyToWh. */
   energyToWh: number;
-  /** icon pack name (src/data/icons.json); empty or unknown draws the plug icon. */
+  /** icon pack name (src/data/icons.json); empty, "auto" or unknown: the entity's HA icon, else the plug icon. */
   icon: string;
 };
 export const PLUGS: PlugMeta[] = [];
@@ -117,7 +120,7 @@ export const customTab = (id: string): CustomTab | undefined =>
 /** Write a panel config into the constants above, in place (server: from HA; browser: from the snapshot). */
 export function applyHomeConfig(c: {
   names: Partial<Record<Lang, Record<string, string>>>;
-  lights: { entity_id: string; name: string; room?: string; icon?: string }[];
+  lights: { entity_id: string; name: string; room?: string; icon?: string | null }[];
   scenes?: SceneButton[];
   power_keys?: string[];
   custom_tabs?: Record<string, CustomTab>;
@@ -125,7 +128,7 @@ export function applyHomeConfig(c: {
     entity_id?: string | null;
     battery_entity?: string | null;
     rooms_script?: string | null;
-    rooms: { entity_id: string; name: string; icon?: string }[];
+    rooms: { entity_id: string; name: string; icon?: string | null }[];
   };
   plugs: {
     entity_id: string;
@@ -152,13 +155,13 @@ export function applyHomeConfig(c: {
       id: l.entity_id,
       name: l.name,
       room: l.room ?? "",
-      icon: l.icon ?? "bulb",
+      icon: l.icon ?? "",
     })),
   );
   ROOMS.splice(
     0,
     ROOMS.length,
-    ...c.vacuum.rooms.map((r) => ({ id: r.entity_id, name: r.name, icon: r.icon ?? "room" })),
+    ...c.vacuum.rooms.map((r) => ({ id: r.entity_id, name: r.name, icon: r.icon ?? "" })),
   );
   VACUUM.id = c.vacuum.entity_id ?? "";
   VACUUM.battery = c.vacuum.battery_entity ?? "";
@@ -172,7 +175,7 @@ export function applyHomeConfig(c: {
       power: p.power_entity ?? null,
       energy: p.energy_entity ?? null,
       energyToWh: p.energy_to_wh ?? 1,
-      icon: p.icon ?? "plug",
+      icon: p.icon ?? "",
     })),
   );
   if (c.media) {
@@ -224,6 +227,8 @@ export type Snapshot = {
   custom?: Record<string, { on: boolean[]; names: Record<string, string> }>;
   /** Readings for the screensaver's sensor cards, by entity id. */
   cards?: Record<string, { value: string | null; unit: string | null }>;
+  /** The HA icons of the configured entities (bus task 020): drawn when a row has no pack icon of its own. */
+  icons?: EntityIcons;
 };
 export type SnapshotResult = {
   configured: boolean;

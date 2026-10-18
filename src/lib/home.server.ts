@@ -11,6 +11,7 @@ import {
   SAVER_CARDS,
   SENSORS,
   VACUUM,
+  POWER_KEYS,
   COLOR_MODES,
   nearestColor,
   customTab,
@@ -26,6 +27,7 @@ import {
   skippedIds,
 } from "@/lib/photo.server";
 import type { PhotoAsset } from "@/lib/photo.server";
+import { entityIcons } from "@/lib/mdi.server";
 import type { Action, LightState, Shade, Snapshot } from "@/lib/home";
 
 type HaAttrs = {
@@ -39,6 +41,8 @@ type HaAttrs = {
   source?: unknown;
   temperature?: unknown;
   unit_of_measurement?: unknown;
+  /** The icon HA draws (custom or integration), e.g. "mdi:theater"; absent: HA's domain default. */
+  icon?: unknown;
 };
 export type HaState = { entity_id: string; state: string; attributes: HaAttrs };
 export class HomeError extends Error {
@@ -154,7 +158,22 @@ export function buildSnapshot(states: Map<string, HaState>): Snapshot {
     },
     ...(SAVER_CARDS.some((c) => c.type === "sensor") ? { cards: cardReadings(states) } : {}),
     ...(Object.keys(CUSTOM_TABS).length ? { custom: customReadings(states) } : {}),
+    icons: entityIcons(states, iconEntities()),
   };
+}
+
+/** Every entity a button, row, card or soft key of the home tabs draws (their HA icons ride along with the states
+ *  already fetched; bus task 020). */
+function iconEntities(): (string | null | undefined)[] {
+  return [
+    ...LIGHTS.map((l) => l.id),
+    ...ROOMS.map((r) => r.id),
+    ...PLUGS.map((p) => p.id),
+    ...SCENES.map((s) => s.entity_id),
+    ...POWER_KEYS,
+    ...Object.values(CUSTOM_TABS).flatMap((t) => [...t.toggles.map((x) => x.entity_id), ...t.keys]),
+    ...SAVER_CARDS.map((c) => c.entity_id),
+  ].filter((id) => typeof id === "string" && id.includes("."));
 }
 
 function customReadings(states: Map<string, HaState>) {

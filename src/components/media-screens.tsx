@@ -57,7 +57,7 @@ import {
   nodeLabel,
   powerOnStepKey,
 } from "@/lib/media-ui";
-import { nodeIcon, optionalIcon } from "@/lib/icons";
+import { nodeIcon, optionalIcon, pickIcon } from "@/lib/icons";
 import { QUEUE_PAGE_SIZE, RADIO_PAGE_SIZE } from "@/lib/media-panel";
 import type { MediaPanel } from "@/lib/media-panel";
 import {
@@ -387,6 +387,7 @@ function OutputPicker({ panel, status }: { panel: MediaPanel; status: string }) 
         {outputRows.slice(first, first + 7).map((o, i) => {
           const index = first + i;
           const current = o.entity_id === output?.entity;
+          const OutputIcon = pickIcon(null, panel.data?.icons?.[o.entity_id], Speaker);
           return (
             <Button
               key={o.entity_id}
@@ -399,7 +400,7 @@ function OutputPicker({ panel, status }: { panel: MediaPanel; status: string }) 
               onClick={() => panel.chooseOutput(o.entity_id)}
             >
               <span className="source-row-icon">
-                <Speaker size={30} strokeWidth={1.6} />
+                <OutputIcon size={30} strokeWidth={1.6} />
               </span>
               <span className="source-row-text">
                 <strong>{o.name}</strong>

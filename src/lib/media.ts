@@ -1,5 +1,6 @@
 // Shared (client + server) media model: amp entities, the radio station catalog,
 // snapshot / list / queue shapes, the action union and demo data. Contains no secrets.
+import type { EntityIcon, EntityIcons } from "./icons";
 import type { Lang } from "./i18n";
 import { KEY_MUSIC } from "./panel-config";
 import type { MediaNode, NodeType } from "./panel-config";
@@ -232,8 +233,10 @@ export type NodeView = {
   inputNames?: Record<string, InputName>;
   /** Input icons from the node's `inputs` rows (icon pack names, bus task 019; absent: the input's own glyph). */
   inputIcons?: Record<string, string>;
-  /** The node's icon pack name (absent: by type, receiver "speaker", tv "tv"). */
+  /** The node's icon pack name (absent: its entity's HA icon, else by type, receiver "speaker", tv "tv"). */
   icon?: string;
+  /** The node entity's own HA icon, resolved on the server (bus task 020). */
+  entityIcon?: EntityIcon;
   volumeDb: number | null;
   /** 0..1 */
   volume: number | null;
@@ -274,6 +277,8 @@ export type MediaSnapshot = {
   output?: OutputView | null;
   /** Labels of script keys (their HA friendly names). */
   keyLabels?: Record<string, string>;
+  /** HA icons of the entity keys (scripts, MA players) and the output picker's rows (bus task 020). */
+  icons?: EntityIcons;
   amp: AmpStatus;
   nowPlaying: NowPlaying;
   tv: { state: string; source: string | null };

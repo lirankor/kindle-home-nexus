@@ -4,7 +4,7 @@
 // chosen tracks to HA's script.music_play_items; everything it shows about playback comes from script.music_state.
 // The scripts live in homeserver-cloud: stacks/homeassistant/.../packages_media_platform/music_platform.yaml.
 import { HomeError, fetchStates, ha, service } from "./home.server";
-import { nodeViews } from "./media-nodes.server";
+import { mediaKeyIcons, nodeViews } from "./media-nodes.server";
 import { panelConfigNow, setMusicOutput } from "./panel-config.server";
 import type { HaState } from "./home.server";
 import {
@@ -498,7 +498,20 @@ export async function readMediaSnapshotHa(
     powerOn: currentPowerOn(s),
   });
   // the nodes from the real states (the projection rewrites the receiver's entry for the music screen)
-  return withRadio({ ...snap, nodes: nodeViews(states), output: outputView() }, s);
+  const output = outputView();
+  return withRadio(
+    {
+      ...snap,
+      nodes: nodeViews(states),
+      output,
+      // from the real states, with the picker's rows (bus task 020)
+      icons: mediaKeyIcons(
+        states,
+        (output?.outputs ?? []).map((x) => x.entity_id),
+      ),
+    },
+    s,
+  );
 }
 
 export async function getQueueProgressHa(): Promise<QueueProgress | null> {
