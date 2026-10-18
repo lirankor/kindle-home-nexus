@@ -262,8 +262,10 @@ describe("picker status line (bus task 023)", () => {
       { ...parts, title: "A very long song title that never ends at all" },
       ["Playing"],
     );
-    expect(cut.endsWith("… · Playing")).toBe(true);
-    expect(cut.length).toBeLessThanOrEqual(OUTPUT_STATUS_CHARS);
+    // the cut title is a first-strong isolate (FSI … PDI), so "…" stays at its end in a Hebrew line
+    expect(cut.startsWith("\u2068A very long")).toBe(true);
+    expect(cut.endsWith("…\u2069 · Playing")).toBe(true);
+    expect(cut.replace(/[\u2068\u2069]/g, "").length).toBeLessThanOrEqual(OUTPUT_STATUS_CHARS);
   });
   it("nothing playing: the state alone; group labels stay", () => {
     expect(fitStatusLine(null, ["Idle"])).toBe("Idle");

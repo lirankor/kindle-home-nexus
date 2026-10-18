@@ -325,7 +325,8 @@ export function fitStatusLine(
   }
   const room = max - (rest ? rest.length + 3 : 0) - 1;
   if (room < 4) return join([parts.title]); // the state alone fills the line: CSS ellipsizes the title
-  return join([`${parts.title.slice(0, room).trimEnd()}…`]);
+  // first-strong isolate: in a Hebrew line the "…" stays at the end of a Latin title (not before it)
+  return join([`\u2068${parts.title.slice(0, room).trimEnd()}…\u2069`]);
 }
 
 /** The sync leader the panel's output belongs to: the output itself, or the group it follows. */
