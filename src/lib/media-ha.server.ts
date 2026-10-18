@@ -109,17 +109,20 @@ export function outputView(
   const l = panelConfigNow();
   if (!l || l.source !== "ha") return null;
   const entity = l.musicOutput ?? null;
-  const outputs: OutputRow[] = (l.outputs ?? []).map((o) => {
-    const st = states?.get(o.entity_id);
-    return {
-      entity_id: o.entity_id,
-      name: o.name,
-      state: st?.state ?? o.state,
-      now: st ? nowLineOf(st) : (o.now ?? null),
-      kind: o.kind ?? "player",
-      exposed: true,
-    };
-  });
+  // by name, as Music Assistant's own Players list shows them
+  const outputs: OutputRow[] = [...(l.outputs ?? [])]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((o) => {
+      const st = states?.get(o.entity_id);
+      return {
+        entity_id: o.entity_id,
+        name: o.name,
+        state: st?.state ?? o.state,
+        now: st ? nowLineOf(st) : (o.now ?? null),
+        kind: o.kind ?? "player",
+        exposed: true,
+      };
+    });
   const unexposed: OutputRow[] = (l.outputsUnexposed ?? []).map((u) => ({
     entity_id: `ma:${u.player_id}`,
     name: u.name,

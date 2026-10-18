@@ -864,7 +864,7 @@ const urlPng = (src: string, width: number, mode: PngMode) =>
   });
 /** Music Assistant cover art (bus task 021): through Home Assistant (kindle_panel >= 0.8.0 proxies MA's /imageproxy;
  *  MA's port is not open to this container, a direct fetch only times out), then directly for setups where MA is
- *  reachable. A miss is not retried for ten minutes. */
+ *  reachable. A miss is not retried for two minutes (an HA restart must not hide art for long). */
 const maArtPng = (src: string, width: number) => {
   const key = `ma@${src}@${width}`;
   const neg = rt.imgNegative.get(key);
@@ -876,7 +876,7 @@ const maArtPng = (src: string, width: number) => {
         : null) ?? (await fetchImage(src));
     return raw ? toSquarePng(raw, width, "grayscale") : null;
   }).then((png) => {
-    if (!png) rt.imgNegative.set(key, Date.now() + 10 * 60_000);
+    if (!png) rt.imgNegative.set(key, Date.now() + 2 * 60_000);
     return png;
   });
 };
