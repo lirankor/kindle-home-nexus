@@ -397,33 +397,23 @@ describe("Radio screen", () => {
     );
   });
 
-  it("MUSIC_BACKEND=ha: F2 on the dial shows the Music Assistant notice on the dial, translated, and edits nothing", async () => {
-    mocks.getRadioLists.mockResolvedValue({ ...lists(), favouritesExternal: true });
-    await openRadio("he");
-    await waitFor(() =>
-      expect(
-        document.querySelector('.full-modal [data-soft-key="F2"]')?.hasAttribute("disabled"),
-      ).toBe(false),
-    );
-    press("F2");
-    await waitFor(() =>
-      expect(document.querySelector(".full-modal .radio-error")?.textContent).toBe(
-        "המועדפים נשמרים ב-Music Assistant",
-      ),
-    );
-    expect(mocks.runMediaAction).not.toHaveBeenCalled();
-  });
-
-  it("MUSIC_BACKEND=ha: the dial notice in English", async () => {
-    mocks.getRadioLists.mockResolvedValue({ ...lists(), favouritesExternal: true });
+  it("MUSIC_BACKEND=ha: lists without a favourites band (bus task 025) have no Favourites band and no F2 heart", async () => {
+    const r = lists();
+    mocks.getRadioLists.mockResolvedValue({
+      ...r,
+      lists: r.lists.filter((l) => l.id !== "favourites"),
+    });
     await openRadio("en");
-    press("F2");
     await waitFor(() =>
-      expect(document.querySelector(".full-modal .radio-error")?.textContent).toBe(
-        "Favourites are kept in Music Assistant",
+      expect(document.querySelector('.full-modal [data-soft-key="F4"]')?.textContent).toBe(
+        "Station list",
       ),
     );
+    expect(document.querySelector('.full-modal [data-soft-key="F2"]')?.textContent).toBe("\u00a0");
+    press("F2");
     expect(mocks.runMediaAction).not.toHaveBeenCalled();
+    press("F1");
+    expect(document.querySelector(".full-modal")?.textContent).not.toContain("Favourites");
   });
 
   it("while the amp is off: empty favourites text, and tuning starts the power-on routine into NET RADIO", async () => {

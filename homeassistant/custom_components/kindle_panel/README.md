@@ -4,7 +4,7 @@ The Home Assistant side of the kindle-home-nexus e-ink panel. Everything the pan
 Settings → Devices & services → Kindle Panel → Configure: language, tabs (built-in and custom), lights and their scene
 buttons, vacuum, plugs and their F1–F4 keys, media devices and keys, screensaver, battery-saver schedule.
 
-## Media tab: your devices, and a music screen with its own output
+## Media tab: your devices, and a music screen with its own player
 
 Since 0.5.0 the Media tab is a list of **media devices** (Configure → *Media tab and music* → *Media devices*). Each row
 has an id (a-z, 0-9, `_`; keep it once chosen), a type, a name (and an optional Hebrew name) and the entities of that
@@ -27,28 +27,34 @@ stored on the device as `inputs: [{input, name, name_he, hidden}]`; selecting an
 ≥ 0.2.1 does it itself, through its power supply switch when the plug is off).
 
 **NET RADIO stations** (since 0.6.0): a receiver whose bridge has a station list (yamaha_netbridge ≥ 0.3.0, options →
-*NET RADIO stations*) gets it on the panel with no setup: choosing the NET RADIO input opens the station list instead of
-switching right away (name, FM frequency where the list has one, else its group; up / down, select plays, Back
-returns). Playing calls `select.select_option` on the bridge's `select.<receiver>_net_radio_station`, which turns the
-receiver on, selects NET RADIO and walks its menu; the node screen then shows the station and song the receiver reports.
+*NET RADIO stations*) gets it on the panel with no setup. Since bus task 025 the **radio dial belongs to the
+receiver's own device screen**: choosing the NET RADIO input opens the dial instead of switching right away, and the
+receiver's screen opens straight on the dial while the receiver plays NET RADIO; Back from the dial returns to the
+receiver's screen. The dial's bands are the list's groups in order (no favourites band: Music Assistant's favourites
+are MA's, not the receiver's; the bridge publishes no preset list); left / right or a station from the list tunes,
+which calls `select.select_option` on the bridge's `select.<receiver>_net_radio_station` (it turns the receiver on,
+selects NET RADIO and walks its menu; Music Assistant is not involved). Up / down on the dial is the receiver's volume.
 The select is found on the receiver's device; the optional node field *NET RADIO station select* (`net_radio`) names
-another one. The panel's radio bands (music screen) come from the same list: favourites, then its groups in order; the
-panel ships no station file.
+another one. The panel ships no station file.
 
 The **F1–F4 keys of the Media tab** each open the music screen, open one device's controls, run a script, switch all
 media off, or do nothing. A new panel starts with F1 = music, F2 = the first receiver, F3 = the first TV.
 
-**Music** is a screen of its own (radio, library, playlist, now playing, transport, volume) that plays through Music
-Assistant to **one output per panel**, chosen on the panel itself: the music screen's Output key opens a list of every
-Music Assistant player Home Assistant has (names from Home Assistant). Up / down and select choose it, Back closes the
-list without a change, and the picker's F1–F4 are quick keys to the outputs set under *F1–F4 in the output picker*.
-A picker key can also be a **script** (its name shows on the key): it runs instead of picking, for anything more than
-choosing a player. The list opens by itself when the panel has no output yet (or its output is gone from Home Assistant). One output at a
-time by design: **to play in several rooms, make a group in Music Assistant**; the group shows up as one more player.
+**Music** is a screen of its own (library, playlist, now playing, transport, volume) that plays through Music
+Assistant on **one player per panel**, chosen on the panel itself: the music screen's **Player** key (נגן; F3) opens a
+list of every Music Assistant player Home Assistant has (names from Home Assistant). Up / down and select choose it,
+Back closes the list without a change, and the picker's F1–F4 are quick keys to the players set under *F1–F4 in the
+player picker*. A picker key can also be a **script** (its name shows on the key): it runs instead of picking, for
+anything more than choosing a player. The list opens by itself when the panel has no player yet (or its player is gone
+from Home Assistant). One player at a time by design: **to play in several rooms, make a group in Music Assistant**;
+the group shows up as one more player. Since bus task 025 (0.9.2: labels only; the option keys `music_output`,
+`output_keys`, `hidden_outputs`, … keep their names) the music screen is Music Assistant only: keys F1 = playlist (when
+the player has a queue), F2 = library, F3 = player; no radio key. When the player's receiver is on an input of its own
+(NET RADIO, TUNER, …) the screen says so and names the Media key of the receiver ("המגבר על NET RADIO · מגבר ← F2 במדיה").
 
 **Since 0.8.0 (bus task 021) the music screen is a Music Assistant controller like the MA app's Players sheet.** Every
-MA player has its own queue; the panel shows and controls only its output (state, queue, cover art), and says so when
-another output plays instead ("R-N500 AirPlay is playing · F3 to switch"). In the picker:
+MA player has its own queue; the panel shows and controls only its player (state, queue, cover art), and says so when
+another player plays instead ("R-N500 AirPlay is playing · F3 to switch"). In the picker:
 
 * each row is two fixed lines (since 0.9.1, bus task 023): the name, then "what it plays · state" ("group" for MA
   groups), each cut with "…"; when the line is too long the album goes first, then the artist. Five rows a page; more
@@ -56,55 +62,55 @@ another output plays instead ("R-N500 AirPlay is playing · F3 to switch"). In t
 * **Enter** = this panel now controls that player (nothing moves);
 * **Right**, or the right-most picker key left at *none* ("Move here"), = move the music there:
   `kindle_panel.move_queue` runs Music Assistant's transfer_queue (whole queue and position, plays at once, the source
-  stops) and the target becomes the panel's output; the screen says "moving…" until it plays;
+  stops) and the target becomes the panel's player; the screen says "moving…" until it plays;
 * **only what can be chosen is listed** (since 0.9.0, bus task 022): players that are unavailable, and Music Assistant
   players Home Assistant has no entity for (e.g. MA's own web player, "Web (Chrome on Android)", which comes and goes
-  with a browser tab), are hidden. The panel's own output always stays listed. For debugging, *Media → Output picker:
+  with a browser tab), are hidden. The panel's own player always stays listed. For debugging, *Media → Player picker:
   also list unavailable players* (`media.show_unavailable_outputs`) lists them again, greyed and not selectable;
 * **hidden players** (since 0.9.1, bus task 023): a player hidden in Music Assistant (*Settings → Players → (the
-  player) → Hide player*, MA's `hide_in_ui`) is never listed, and neither is one picked in *Media → Output picker:
-  never list these players* (`media.hidden_outputs`, a list of MA players, default empty). The panel's current output
+  player) → Hide player*, MA's `hide_in_ui`) is never listed, and neither is one picked in *Media → Player picker:
+  never list these players* (`media.hidden_outputs`, a list of MA players, default empty). The panel's current player
   is always listed. The F-key dropdowns still offer every player;
 * **sync** (since 0.9.0): players Music Assistant can play in sync (its `can_group_with`, e.g. AirPlay ↔ a TV ↔ a
   Sendspin phone; a DLNA player syncs with nothing) get a **Sync** key on the next picker key left at *none* to the
   left of "Move here" (and on **Left**, the only way when no second key is free). On a highlighted player that can
-  sync with the panel's output it joins the output's group (`kindle_panel.sync_output` since 0.9.1, which calls HA's
-  `media_player.join` with the output, or the leader it follows, as the target); on a member it reads **Unsync**
+  sync with the panel's player it joins that player's group (`kindle_panel.sync_output` since 0.9.1, which calls HA's
+  `media_player.join` with the player, or the leader it follows, as the target); on a member it reads **Unsync**
   (`media_player.unjoin`). When Music Assistant says no, `sync_output` answers `{ok: false, reason: unavailable |
   cannot | failed | not_joined, error}` and the panel shows "Cannot sync: …" on the music screen, like a refused move.
   Members are listed under their leader with a link glyph on the icon side (the right in Hebrew), like in Music
-  Assistant; the music screen's output label names the whole group
-  ("R-N500 AirPlay + TV"). The group plays the leader's queue, so the panel's output stays the leader.
+  Assistant; the music screen's player label names the whole group
+  ("R-N500 AirPlay + TV"). The group plays the leader's queue, so the panel's player stays the leader.
 
 **A player missing from the list?** Music Assistant only gives Home Assistant an entity for a player whose setting
 *Settings → Players → (the player) → Expose to Home Assistant* is on. It is off for some players added later (for
 example a "universal" TV player or a phone running Sendspin). Turn it on; the entity appears at once (no reload).
 
-`kindle_panel.move_queue` (`entity_id` = target, optional `source_player`, default the panel's output; `auto_play`,
+`kindle_panel.move_queue` (`entity_id` = target, optional `source_player`, default the panel's player; `auto_play`,
 default on) answers `{ok: true, music_output, moved_from, items}`. Since 0.9.0 it first checks the target: unavailable,
 or its receiver **held** (yamaha_netbridge's `held` attribute, e.g. while a movie-mode script runs) answers
 `{ok: false, reason: unavailable | held, error, music_output}` and nothing moves. Music Assistant's transfer stops and
 clears the source before the target starts, so when the target refuses anyway the panel moves the queue back to the
-source and plays it there (`reason: failed`, `restored: moved_back | resumed`); the panel's output never changes on a
+source and plays it there (`reason: failed`, `restored: moved_back | resumed`); the panel's player never changes on a
 refusal and the panel shows the reason on the music screen ("Cannot move: the receiver is busy (movie mode)"). Cover art from Music Assistant reaches the panel through
 `GET /api/kindle_panel/ma_image?url=<MA imageproxy URL>` (Home Assistant auth; only the loaded MA server's
 `/imageproxy` is fetched), for setups where the panel cannot reach Music Assistant's port.
 
-When the chosen output is one of a receiver's Music Assistant players, the panel's music turns that receiver on first,
+When the chosen player is one of a receiver's Music Assistant players, the panel's music turns that receiver on first,
 its volume keys act on the receiver, and its stream-output select is set to match (the option named in the player's
-entity id, e.g. `dlna` / `airplay`). Any other output plays as it is (volume on the player itself). The choice is
+entity id, e.g. `dlna` / `airplay`). Any other player plays as it is (volume on the player itself). The choice is
 stored per panel in Home Assistant (`kindle_panel.set_output`; `kindle_panel.get_config` answers `music_output` and
 the list `outputs`). Configs saved before 0.5.0 are migrated: the amplifier fields become a receiver `amp`, the TV fields
-a TV `tv`, and a panel that played through Home Assistant keeps the amplifier's DLNA player as its output.
+a TV `tv`, and a panel that played through Home Assistant keeps the amplifier's DLNA player as its player.
 
 The music screen never powers a receiver by itself (since 0.5.1): it is a Music Assistant controller. Playing, or
-picking an output, wakes the output's receiver (the HA package does it through the receiver's `power_device`); the
-screen shows the output's state. Device power is on the device's own screen (Media tab).
+picking a player, wakes the player's receiver (the HA package does it through the receiver's `power_device`); the
+screen shows the player's state. Device power is on the device's own screen (Media tab).
 
 ### Example: a picker key that wakes the amp and plays to it over DLNA
 
-Plug on → amp on → input SERVER → the panel's output = the amp's DLNA player. Settings → Scripts → add (YAML), then
-pick it under *F1–F4 in the output picker*. Use your own entity ids:
+Plug on → amp on → input SERVER → the panel's player = the amp's DLNA player. Settings → Scripts → add (YAML), then
+pick it under *F1–F4 in the player picker*. Use your own entity ids:
 
 ```yaml
 alias: Amp over DLNA          # the key's label on the panel
@@ -125,7 +131,7 @@ sequence:
     data: {entity_id: media_player.ma_amp_dlna}
 ```
 
-`kindle_panel.set_output` takes any Music Assistant player; the panel shows the new output within 30 s.
+`kindle_panel.set_output` takes any Music Assistant player; the panel shows the new player within 30 s.
 
 ## Icons: one pack for every button
 
@@ -146,7 +152,7 @@ Every button and key draws, in this order:
 stored as no icon at all, and a row without an icon shows **auto** in Configure. Entities whose icon HA only derives from
 the domain (plain switches, most lights) carry no `icon` attribute, so they fall through to the default. Stored icons are
 left as they are, also ones equal to an old default (`plug`, `speaker`, `tv` from 0.7.0): pick **auto** to switch such a
-row to the entity's icon. Keys without a row of their own follow the same order without step 1: Media keys and output
+row to the entity's icon. Keys without a row of their own follow the same order without step 1: Media keys and player
 picker keys that run a script or pick a Music Assistant player, custom-tab keys that run a scene or script (fallback:
 their old glyph). Power keys and custom-tab toggle keys use their plug / toggle row. Changing an icon in HA shows on the
 Kindle with the next redraw (the icons ride along with the states the app already polls; the app turns the MDI name

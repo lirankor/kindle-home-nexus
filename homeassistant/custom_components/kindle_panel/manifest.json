@@ -10,7 +10,7 @@
   "iot_class": "local_push",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.9.1",
+  "version": "0.9.2",
   "dependencies": [
     "http",
     "media_source"

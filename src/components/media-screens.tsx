@@ -59,6 +59,7 @@ import {
   nodeLabel,
   powerOnStepKey,
   radioSongLine,
+  ampElsewhereHint,
 } from "@/lib/media-ui";
 import { nodeIcon, optionalIcon, pickIcon } from "@/lib/icons";
 import { OUTPUT_PAGE_SIZE, QUEUE_PAGE_SIZE, RADIO_PAGE_SIZE } from "@/lib/media-panel";
@@ -150,6 +151,9 @@ function outputHint(panel: MediaPanel, s: MediaSnapshot | null): string | null {
       : panel.t("output.moving", { name: o.moving.name });
   // a refused / undone move (bus task 022): HA's reason, one line, instead of a label that switched anyway
   if (o.moveError) return o.moveError.error;
+  // the player's amp is on its own input (NET RADIO, …): say so and which Media key opens the amp (bus task 025)
+  const amp = ampElsewhereHint(s, panel.lang);
+  if (amp) return amp;
   if (o.playingElsewhere) return panel.t("output.elsewhere", { name: o.playingElsewhere.name });
   return null;
 }
@@ -338,48 +342,6 @@ function NodeSourceList({ panel, status }: { panel: MediaPanel; status: string }
               )}
               <span className="source-row-text">
                 <strong>{panel.nodeSourceName(src)}</strong>
-              </span>
-              {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
-            </Button>
-          );
-        })}
-      </div>
-      <p className="modal-hint">{t("source.hint")}</p>
-    </FullModal>
-  );
-}
-
-/** A receiver's NET RADIO stations (the bridge's station select, in its list order): up / down, Enter plays (the
- *  bridge turns the receiver on, selects NET RADIO and walks its menu), Back returns. Dial style: the FM frequency
- *  where the list has one, else the group. */
-function NodeStationList({ panel, status }: { panel: MediaPanel; status: string }) {
-  const { t, lang, node: n, cursor } = panel;
-  if (!n) return null;
-  const stations = n.stations ?? [];
-  return (
-    <FullModal label={t("node.stations")} actions={panel.modalActions} status={status}>
-      <header className="modal-heading">
-        <h1>{t("node.stations")}</h1>
-        <p>{nodeLabel(lang, n.name)}</p>
-      </header>
-      <div className="source-rows" role="listbox" aria-label={t("node.stations")}>
-        {sourceWindow(stations, cursor).map((st) => {
-          const index = stations.indexOf(st);
-          const current = n.on && n.source === "NET RADIO" && n.station === st.option;
-          return (
-            <Button
-              key={st.option}
-              variant="eink"
-              className="source-row"
-              role="option"
-              aria-selected={index === cursor}
-              aria-pressed={index === cursor}
-              data-current={current}
-              onClick={() => panel.setCursor(index)}
-            >
-              <span className="source-row-text">
-                <strong>{st.name}</strong>
-                <small>{st.fm !== null ? <Ltr>{`FM ${st.fm.toFixed(1)}`}</Ltr> : st.group}</small>
               </span>
               {current && <Check size={28} strokeWidth={2.5} aria-hidden="true" />}
             </Button>
@@ -823,7 +785,11 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
   const { t, lang, data: s, dialPos, dialStation, radioLists } = panel;
   const list = listById(radioLists, dialPos.list);
   const on = s?.amp.on ?? false;
-  const playingId = on && s?.nowPlaying.kind === "radio" ? s.nowPlaying.stationId : null;
+  // the amp's tuner only (bus task 025): Music Assistant radio over AirPlay / DLNA is not shown as the dial's station
+  const netRadio = on && s?.amp.source === "NET RADIO" && s.nowPlaying.kind === "radio";
+  const playingId = netRadio ? s.nowPlaying.stationId : null;
+  // the amp's own input and volume (its node), not the MA player's projection (AirPlay read "SERVER" here)
+  const amp = s?.output ? ampNode(s) : null;
   const playing =
     (playingId ? radioLists?.flatMap((l) => l.stations).find((x) => x.id === playingId) : null) ??
     null;
@@ -833,7 +799,7 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
       ? t("amp.unavailable")
       : !on
         ? t("amp.off")
-        : s.nowPlaying.kind === "radio"
+        : netRadio
           ? (playing?.name ?? s.nowPlaying.station ?? t("source.NET RADIO"))
           : t("amp.nothing");
   const song =
@@ -841,11 +807,13 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
       ? ""
       : !on
         ? t("radio.offHint")
-        : s.nowPlaying.kind === "radio"
+        : netRadio
           ? radioSongLine(s.nowPlaying)
-          : (s.nowPlaying.title ?? "");
+          : amp
+            ? t("radio.tuneHint")
+            : (s.nowPlaying.title ?? "");
   const detail = on && playing ? stationDetail(playing) : "";
-  const db = on && s ? displayDb(s.amp) : null;
+  const db = amp ? (amp.on ? amp.volumeDb : null) : on && s ? displayDb(s.amp) : null;
   const loading = panel.radioListsLoading && !radioLists;
   return (
     <FullModal label={t("radio.title")} actions={panel.modalActions} status={status} compactStatus>
@@ -897,8 +865,14 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
                 db={db}
                 label={t("media.volume")}
                 sourceTitle={t("media.source")}
-                source={sourceLabel(panel, s?.amp.source ?? null)}
-                mode={transportMode(s)}
+                source={
+                  amp
+                    ? amp.on
+                      ? inputLabel(lang, amp, amp.source)
+                      : t("amp.off")
+                    : sourceLabel(panel, s?.amp.source ?? null)
+                }
+                mode={amp && !netRadio ? (amp.on ? "stopped" : "off") : transportMode(s)}
                 small
               />
             </div>
@@ -1395,8 +1369,6 @@ export function MediaModal({ panel, status }: { panel: MediaPanel; status: strin
       return <NodeScreen panel={panel} status={status} />;
     case "nodesource":
       return <NodeSourceList panel={panel} status={status} />;
-    case "nodestation":
-      return <NodeStationList panel={panel} status={status} />;
     case "output":
       return <OutputPicker panel={panel} status={status} />;
     case "radio":

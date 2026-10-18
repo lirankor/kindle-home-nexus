@@ -10,7 +10,6 @@ import { invalidatePanelConfig, panelConfigNow, setMusicOutput } from "./panel-c
 import type { HaState } from "./home.server";
 import {
   AMP,
-  FAVOURITES_LIST_ID,
   MEDIA_NODES,
   OUTPUT_KEYS,
   RADIO_LISTS,
@@ -33,7 +32,6 @@ import type {
   QueueProgress,
   RadioListsResult,
   RadioPosition,
-  RadioStationView,
 } from "./media";
 
 /** One panel, one output (bus task 014): the Music Assistant player (or MA group) chosen in the panel's output
@@ -535,7 +533,9 @@ export function projectStates(
   return out;
 }
 
-/** Radio now playing (MA radio over AirPlay): the snapshot builder only knows NET RADIO, so patch it. */
+/** Radio now playing (MA radio over AirPlay): the snapshot builder only knows NET RADIO, so patch the now-playing
+ *  (station, ICY line, the station id for its logo). Bus task 025: MA radio is not the amp's NET RADIO, so the dial
+ *  position (`radio`) is left alone; the dial belongs to the amp node and follows only the receiver's own tuner. */
 export function withRadio(snap: MediaSnapshot, s: HaMusicState): MediaSnapshot {
   if (s.nowPlaying.kind !== "radio" || !snap.amp.on) return snap;
   const icy = radioTrackOf(s.nowPlaying);
@@ -552,7 +552,6 @@ export function withRadio(snap: MediaSnapshot, s: HaMusicState): MediaSnapshot {
       stationId: radioStationIdOf(s.nowPlaying.station),
       preset: null,
     },
-    radio: positionOf(s.nowPlaying.station) ?? snap.radio,
   };
 }
 
@@ -792,84 +791,51 @@ export async function playSelectionHa(
   };
 }
 
-/** Catalogue bands + MA's favourite radios as the favourites band. */
+/** The dial's bands (bus task 025): the amp's own station directory only, i.e. the groups of the bridge's NET RADIO
+ *  station select (RADIO_LISTS). No Music Assistant favourites band: MA radio is MA's, not the amp's tuner. The bridge
+ *  publishes no preset list, so there is no presets band either. */
 export async function readRadioListsHa(): Promise<RadioListsResult> {
-  let favourites: RadioStationView[] = [];
-  let error: string | undefined;
-  try {
-    const r = await haScript<{ ok: boolean; stations: { name: string; image: string | null }[] }>(
-      "music_radio_favourites",
-      outputFields(),
-    );
-    favourites = r.stations.map((f) => {
-      const cat = stationByName(f.name);
-      if (!cat) rememberMaStation(maStationId(f.name), f.name, f.image);
-      return cat
-        ? { ...cat, ytunerId: null, favourite: true }
-        : {
-            id: maStationId(f.name),
-            name: f.name,
-            url: "",
-            codec: "",
-            bitrate: 0,
-            fm: null,
-            logo: f.image,
-            ytunerId: null,
-            favourite: true,
-          };
-    });
-  } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
-  }
-  const favNames = new Set(favourites.map((f) => normName(f.name)));
   return {
     configured: true,
-    ...(error === undefined ? {} : { error }),
-    favouritesExternal: true,
-    lists: [
-      { id: FAVOURITES_LIST_ID, stations: favourites },
-      ...RADIO_LISTS.map((l) => ({
-        id: l.id,
-        name: l.ytunerCategory,
-        stations: l.stations.map((s) => ({
-          ...s,
-          ytunerId: null,
-          favourite: favNames.has(normName(s.name)),
-        })),
-      })),
-    ],
+    lists: RADIO_LISTS.map((l) => ({
+      id: l.id,
+      name: l.ytunerCategory,
+      stations: l.stations.map((s) => ({ ...s, ytunerId: null, favourite: false })),
+    })),
     current: lastRadio,
   };
 }
 
-async function stationAt(list: string, index: number): Promise<string> {
-  if (list === FAVOURITES_LIST_ID) {
-    const r = await readRadioListsHa();
-    const st = r.lists[0]?.stations[index];
-    if (!st) throw new HomeError("No such station");
-    return st.name;
-  }
-  const st = RADIO_LISTS.find((l) => l.id === list)?.stations[index];
-  if (!st) throw new HomeError("No such station");
-  return st.name;
+/** The receiver whose NET RADIO the dial tunes: the receiver node with the bridge's station select. */
+const netRadioNode = (): MediaNode | undefined =>
+  MEDIA_NODES.find((n) => n.type === "receiver" && !!n.net_radio);
+
+/** The bridge select's option for a station id (options and the `stations` attribute go by position). */
+export function netRadioOptionFor(
+  sel: HaState | null | undefined,
+  stationId: string,
+): string | null {
+  const a = (sel?.attributes ?? {}) as { options?: unknown; stations?: unknown };
+  const options = Array.isArray(a.options) ? (a.options as unknown[]) : [];
+  const stations = Array.isArray(a.stations) ? (a.stations as { id?: unknown }[]) : [];
+  const i = stations.findIndex((x) => x?.id === stationId);
+  const o = i >= 0 ? options[i] : undefined;
+  return typeof o === "string" ? o : null;
 }
 
+/** Tune the amp's NET RADIO (bus task 025): the bridge's station select powers the receiver on, selects NET RADIO and
+ *  walks its menu (seconds; not awaited). Music Assistant is not involved and the panel's player does not change. */
 export async function tuneRadioHa(list: string, index: number): Promise<RadioPosition> {
-  const name = await stationAt(list, index);
-  const r = await haScript<PlayAnswer & { player?: string; rerouted?: boolean }>(
-    "play_radio",
-    { station: name, ...outputFields() },
-    30_000,
+  const st = RADIO_LISTS.find((l) => l.id === list)?.stations[index];
+  if (!st) throw new HomeError("No such station");
+  const n = netRadioNode();
+  if (!n?.net_radio) throw new HomeError("This receiver has no NET RADIO stations");
+  const sel = await ha<HaState>("GET", `/api/states/${n.net_radio}`);
+  const option = netRadioOptionFor(sel, st.id);
+  if (!option) throw new HomeError(`The receiver's station list has no ${st.name}`);
+  void service("select", "select_option", { entity_id: n.net_radio, option }).catch((e: unknown) =>
+    console.warn(`[radio] ${n.net_radio} select_option failed:`, e),
   );
-  if (!r.ok) throw new HomeError(r.error ?? "Music Assistant refused");
-  // HA plays radio on another player than the panel's output (house.radio_player: the amp's DLNA player hands radio
-  // to its AirPlay player): the panel's output follows, so its label, queue and keys match what plays (bus task 021).
-  // Only the output changes; the receiver's DLNA/AirPlay select (library music's path for voice) is left alone.
-  if (r.rerouted && r.player && r.player !== musicOutput()?.player)
-    await setMusicOutput(r.player).catch((e: unknown) =>
-      console.warn("[output] radio reroute not followed:", e),
-    );
-  if (r.status === "powering_on") powerStartedAt = Date.now();
   lastRadio = { list, index };
   lastState = null;
   return lastRadio;
@@ -877,10 +843,7 @@ export async function tuneRadioHa(list: string, index: number): Promise<RadioPos
 
 async function radioStepHa(delta: 1 | -1) {
   const cur = lastRadio ?? { list: RADIO_LISTS[0]?.id ?? "local", index: -1 };
-  const size =
-    cur.list === FAVOURITES_LIST_ID
-      ? ((await readRadioListsHa()).lists[0]?.stations.length ?? 0)
-      : (RADIO_LISTS.find((l) => l.id === cur.list)?.stations.length ?? 0);
+  const size = RADIO_LISTS.find((l) => l.id === cur.list)?.stations.length ?? 0;
   if (!size) throw new HomeError("No stations");
   await tuneRadioHa(cur.list, (cur.index + delta + size) % size);
 }
@@ -1110,18 +1073,18 @@ export async function performMediaActionHa(
     case "radio.step":
       await radioStepHa(a.delta);
       return;
-    case "radio.playback":
+    case "radio.playback": {
+      // The dial is the amp's NET RADIO (bus task 025): play / stop act on the receiver only, never on Music Assistant.
+      const amp = netRadioNode()?.power_device ?? (await ampTarget());
       if (a.op === "stop") {
-        // The receiver's own NET RADIO is not Music Assistant's: stop it on the bridge, MA's stop would not reach it.
-        const amp = await ampTarget();
         const b = await ha<HaState>("GET", `/api/states/${amp}`).catch(() => null);
-        if (receiverPlaysOwnInput(b)) {
-          await service("media_player", "media_stop", { entity_id: amp });
-          lastState = null;
-        } else await control("stop");
+        if (!receiverPlaysOwnInput(b)) throw new HomeError("NET RADIO is not playing");
+        await service("media_player", "media_stop", { entity_id: amp });
+        lastState = null;
       } else if (lastRadio) await tuneRadioHa(lastRadio.list, lastRadio.index);
-      else await control("resume");
+      else await service("media_player", "select_source", { entity_id: amp, source: "NET RADIO" });
       return;
+    }
     case "radio.favourite":
       throw new HomeError("Favourites are kept in Music Assistant");
     case "queue": {

@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HaState } from "./home.server";
-import { AMP, RADIO_LISTS, catalogLogoHosts, findStation, rememberMaStation } from "./media";
+import {
+  AMP,
+  MEDIA_NODES,
+  RADIO_LISTS,
+  catalogLogoHosts,
+  findStation,
+  rememberMaStation,
+} from "./media";
 import type { MusicTrack } from "./media";
 import {
   movingView,
@@ -31,6 +38,7 @@ import { buildMediaSnapshot } from "./media.server";
 
 /** The owner's receiver (yamaha_netbridge), as HA's music_state reports it for the house default output. */
 const BRIDGE = "media_player.r_n500";
+const SELECT = "select.r_n500_net_radio_station";
 const jf = (id: string) => id.padStart(32, "0"); // Jellyfin-style 32-hex ids
 const track = (title: string, id: string) => ({
   title,
@@ -190,7 +198,7 @@ describe("snapshot through the panel's own builder", () => {
     expect(snap.nowPlaying.title).toBe("Hotel California");
     expect(snap.nowPlaying.artItemId).toBe(jf("a1"));
   });
-  it("shows MA radio over AirPlay as radio on the catalogue station", () => {
+  it("shows MA radio over AirPlay as radio on the catalogue station, without moving the amp's dial (bus task 025)", () => {
     const station = RADIO_LISTS[1]!.stations[0]!;
     const states = new Map([[BRIDGE, st(BRIDGE, "on", { source: "AirPlay" })]]);
     const s = music({
@@ -208,8 +216,9 @@ describe("snapshot through the panel's own builder", () => {
     });
     const snap = withRadio(buildMediaSnapshot(projectStates(states, s), {}), s);
     expect(snap.nowPlaying.kind).toBe("radio");
-    expect(snap.nowPlaying.stationId).toBe(station.id);
-    expect(snap.radio).toEqual({ list: RADIO_LISTS[1]!.id, index: 0 });
+    expect(snap.nowPlaying.stationId).toBe(station.id); // kept for the music screen's station logo
+    // MA radio is not the amp's NET RADIO: no dial position from it (bus task 025)
+    expect(snap.radio ?? null).toBeNull();
   });
   it("MA radio the bridge's list lacks gets the favourites' ma: id and the ICY line (bus task 024)", () => {
     const states = new Map([[BRIDGE, st(BRIDGE, "on", { source: "AirPlay" })]]);
@@ -415,7 +424,16 @@ describe("HA calls", () => {
         const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
         calls.push({ path, body });
         let payload: unknown = [];
-        if (path === `/api/states/${BRIDGE}`)
+        if (path === `/api/states/${SELECT}`)
+          payload = {
+            entity_id: SELECT,
+            state: "unknown",
+            attributes: {
+              options: RADIO_LISTS.flatMap((l) => l.stations).map((x) => `opt ${x.id}`),
+              stations: RADIO_LISTS.flatMap((l) => l.stations).map((x) => ({ id: x.id })),
+            },
+          };
+        else if (path === `/api/states/${BRIDGE}`)
           payload = {
             entity_id: BRIDGE,
             state: "on",
@@ -517,15 +535,18 @@ describe("HA calls", () => {
     await performMediaActionHa({ type: "tv", op: "turn_on" }, legacy);
     expect(legacy).toHaveBeenCalledOnce(); // TV / plug / movie keep their old path
   });
-  it("the radio stop key stops the receiver's own NET RADIO on the bridge, MA's radio through MA (Q18)", async () => {
+  it("the dial's stop key stops the receiver's own NET RADIO on the bridge and never Music Assistant (Q18, bus task 025)", async () => {
     bridgeForeign = "playing";
     await performMediaActionHa({ type: "radio.playback", op: "stop" }, vi.fn());
     expect(calls.at(-1)?.path).toBe("/api/services/media_player/media_stop");
     expect(calls.at(-1)?.body).toEqual({ entity_id: BRIDGE });
     bridgeForeign = "stopped";
-    await performMediaActionHa({ type: "radio.playback", op: "stop" }, vi.fn());
-    expect(calls.at(-1)?.path).toContain("/api/services/script/music_control");
-    expect(calls.at(-1)?.body).toEqual({ op: "stop" });
+    calls.length = 0;
+    await expect(
+      performMediaActionHa({ type: "radio.playback", op: "stop" }, vi.fn()),
+    ).rejects.toThrow("NET RADIO is not playing");
+    expect(calls.some((c) => c.path.includes("/api/services/script/music_control"))).toBe(false);
+    expect(calls.some((c) => c.path.includes("media_stop"))).toBe(false);
     bridgeForeign = null;
   });
   it("jumps with kindle_panel.play_index on the active MA player", async () => {
@@ -533,12 +554,49 @@ describe("HA calls", () => {
     const call = calls.find((c) => c.path === "/api/services/kindle_panel/play_index")!;
     expect(call.body).toEqual({ entity_id: "media_player.ma_amp_dlna", index: 12 });
   });
-  it("tunes a catalogue station by name through script.play_radio", async () => {
+  it("tunes the amp's NET RADIO through the bridge's station select, never Music Assistant (bus task 025)", async () => {
     const station = RADIO_LISTS[0]!.stations[2]!;
-    const { tuneRadioHa } = await import("./media-ha.server");
-    const pos = await tuneRadioHa(RADIO_LISTS[0]!.id, 2);
-    expect(calls.at(-1)?.body).toEqual({ station: station.name });
-    expect(pos).toEqual({ list: RADIO_LISTS[0]!.id, index: 2 });
+    const saved = MEDIA_NODES.slice();
+    MEDIA_NODES.splice(0, MEDIA_NODES.length, {
+      id: "amp",
+      type: "receiver",
+      name: "Yamaha R-N500",
+      power_device: BRIDGE,
+      net_radio: SELECT,
+    });
+    try {
+      const { tuneRadioHa } = await import("./media-ha.server");
+      const pos = await tuneRadioHa(RADIO_LISTS[0]!.id, 2);
+      expect(pos).toEqual({ list: RADIO_LISTS[0]!.id, index: 2 });
+      await vi.waitFor(() =>
+        expect(calls.find((c) => c.path === "/api/services/select/select_option")?.body).toEqual({
+          entity_id: SELECT,
+          option: `opt ${station.id}`,
+        }),
+      );
+      expect(calls.some((c) => c.path.includes("/api/services/script/play_radio"))).toBe(false);
+      expect(calls.some((c) => c.path.includes("music_control"))).toBe(false);
+    } finally {
+      MEDIA_NODES.splice(0, MEDIA_NODES.length, ...saved);
+    }
+  });
+  it("the dial's bands are the amp's station list only: no MA favourites band, no music_radio_favourites call, no ma: ids (bus task 025)", async () => {
+    const { readRadioListsHa } = await import("./media-ha.server");
+    const r = await readRadioListsHa();
+    expect(r.lists.map((l) => l.id)).toEqual(RADIO_LISTS.map((l) => l.id));
+    expect(r.lists.some((l) => l.id === "favourites")).toBe(false);
+    expect(r.lists.flatMap((l) => l.stations).some((x) => x.id.startsWith("ma:"))).toBe(false);
+    expect(calls.some((c) => c.path.includes("music_radio_favourites"))).toBe(false);
+  });
+  it("the bridge select's option goes by the station's position in its list", async () => {
+    const { netRadioOptionFor } = await import("./media-ha.server");
+    const sel = st(SELECT, "unknown", {
+      options: ["G · A", "G · B"],
+      stations: [{ id: "a" }, { id: "b" }],
+    });
+    expect(netRadioOptionFor(sel, "b")).toBe("G · B");
+    expect(netRadioOptionFor(sel, "zz")).toBeNull();
+    expect(netRadioOptionFor(null, "a")).toBeNull();
   });
   it("builds the snapshot from HA states + script.music_state", async () => {
     const snap = await readMediaSnapshotHa(buildMediaSnapshot);

@@ -6,10 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DeviceActions, pressSoftKey } from "@/components/device-actions";
 import { MediaCards, MediaModal } from "@/components/media-screens";
 import { LangContext } from "@/lib/lang-context";
-import { demoMediaSnapshot, demoMusicList, demoRadioLists } from "@/lib/media";
+import { RADIO_LISTS, demoMediaSnapshot, demoMusicList, demoRadioLists } from "@/lib/media";
 import type { MusicTab } from "@/lib/media";
 import { useMediaPanel } from "@/lib/media-panel";
-import type { MediaSnapshotResult } from "@/lib/media";
+import type { MediaSnapshotResult, RadioListsResult } from "@/lib/media";
+import { bandLabel } from "@/lib/radio-dial";
 
 const mocks = vi.hoisted(() => ({
   getMediaSnapshot: vi.fn(),
@@ -219,8 +220,8 @@ describe("Media tab and amp view", () => {
     renderPanel("en");
     await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
     press("F1"); // music: no output yet, so the picker first
-    let picker = screen.getByRole("dialog", { name: "Play music on" });
-    expect(picker.textContent).toContain("No output chosen yet");
+    let picker = screen.getByRole("dialog", { name: "Players" });
+    expect(picker.textContent).toContain("No player chosen yet");
     const options = () => Array.from(picker.querySelectorAll('[role="option"]'));
     expect(options().map((o) => o.querySelector("strong")?.textContent)).toEqual([
       "R-N500",
@@ -239,7 +240,7 @@ describe("Media tab and amp view", () => {
     expect(mocks.runMediaAction).not.toHaveBeenCalled();
     // again; Enter on the second row plays there from now on and lands on the music screen
     press("F1");
-    picker = screen.getByRole("dialog", { name: "Play music on" });
+    picker = screen.getByRole("dialog", { name: "Players" });
     press("ArrowDown");
     press("Enter");
     await waitFor(() =>
@@ -247,7 +248,7 @@ describe("Media tab and amp view", () => {
         data: { type: "output", entity: "media_player.ma_amp_airplay" },
       }),
     );
-    expect(screen.queryByRole("dialog", { name: "Play music on" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Players" })).toBeNull();
   });
 
   it("picker = MA's players (task 021): state + what plays, unexposed rows not selectable, Right / Move here moves the music", async () => {
@@ -301,7 +302,7 @@ describe("Media tab and amp view", () => {
     await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
     press("F1");
     press("F3"); // Output
-    const picker = screen.getByRole("dialog", { name: "Play music on" });
+    const picker = screen.getByRole("dialog", { name: "Players" });
     const rows = () => Array.from(picker.querySelectorAll('[role="option"]'));
     expect(rows().map((o) => o.textContent)).toEqual([
       expect.stringContaining("Holiday · Scorpions"),
@@ -376,7 +377,7 @@ describe("Media tab and amp view", () => {
     press("F1");
     expect(screen.getByRole("dialog").textContent).toContain("R-N500 AirPlay + TV");
     press("F3"); // Output
-    const picker = screen.getByRole("dialog", { name: "Play music on" });
+    const picker = screen.getByRole("dialog", { name: "Players" });
     const rows = () => Array.from(picker.querySelectorAll('[role="option"]'));
     const legend = () =>
       Array.from(picker.querySelectorAll("[data-soft-key]")).map((b) => b.textContent);
@@ -453,7 +454,7 @@ describe("Media tab and amp view", () => {
     await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
     press("F1");
     press("F3"); // Output
-    const picker = screen.getByRole("dialog", { name: "Play music on" });
+    const picker = screen.getByRole("dialog", { name: "Players" });
     const rows = () => Array.from(picker.querySelectorAll('[role="option"]'));
     expect(rows()).toHaveLength(5);
     expect(picker.querySelector(".modal-heading")?.textContent).toContain("1/2");
@@ -565,7 +566,7 @@ describe("Media tab and amp view", () => {
     expect(now.textContent).toContain("R-N500 AirPlay is playing · F3 to switch");
   });
 
-  it("output chosen: the music screen has Radio / Library / Output / Playlist, F3 opens the picker on the current one, a quick key switches", async () => {
+  it("output chosen: the music screen has (Playlist) / Library / Player, no Radio, F3 opens the picker on the current one, a quick key switches", async () => {
     const r = liveResult();
     r.snapshot!.amp.source = "SERVER";
     r.snapshot!.nowPlaying = { ...r.snapshot!.nowPlaying, kind: "music", station: null };
@@ -586,14 +587,14 @@ describe("Media tab and amp view", () => {
     press("F1");
     const now = screen.getByRole("dialog", { name: "Amplifier view" });
     expect(Array.from(now.querySelectorAll("[data-soft-key]")).map((b) => b.textContent)).toEqual([
-      "Radio",
+      "\u00a0", // no queue: F1 empty; no radio key (bus task 025)
       "Library",
-      "Output",
+      "Player",
       "\u00a0",
     ]);
     expect(now.textContent).toContain("R-N500");
     press("F3");
-    const picker = screen.getByRole("dialog", { name: "Play music on" });
+    const picker = screen.getByRole("dialog", { name: "Players" });
     expect(picker.querySelector('[aria-selected="true"]')?.textContent).toContain("R-N500");
     press("F2"); // quick key: Kitchen
     await waitFor(() =>
@@ -629,9 +630,9 @@ describe("Media tab and amp view", () => {
     press("F1");
     const now = screen.getByRole("dialog", { name: "Amplifier view" });
     expect(Array.from(now.querySelectorAll("[data-soft-key]")).map((b) => b.textContent)).toEqual([
-      "Radio",
+      "\u00a0", // no queue: F1 empty; no radio key (bus task 025)
       "Library",
-      "Output",
+      "Player",
       "\u00a0",
     ]);
     expect(now.textContent).toContain("Playing something turns it on"); // no "right-hand button" hint
@@ -661,7 +662,7 @@ describe("Media tab and amp view", () => {
     press("F1");
     expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
     press("F3");
-    const picker = screen.getByRole("dialog", { name: "Play music on" });
+    const picker = screen.getByRole("dialog", { name: "Players" });
     expect(
       Array.from(picker.querySelectorAll("[data-soft-key]")).map((b) => b.textContent),
     ).toEqual(["Amp over DLNA", "Kitchen", "Sync", "Move here"]);
@@ -672,6 +673,145 @@ describe("Media tab and amp view", () => {
       }),
     );
     expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
+  });
+
+  // ---- bus task 025: the MA controller is MA only; the dial is the amp's NET RADIO, reached from the amp node ----
+  /** Music through HA: an output (R-N500 AirPlay), the amp node with the bridge's station select. */
+  const haResult = (nodeSource: string): MediaSnapshotResult => {
+    const r = liveResult();
+    r.snapshot!.output = {
+      entity: "media_player.ma_amp_airplay",
+      name: "R-N500 AirPlay",
+      valid: true,
+      outputs: [
+        { entity_id: "media_player.ma_amp_airplay", name: "R-N500 AirPlay", state: "idle" },
+      ],
+      keys: ["none", "none", "none", "none"],
+    };
+    r.snapshot!.nodes![0] = { ...r.snapshot!.nodes![0]!, source: nodeSource, stations: [] };
+    // the projection: AirPlay is MA's path and reads SERVER, NET RADIO stays NET RADIO
+    r.snapshot!.amp.source = nodeSource === "AirPlay" ? "SERVER" : nodeSource;
+    return r;
+  };
+  /** The HA backend's dial lists: the bridge's groups only, no favourites band. */
+  const haLists = (): RadioListsResult => {
+    const r = demoRadioLists();
+    return { ...r, configured: true, lists: r.lists.filter((l) => l.id !== "favourites") };
+  };
+  const keysOf = (el: Element) =>
+    Array.from(el.querySelectorAll("[data-soft-key]")).map((b) => b.textContent);
+
+  it("music screen keys through HA: F1 Playlist when the player has a queue, F2 Library, F3 Player, F4 empty, no Radio (bus task 025)", async () => {
+    const r = haResult("AirPlay");
+    r.snapshot!.nowPlaying = { ...r.snapshot!.nowPlaying, kind: "music", station: null };
+    r.snapshot!.queue = {
+      title: "Eagles",
+      index: 0,
+      count: 3,
+      track: null,
+      positionMs: 0,
+      durationMs: 0,
+      status: "playing",
+      prevTrack: null,
+      nextTracks: [],
+      stall: null,
+    };
+    mocks.getMediaSnapshot.mockResolvedValue(r);
+    renderPanel("he");
+    await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
+    press("F1");
+    const now = screen.getByRole("dialog", { name: "תצוגת המגבר" });
+    expect(keysOf(now)).toEqual(["רשימת השמעה", "ספריה", "נגן", "\u00a0"]);
+    press("F3");
+    expect(screen.getByRole("dialog", { name: "נגנים" })).toBeVisible();
+  });
+
+  it("the music key never opens the dial, and the music screen says the amp is on NET RADIO with the Media key of the amp node (bus task 025)", async () => {
+    mocks.getMediaSnapshot.mockResolvedValue(haResult("NET RADIO"));
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
+    press("F1");
+    const now = screen.getByRole("dialog", { name: "Amplifier view" });
+    expect(screen.queryByRole("dialog", { name: "Radio" })).toBeNull();
+    expect(now.querySelector(".amp-sub2")?.textContent).toBe(
+      "Amp on NET RADIO · Amplifier → F2 on Media",
+    );
+    expect(keysOf(now)).not.toContain("Radio");
+  });
+
+  it("the amp node opens on the dial while NET RADIO plays; the dial has the amp's bands only, its volume, and Back returns to the amp node (bus task 025)", async () => {
+    mocks.getMediaSnapshot.mockResolvedValue(haResult("NET RADIO"));
+    mocks.getRadioLists.mockResolvedValue(haLists());
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open Amplifier")).toBeVisible());
+    press("F2"); // the amp node: on NET RADIO, so straight onto the dial
+    const radio = screen.getByRole("dialog", { name: "Radio" });
+    const first = bandLabel("en", RADIO_LISTS[0]!.id, haLists().lists);
+    await waitFor(() => expect(keysOf(radio)[0]).toBe(first));
+    // no favourites heart (F2), no MA player key (F3)
+    expect(keysOf(radio)).toEqual([first, "\u00a0", "\u00a0", "Station list"]);
+    press("F1"); // the band picker: the bridge's groups, no Favourites
+    const bands = document.querySelector(".full-modal");
+    expect(bands?.textContent).toContain(first);
+    expect(bands?.textContent).not.toContain("Favourites");
+    press("Escape");
+    press("ArrowUp"); // the amp node's volume, not the MA player's
+    await waitFor(() =>
+      expect(mocks.runMediaAction).toHaveBeenLastCalledWith({
+        data: { type: "node", id: "amp", op: "volume", delta: 1 },
+      }),
+    );
+    press("Escape"); // Back: the amp node screen, not the music screen, and not the dial again
+    const node = screen.getByRole("dialog", { name: "Device" });
+    expect(node.querySelector("h1")?.textContent).toBe("Amplifier");
+    expect(keysOf(node)).toEqual(["Back", "Source", "Stream DLNA", "On / Off"]);
+    press("F2"); // the source list; NET RADIO opens the dial and switches nothing yet
+    press("Enter");
+    expect(screen.getByRole("dialog", { name: "Radio" })).toBeVisible();
+    expect(mocks.runMediaAction).not.toHaveBeenCalledWith({
+      data: { type: "node", id: "amp", op: "source", source: "NET RADIO" },
+    });
+    press("Escape");
+    expect(screen.getByRole("dialog", { name: "Device" })).toBeVisible();
+  });
+
+  it("MA radio over AirPlay is not the dial's station: the amp node opens on its screen, the dial does not follow MA, Enter tunes the needle's station (bus task 025)", async () => {
+    const r = haResult("AirPlay");
+    const other = RADIO_LISTS[0]!.stations[2]!;
+    r.snapshot!.nowPlaying = {
+      ...r.snapshot!.nowPlaying,
+      kind: "radio",
+      station: other.name,
+      stationId: other.id,
+    };
+    r.snapshot!.radio = null;
+    mocks.getMediaSnapshot.mockResolvedValue(r);
+    mocks.getRadioLists.mockResolvedValue(haLists());
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open Amplifier")).toBeVisible());
+    press("F2");
+    expect(screen.getByRole("dialog", { name: "Device" })).toBeVisible();
+    press("F2"); // source list
+    const list = screen.getByRole("listbox", { name: "Source" });
+    const rows = Array.from(list.querySelectorAll("strong")).map((x) => x.textContent);
+    // cursor starts on AirPlay; walk up to NET RADIO
+    for (let i = rows.indexOf("AirPlay"); i > rows.indexOf("NET RADIO"); i--) press("ArrowUp");
+    press("Enter");
+    const radio = screen.getByRole("dialog", { name: "Radio" });
+    await waitFor(() => expect(keysOf(radio)[3]).toBe("Station list"));
+    await waitFor(() =>
+      expect(document.querySelectorAll(".radio-dial rect").length).toBeGreaterThan(0),
+    );
+    expect(radio.querySelector(".radio-now-name")?.textContent).toBe("Nothing is playing");
+    press("Enter"); // the amp is not on NET RADIO: tune the station under the needle (first of the first band)
+    await waitFor(() =>
+      expect(mocks.tuneRadioStation).toHaveBeenCalledWith({
+        data: { list: RADIO_LISTS[0]!.id, index: 0 },
+      }),
+    );
+    expect(mocks.runMediaAction).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ type: "radio.playback" }) }),
+    );
   });
 
   it("opens the active source's screen from the amp card: the radio for NET RADIO, the amp view for the turntable", async () => {

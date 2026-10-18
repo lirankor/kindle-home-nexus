@@ -78,7 +78,7 @@
       },
       "media": {
         "title": "Media tab and music",
-        "description": "The Media tab lists your media devices (nodes); the music screen plays through Music Assistant to the output picked on the panel (its own picker; groups are made in Music Assistant).",
+        "description": "The Media tab lists your media devices (nodes); the music screen plays through Music Assistant on the player picked on the panel (its own player picker; groups are made in Music Assistant). The amp's NET RADIO dial is on the amp's own device screen.",
         "data": {
           "music_backend": "Music played by",
           "nodes": "Media devices (nodes)",
@@ -86,20 +86,20 @@
           "key_f2": "F2 on the Media tab",
           "key_f3": "F3 on the Media tab",
           "key_f4": "F4 on the Media tab",
-          "out_f1": "F1 in the output picker",
-          "out_f2": "F2 in the output picker",
-          "out_f3": "F3 in the output picker",
-          "out_f4": "F4 in the output picker",
-          "show_unavailable_outputs": "Output picker: also list unavailable players (debugging)",
-          "hidden_outputs": "Output picker: never list these players",
+          "out_f1": "F1 in the player picker",
+          "out_f2": "F2 in the player picker",
+          "out_f3": "F3 in the player picker",
+          "out_f4": "F4 in the player picker",
+          "show_unavailable_outputs": "Player picker: also list unavailable players (debugging)",
+          "hidden_outputs": "Player picker: never list these players",
           "inputs_for": "Then rename / hide the inputs of"
         },
         "data_description": {
-          "nodes": "One row per device. Type receiver: Entity = the receiver's media player (power, inputs); optional volume number, plug, stream output select (DLNA/AirPlay) and the Music Assistant players it plays (an output among them turns the receiver on first). Type tv: Entity = the TV's media player; optional movie mode scripts and boolean. Id: a-z, 0-9, _ (keep it once chosen; the F-keys use it).",
+          "nodes": "One row per device. Type receiver: Entity = the receiver's media player (power, inputs); optional volume number, plug, stream output select (DLNA/AirPlay) and the Music Assistant players it plays (the panel's player among them turns the receiver on first). Type tv: Entity = the TV's media player; optional movie mode scripts and boolean. Id: a-z, 0-9, _ (keep it once chosen; the F-keys use it).",
           "key_f1": "Music screen, a device's controls, a script, all off or nothing. Devices added on this page are offered after saving and reopening it.",
-          "out_f1": "Quick keys in the output picker: a Music Assistant player or group (picks it), a script (runs it, e.g. plug on, amp on, input SERVER, output DLNA; see the README), or nothing.",
+          "out_f1": "Quick keys in the player picker: a Music Assistant player or group (picks it), a script (runs it, e.g. plug on, amp on, input SERVER, output DLNA; see the README), or nothing.",
           "show_unavailable_outputs": "Off (default): the picker lists only players that can be chosen now. On: unavailable players and Music Assistant players without a Home Assistant entity (MA's Expose to Home Assistant is off, e.g. a browser's web player) are listed greyed.",
-          "hidden_outputs": "Music Assistant players the Kindle's picker leaves out (e.g. a phone). Players hidden in Music Assistant itself (its \"Hide player\" setting) are left out anyway. The panel's current output is always listed; the F-key dropdowns above still offer every player.",
+          "hidden_outputs": "Music Assistant players the Kindle's picker leaves out (e.g. a phone). Players hidden in Music Assistant itself (its \"Hide player\" setting) are left out anyway. The panel's current player is always listed; the F-key dropdowns above still offer every player.",
           "inputs_for": "Pick a device (or type the id of one added above) to go on to its inputs: the list comes live from its media player (source_list), in the device's order; rename an input (e.g. CD -> Bluetooth & TV) or hide it. Both pages are saved together there."
         }
       },
@@ -316,7 +316,7 @@
       "description": "All kept and skipped photo ids."
     },
     "set_output": {
-      "name": "Set the music output",
+      "name": "Set the panel's music player",
       "description": "The Music Assistant player (or MA group) this panel plays its music to.",
       "fields": {
         "entity_id": {
@@ -327,7 +327,7 @@
     },
     "move_queue": {
       "name": "Move the music to another player",
-      "description": "Music Assistant moves the queue (with the position) from the panel's output, or the given source player, to this player and stops the source; this player then becomes the panel's output.",
+      "description": "Music Assistant moves the queue (with the position) from the panel's player, or the given source player, to this player and stops the source; this player then becomes the panel's player.",
       "fields": {
         "entity_id": {
           "name": "Target player",
@@ -335,7 +335,7 @@
         },
         "source_player": {
           "name": "Source player",
-          "description": "Where the music is now. Leave empty: the panel's current output."
+          "description": "Where the music is now. Leave empty: the panel's current player."
         },
         "auto_play": {
           "name": "Play at once",
@@ -344,7 +344,7 @@
       }
     },
     "sync_output": {
-      "name": "Sync a player with the panel's output",
+      "name": "Sync a player with the panel's player",
       "description": "Music Assistant plays this player in sync with the leader (HA media_player.join), or takes it out of the group. Answers ok false with the reason when Music Assistant says no.",
       "fields": {
         "entity_id": {
@@ -353,7 +353,7 @@
         },
         "leader": {
           "name": "Leader",
-          "description": "The player whose group it joins. Leave empty: the panel's current output."
+          "description": "The player whose group it joins. Leave empty: the panel's current player."
         },
         "join": {
           "name": "Join",

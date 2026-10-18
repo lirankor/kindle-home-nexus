@@ -1,6 +1,6 @@
 // Pure helpers for the radio screen: the five bands, where the needle is, the dial bar geometry and
 // which station labels fit above / below the bar. No React, no network, so it is unit-testable.
-import { FAVOURITES_LIST_ID } from "./media";
+import { FAVOURITES_LIST_ID, INPUT_NET_RADIO } from "./media";
 import type {
   MediaSnapshot,
   RadioListView,
@@ -13,11 +13,17 @@ import type { Key, Lang } from "./i18n";
 import type { RadioPanelState } from "./panel-state";
 
 export const FAVOURITES_BAND = FAVOURITES_LIST_ID;
-/** Band switch order: favourites, then the station list's groups in their order (from HA, bus task 016). */
-export const radioBands = (lists: RadioListView[] | null | undefined): string[] => [
-  FAVOURITES_LIST_ID,
-  ...(lists ?? []).map((l) => l.id).filter((id) => id !== FAVOURITES_LIST_ID),
-];
+/** Band switch order: favourites (when the lists have that band: the app backend's YTuner bookmarks; the HA backend
+ *  has none since bus task 025), then the station list's groups in their order (from HA, bus task 016). */
+export const radioBands = (lists: RadioListView[] | null | undefined): string[] => {
+  const groups = (lists ?? []).map((l) => l.id).filter((id) => id !== FAVOURITES_LIST_ID);
+  return !lists || lists.some((l) => l.id === FAVOURITES_LIST_ID)
+    ? [FAVOURITES_LIST_ID, ...groups]
+    : groups;
+};
+/** The station list's groups (every band but favourites). */
+const groupBands = (lists: RadioListView[] | null | undefined) =>
+  radioBands(lists).filter((id) => id !== FAVOURITES_LIST_ID);
 export const isRadioBand = (id: string, lists: RadioListView[] | null | undefined) =>
   radioBands(lists).includes(id);
 export const bandKey = (id: string): Key => `radio.band.${id}` as Key;
@@ -26,7 +32,7 @@ export const bandLabel = (lang: Lang, id: string, lists: RadioListView[] | null 
   tryT(lang, `radio.band.${id}`) ?? listById(lists, id)?.name ?? id;
 /** The first group is the local FM band: its dial shows FM frequencies (where a station has one). */
 export const isFmBand = (lists: RadioListView[] | null | undefined, id: string) =>
-  radioBands(lists)[1] === id;
+  groupBands(lists)[0] === id;
 
 /** 0..n-1 with wrap-around; -1 when the list is empty. */
 export const wrapIndex = (index: number, size: number): number =>
@@ -69,7 +75,7 @@ export function findStationPosition(
 export const defaultBand = (lists: RadioListView[] | null | undefined): string =>
   (listById(lists, FAVOURITES_LIST_ID)?.stations.length ?? 0) > 0
     ? FAVOURITES_LIST_ID
-    : (radioBands(lists)[1] ?? FAVOURITES_LIST_ID);
+    : (groupBands(lists)[0] ?? FAVOURITES_LIST_ID);
 
 /**
  * The position the dial shows: the user's band + remembered index, clamped to the list; before the
@@ -91,14 +97,15 @@ export function dialPosition(
   return { list: defaultBand(lists), index: 0 };
 }
 
-/** Where the amp's current station is on the dial (by catalog id, else the server's cursor). */
+/** Where the amp's current station is on the dial (by catalog id, else the server's cursor). Only the receiver's own
+ *  NET RADIO moves the needle: Music Assistant radio over AirPlay / DLNA is not the amp's tuner (bus task 025). */
 export function playingPosition(
   lists: RadioListView[],
   snapshot: MediaSnapshot | null,
   preferList: string | null,
 ): RadioPosition | null {
   if (!snapshot) return null;
-  const id = snapshot.nowPlaying.stationId;
+  const id = snapshot.amp.source === INPUT_NET_RADIO ? snapshot.nowPlaying.stationId : null;
   if (id) {
     const found = findStationPosition(lists, id, preferList);
     if (found) return found;

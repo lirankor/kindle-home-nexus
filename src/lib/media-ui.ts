@@ -74,6 +74,23 @@ export const radioSongLine = (n: Pick<NowPlaying, "title" | "artist">): string =
 export const ampNode = (s: MediaSnapshot | null | undefined): NodeView | null =>
   s?.nodes?.find((n) => n.type === "receiver") ?? null;
 
+/** A receiver with the bridge's NET RADIO station select: its NET RADIO input opens the dial (bus task 025). */
+export const isNetRadioNode = (n: Pick<NodeView, "type" | "stations">): boolean =>
+  n.type === "receiver" && Array.isArray(n.stations);
+
+/** Music through HA (bus task 025): the music screen's hint when the selected player's amp is on an input that is not
+ *  Music Assistant's (NET RADIO, TUNER, …): which input, and the Media tab key that opens the amp node. Null = MA's. */
+export function ampElsewhereHint(s: MediaSnapshot | null | undefined, lang: Lang): string | null {
+  if (!s?.output || !s.amp.on || !s.amp.source || s.amp.source === INPUT_SERVER) return null;
+  const t = makeT(lang);
+  const amp = ampNode(s);
+  const input = inputLabel(lang, amp, s.amp.source);
+  const i = amp ? (s.keys ?? []).indexOf(amp.id) : -1;
+  return i >= 0 && amp
+    ? t("music.ampOnInput", { input, amp: nodeLabel(lang, amp.name), key: `F${i + 1}` })
+    : t("music.ampOnInputNoKey", { input });
+}
+
 /** The amp's input list rows: its receiver node's inputs (live source_list, hidden ones left out), in its order. */
 export const ampSourceRows = (s: MediaSnapshot | null | undefined): AmpSource[] =>
   ampNode(s)?.sources ?? [];

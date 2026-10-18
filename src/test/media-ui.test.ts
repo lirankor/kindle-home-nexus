@@ -16,7 +16,13 @@ describe("albumDateLabel", () => {
 });
 
 import { demoMediaSnapshot, demoTracks } from "@/lib/media";
-import { ampPowerSlot, applyMediaOptimistic, applyQueueSkip } from "@/lib/media-ui";
+import {
+  ampElsewhereHint,
+  ampPowerSlot,
+  applyMediaOptimistic,
+  applyQueueSkip,
+  isNetRadioNode,
+} from "@/lib/media-ui";
 import type { QueueProgress } from "@/lib/media";
 
 const queueAt = (index: number, positionMs = 0): QueueProgress => {
@@ -113,5 +119,44 @@ describe("ampPowerSlot (Media tab F3 / amp view F4)", () => {
     expect(ampPowerSlot(snap(false), false)).toBe("powerOn");
     expect(ampPowerSlot(snap(false, false), false)).toBe("powerOn");
     expect(ampPowerSlot(snap(false), true)).toBe("powering");
+  });
+});
+
+describe("bus task 025: the amp's own input on the MA music screen", () => {
+  const ha = (source: string) => {
+    const s = demoMediaSnapshot();
+    s.amp.source = source;
+    s.output = {
+      entity: "media_player.ma_amp_airplay",
+      name: "R-N500 AirPlay",
+      valid: true,
+      outputs: [],
+      keys: ["none", "none", "none", "none"],
+    };
+    return s;
+  };
+  it("names the amp's input and the Media key of the amp node (read from media.keys)", () => {
+    expect(ampElsewhereHint(ha("NET RADIO"), "he")).toBe(
+      "המגבר על NET RADIO · מגבר ימאהה ← F2 במדיה",
+    );
+    expect(ampElsewhereHint(ha("TUNER"), "en")).toBe("Amp on TUNER · Amplifier → F2 on Media");
+    const s = ha("NET RADIO");
+    s.keys = ["music", "none", "none", "amp"];
+    expect(ampElsewhereHint(s, "en")).toBe("Amp on NET RADIO · Amplifier → F4 on Media");
+    s.keys = ["music", "none", "none", "none"];
+    expect(ampElsewhereHint(s, "en")).toBe("Amp on NET RADIO · open it on the Media tab");
+  });
+  it("says nothing on Music Assistant's path, with the amp off, or without an output (app backend)", () => {
+    expect(ampElsewhereHint(ha("SERVER"), "he")).toBeNull();
+    const off = ha("NET RADIO");
+    off.amp.on = false;
+    expect(ampElsewhereHint(off, "he")).toBeNull();
+    const app = demoMediaSnapshot();
+    expect(ampElsewhereHint(app, "he")).toBeNull();
+  });
+  it("a receiver with the bridge's station select is the dial's node", () => {
+    expect(isNetRadioNode({ type: "receiver", stations: [] })).toBe(true);
+    expect(isNetRadioNode({ type: "receiver" })).toBe(false);
+    expect(isNetRadioNode({ type: "tv", stations: [] })).toBe(false);
   });
 });

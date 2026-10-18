@@ -142,11 +142,13 @@ export const RADIO_LISTS: RadioList[] = [];
 export function setRadioLists(lists: RadioList[]) {
   RADIO_LISTS.splice(0, RADIO_LISTS.length, ...lists);
 }
-/** The YTuner bookmark list (app backend) / Music Assistant favourites (HA backend), shown as the "favourites" band. */
+/** The YTuner bookmark list (app backend only), shown as the "favourites" band. The HA backend's dial has no favourites
+ *  band (bus task 025: the dial is the amp's NET RADIO; Music Assistant favourites are not the amp's). */
 export const FAVOURITES_LIST_ID = "favourites";
 export const radioListIds = () => [FAVOURITES_LIST_ID, ...RADIO_LISTS.map((l) => l.id)];
-/** Music Assistant favourite radios the bridge's list does not have (HA backend, bus task 024): id `ma:<slug>`, the
- *  logo MA reports. Filled server side from MA's favourites and from what MA plays, never from the page. */
+/** Music Assistant radios the bridge's list does not have (HA backend, bus task 024): id `ma:<slug>`, the logo MA
+ *  reports, for the music screen's station picture only (never a dial station, bus task 025). Filled server side from
+ *  what MA plays, never from the page. */
 const MA_STATIONS = new Map<string, RadioStation>();
 export function rememberMaStation(id: string, name: string, logo: unknown) {
   if (!id.startsWith("ma:")) return;
@@ -193,8 +195,6 @@ export type RadioListsResult = {
   error?: string;
   lists: RadioListView[];
   current: RadioPosition | null;
-  /** The favourites band is read-only here (MUSIC_BACKEND=ha: Music Assistant keeps the favourites). */
-  favouritesExternal?: boolean;
 };
 
 // ---- Now playing / snapshot ----

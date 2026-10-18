@@ -10,6 +10,19 @@ describe("i18n", () => {
     expect(parseLang("en-GB")).toBe("en");
   });
 
+  it("the picker is the player picker, not an exit (bus task 025)", () => {
+    const he = makeT("he");
+    const en = makeT("en");
+    expect(he("media.output")).toBe("נגן");
+    expect(he("output.title")).toBe("נגנים");
+    expect(en("media.output")).toBe("Player");
+    expect(en("output.title")).toBe("Players");
+    for (const lang of ["he", "en"] as const)
+      for (const [k, v] of Object.entries(dictionaries[lang]))
+        if (k.startsWith("output.") || k === "media.output") expect(v).not.toMatch(/יציאה|output/i);
+    expect(he("output.elsewhere", { name: "X" })).toBe("X מנגן · F3 להחלפה");
+  });
+
   it("has the same keys in every language and no empty strings", () => {
     expect(Object.keys(dictionaries.he).sort()).toEqual(Object.keys(dictionaries.en).sort());
     for (const dict of Object.values(dictionaries))

@@ -180,4 +180,30 @@ describe("radio dial helpers", () => {
     expect(isFmBand(lists, "duesseldorf-fm")).toBe(true);
     expect(isFmBand(lists, "jazz-club")).toBe(false);
   });
+
+  it("HA backend lists without a favourites band (bus task 025): the groups only, FM band and default band still the first group", () => {
+    const lists = [
+      {
+        id: "duesseldorf-fm",
+        name: "Duesseldorf FM",
+        stations: [view(RADIO_LISTS[0]!.stations[0]!)],
+      },
+      { id: "jazz-club", name: "Jazz Club", stations: [] },
+    ];
+    expect(radioBands(lists)).toEqual(["duesseldorf-fm", "jazz-club"]);
+    expect(isFmBand(lists, "duesseldorf-fm")).toBe(true);
+    expect(dialPosition(null, lists, null)).toEqual({ list: "duesseldorf-fm", index: 0 });
+  });
+
+  it("only the amp's own NET RADIO moves the needle: MA radio over AirPlay (source SERVER) does not (bus task 025)", () => {
+    const lists = demoRadioLists().lists;
+    const station = RADIO_LISTS[0]!.stations[2]!;
+    const snap = demoMediaSnapshot();
+    snap.nowPlaying = { ...snap.nowPlaying, kind: "radio", stationId: station.id };
+    snap.radio = null;
+    snap.amp.source = "NET RADIO";
+    expect(playingPosition(lists, snap, null)).toEqual({ list: RADIO_LISTS[0]!.id, index: 2 });
+    snap.amp.source = "SERVER";
+    expect(playingPosition(lists, snap, null)).toBeNull();
+  });
 });
