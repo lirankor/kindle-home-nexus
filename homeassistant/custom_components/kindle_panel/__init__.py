@@ -330,12 +330,17 @@ class MaImageView(HomeAssistantView):
                 ctype = r.headers.get("Content-Type", "")
                 if not ctype.startswith("image/"):
                     return web.Response(status=502)
-                body = await r.content.read(MA_IMAGE_MAX_BYTES + 1)
+                # read to the end: StreamReader.read(n) returns only what has arrived so far (a cut-off cover)
+                body = bytearray()
+                async for chunk in r.content.iter_chunked(65536):
+                    body += chunk
+                    if len(body) > MA_IMAGE_MAX_BYTES:
+                        return web.Response(status=413)
         except (ClientError, TimeoutError):
             return web.Response(status=504)
-        if len(body) > MA_IMAGE_MAX_BYTES:
-            return web.Response(status=413)
-        return web.Response(body=body, content_type=ctype.split(";")[0], headers={"Cache-Control": "max-age=3600"})
+        return web.Response(
+            body=bytes(body), content_type=ctype.split(";")[0], headers={"Cache-Control": "max-age=3600"}
+        )
 
 
 # ---------------------------------------------------------------- setup

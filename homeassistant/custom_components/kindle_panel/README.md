@@ -45,6 +45,26 @@ A picker key can also be a **script** (its name shows on the key): it runs inste
 choosing a player. The list opens by itself when the panel has no output yet (or its output is gone from Home Assistant). One output at a
 time by design: **to play in several rooms, make a group in Music Assistant**; the group shows up as one more player.
 
+**Since 0.8.0 (bus task 021) the music screen is a Music Assistant controller like the MA app's Players sheet.** Every
+MA player has its own queue; the panel shows and controls only its output (state, queue, cover art), and says so when
+another output plays instead ("R-N500 AirPlay is playing · F3 to switch"). In the picker:
+
+* each row shows the player's state and what it plays, and "group" for MA groups; rows are sorted by name;
+* **Enter** = this panel now controls that player (nothing moves);
+* **Right**, or the right-most picker key left at *none* ("Move here"), = move the music there:
+  `kindle_panel.move_queue` runs Music Assistant's transfer_queue (whole queue and position, plays at once, the source
+  stops) and the target becomes the panel's output; the screen says "moving…" until it plays;
+* players Music Assistant has but Home Assistant does not are listed greyed and cannot be chosen.
+
+**A player missing from the list?** Music Assistant only gives Home Assistant an entity for a player whose setting
+*Settings → Players → (the player) → Expose to Home Assistant* is on. It is off for some players added later (for
+example a "universal" TV player or a phone running Sendspin). Turn it on; the entity appears at once (no reload).
+
+`kindle_panel.move_queue` (`entity_id` = target, optional `source_player`, default the panel's output; `auto_play`,
+default on) answers `{music_output, moved_from, items}`. Cover art from Music Assistant reaches the panel through
+`GET /api/kindle_panel/ma_image?url=<MA imageproxy URL>` (Home Assistant auth; only the loaded MA server's
+`/imageproxy` is fetched), for setups where the panel cannot reach Music Assistant's port.
+
 When the chosen output is one of a receiver's Music Assistant players, the panel's music turns that receiver on first,
 its volume keys act on the receiver, and its stream-output select is set to match (the option named in the player's
 entity id, e.g. `dlna` / `airplay`). Any other output plays as it is (volume on the player itself). The choice is
