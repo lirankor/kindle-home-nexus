@@ -154,15 +154,19 @@ export function outputView(
       syncedTo: null,
     };
   });
-  // who follows whom, from the leaders' member lists (HA has no synced_to attribute)
+  // who follows whom: HA reports the SAME group_members list (leader first) on the leader and on every member (seen
+  // live 2026-10-18 17:21), so a list's first entry is the leader; only the leader keeps the member list
+  const leaderOf = new Map<string, string>();
   for (const r of rows) {
-    const leader = rows.find(
-      (x) => x.entity_id !== r.entity_id && (x.groupMembers ?? []).includes(r.entity_id),
-    );
+    const [lead, ...rest] = r.groupMembers ?? [];
+    if (lead) for (const m of rest) if (m !== lead) leaderOf.set(m, lead);
+  }
+  for (const r of rows) {
     r.syncedTo =
-      leader?.entity_id ??
+      leaderOf.get(r.entity_id) ??
       (l.outputs ?? []).find((o) => o.entity_id === r.entity_id)?.synced_to ??
       null;
+    if ((r.groupMembers ?? [])[0] !== r.entity_id) r.groupMembers = [];
   }
   // only what can be chosen (bus task 022): a player that went unavailable since the last get_config hides too;
   // the panel's own output always stays

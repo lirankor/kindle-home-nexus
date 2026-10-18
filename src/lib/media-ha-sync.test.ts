@@ -74,7 +74,8 @@ describe("picker rows (bus task 022)", () => {
   it("a sync group: members under their leader, the output's label names the group", () => {
     const live = new Map([
       [AIRPLAY, st(AIRPLAY, "playing", { group_members: [AIRPLAY, TV] })],
-      [TV, st(TV, "playing", { group_members: [] })],
+      // HA reports the leader-first list on the member too (live 2026-10-18)
+      [TV, st(TV, "playing", { group_members: [AIRPLAY, TV] })],
     ]);
     const v = outputView(live)!;
     expect(v.outputs.map((o) => o.name)).toEqual([
