@@ -3,6 +3,7 @@ import { RADIO_LISTS, demoMediaSnapshot, demoRadioLists } from "./media";
 import type { RadioStationView } from "./media";
 import {
   DIAL,
+  ampStationId,
   dialPosition,
   dialSegments,
   estimateWidth,
@@ -205,5 +206,58 @@ describe("radio dial helpers", () => {
     expect(playingPosition(lists, snap, null)).toEqual({ list: RADIO_LISTS[0]!.id, index: 2 });
     snap.amp.source = "SERVER";
     expect(playingPosition(lists, snap, null)).toBeNull();
+  });
+});
+
+describe("the dial follows the amp node (bus task 026)", () => {
+  /** HA backend with the TV as the MA player: the projection knows nothing; the amp node plays NET RADIO. */
+  const haSnap = (nodeOver: Record<string, unknown>) => {
+    const station = RADIO_LISTS[0]!.stations[2]!;
+    const snap = demoMediaSnapshot();
+    snap.output = {
+      entity: "media_player.tv_3",
+      name: "TV",
+      valid: true,
+      outputs: [],
+      keys: ["none", "none", "none", "none"],
+    };
+    snap.amp.source = null;
+    snap.nowPlaying = { ...snap.nowPlaying, kind: "none", stationId: null };
+    snap.radio = null;
+    snap.nodes![0] = {
+      ...snap.nodes![0]!,
+      source: "NET RADIO",
+      stations: [{ option: `G · ${station.name}`, name: station.name, group: "G", fm: null }],
+      station: `G · ${station.name}`,
+      ...nodeOver,
+    };
+    return snap;
+  };
+  it("the needle goes to the node's station (bridge id, else the select's name), not the MA player's", () => {
+    const station = RADIO_LISTS[0]!.stations[2]!;
+    const lists = demoRadioLists().lists;
+    const want = { list: RADIO_LISTS[0]!.id, index: 2 };
+    expect(playingPosition(lists, haSnap({ stationId: station.id }), null)).toEqual(want);
+    expect(ampStationId(lists, haSnap({ stationId: null }))).toBe(station.id);
+    expect(playingPosition(lists, haSnap({ stationId: null }), null)).toEqual(want);
+    // the node on another input, or off: no needle from it (the MA player's radio never counts)
+    const air = haSnap({ source: "AirPlay", stationId: station.id });
+    air.nowPlaying = {
+      ...air.nowPlaying,
+      kind: "radio",
+      stationId: RADIO_LISTS[0]!.stations[0]!.id,
+    };
+    expect(ampStationId(lists, air)).toBeNull();
+    expect(ampStationId(lists, haSnap({ on: false, stationId: station.id }))).toBeNull();
+    expect(dialPosition(null, lists, haSnap({ stationId: station.id }))).toEqual(want);
+  });
+  it("the node the dial was opened from wins over the first receiver", () => {
+    const station = RADIO_LISTS[0]!.stations[2]!;
+    const lists = demoRadioLists().lists;
+    const snap = haSnap({ source: "AirPlay" });
+    const other = { ...snap.nodes![0]!, id: "amp2", source: "NET RADIO", stationId: station.id };
+    snap.nodes!.push(other);
+    expect(ampStationId(lists, snap)).toBeNull();
+    expect(ampStationId(lists, snap, other)).toBe(station.id);
   });
 });

@@ -21,6 +21,7 @@ import {
   ampPowerSlot,
   applyMediaOptimistic,
   applyQueueSkip,
+  dialAmp,
   isNetRadioNode,
 } from "@/lib/media-ui";
 import type { QueueProgress } from "@/lib/media";
@@ -158,5 +159,55 @@ describe("bus task 025: the amp's own input on the MA music screen", () => {
     expect(isNetRadioNode({ type: "receiver", stations: [] })).toBe(true);
     expect(isNetRadioNode({ type: "receiver" })).toBe(false);
     expect(isNetRadioNode({ type: "tv", stations: [] })).toBe(false);
+  });
+});
+
+describe("dialAmp: the dial's amp is the receiver node (bus task 026)", () => {
+  const withOutput = () => {
+    const s = demoMediaSnapshot();
+    s.output = { entity: "media_player.tv_3", name: "TV", valid: true, outputs: [], keys: [] };
+    s.nodes![0] = {
+      ...s.nodes![0]!,
+      source: "NET RADIO",
+      volumeDb: -41,
+      stations: [{ option: "G · WDR 5", name: "WDR 5", group: "G", fm: null }],
+      station: "G · WDR 5",
+      stationId: "wdr-5",
+      nowTitle: "Song",
+      nowArtist: "WDR 5",
+      playing: true,
+    };
+    return s;
+  };
+  it("reads power, input, volume, station and song from the node, never the MA projection", () => {
+    const s = withOutput();
+    s.amp = { ...s.amp, on: false, source: null, volumeDb: null };
+    expect(dialAmp(s)).toEqual({
+      id: "amp",
+      available: true,
+      on: true,
+      source: "NET RADIO",
+      volumeDb: -41,
+      netRadio: true,
+      playing: true,
+      stationId: "wdr-5",
+      station: "WDR 5",
+      title: "Song",
+      artist: null, // the station's own name is not a song artist
+    });
+  });
+  it("another input: no station, no song; off: no volume; app backend: null", () => {
+    const s = withOutput();
+    s.nodes![0] = { ...s.nodes![0]!, source: "AirPlay" };
+    expect(dialAmp(s)).toMatchObject({
+      netRadio: false,
+      station: null,
+      title: null,
+      stationId: null,
+    });
+    s.nodes![0] = { ...s.nodes![0]!, on: false };
+    expect(dialAmp(s)).toMatchObject({ on: false, volumeDb: null, netRadio: false });
+    const app = demoMediaSnapshot();
+    expect(dialAmp(app)).toBeNull();
   });
 });

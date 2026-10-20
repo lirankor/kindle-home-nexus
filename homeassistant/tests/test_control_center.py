@@ -1757,3 +1757,138 @@ async def test_sync_output_reports_a_join_ma_ignored(hass, panel, monkeypatch) -
     await _sync_setup(hass, monkeypatch, joins=False)
     r = await call(hass, "sync_output", entity_id="media_player.tv_3")
     assert r["ok"] is False and r["reason"] == "not_joined"
+
+
+# ---------------------------------------------------------------- bus task 026: the output rows carry `quality`
+
+
+async def test_get_config_outputs_carry_the_current_items_quality(hass, panel, monkeypatch) -> None:
+    import custom_components.kindle_panel as kp
+
+    _ma_player(hass, "media_player.ma_amp_dlna", "R-N500 DLNA")
+    _ma_player(hass, "media_player.ma_amp_airplay", "R-N500 AirPlay")
+    air = _mp("media_player.ma_amp_airplay", "R-N500 AirPlay", state="playing", title="Holiday")
+    air.active_source = "up2e612fa9"
+    dlna = _mp("media_player.ma_amp_dlna", "R-N500 DLNA")
+    dlna.active_source = None
+    af = SimpleNamespace(
+        content_type=SimpleNamespace(value="mp3", is_lossless=lambda: False),
+        sample_rate=44100,
+        bit_depth=16,
+        bit_rate=192,
+    )
+    sd = SimpleNamespace(audio_format=af, media_type=SimpleNamespace(value="track"), stream_type="http")
+    queues = {"up2e612fa9": SimpleNamespace(current_item=SimpleNamespace(streamdetails=sd))}
+    mass = SimpleNamespace(
+        players=_FakePlayers([air, dlna]),
+        player_queues=SimpleNamespace(get=lambda qid: queues.get(qid)),
+    )
+    monkeypatch.setattr(kp, "_mass_client", lambda hass: mass)
+    await call(hass, "seed", config=HOUSE)
+    r = await call(hass, "get_config")
+    rows = {o["entity_id"]: o for o in r["outputs"]}
+    assert rows["media_player.ma_amp_airplay"]["quality"] == {
+        "codec": "mp3",
+        "sample_rate": 44100,
+        "bit_depth": 16,
+        "bit_rate": 192,
+        "lossless": False,
+        "realtime": False,
+    }
+    assert rows["media_player.ma_amp_dlna"]["quality"] is None  # no queue item streamed
+
+
+def _sd(content_type, sample_rate=44100, bit_depth=16, bit_rate=None, media_type="track", stream_type="http"):
+    class CT(str):
+        value = content_type
+
+        def is_lossless(self):
+            return content_type in ("flac", "alac", "wav")
+
+    return SimpleNamespace(
+        audio_format=SimpleNamespace(
+            content_type=CT(content_type), sample_rate=sample_rate, bit_depth=bit_depth, bit_rate=bit_rate
+        ),
+        media_type=SimpleNamespace(value=media_type),
+        stream_type=SimpleNamespace(value=stream_type),
+    )
+
+
+def test_stream_quality_fields() -> None:
+    from custom_components.kindle_panel import stream_quality
+
+    assert stream_quality(None) is None
+    assert stream_quality(SimpleNamespace(audio_format=None)) is None
+    assert stream_quality(_sd("flac", 44100, 16, 1086)) == {
+        "codec": "flac",
+        "sample_rate": 44100,
+        "bit_depth": 16,
+        "bit_rate": 1086,
+        "lossless": True,
+        "realtime": False,
+    }
+    mp3 = stream_quality(_sd("mp3", bit_rate=192))
+    assert mp3["codec"] == "mp3" and mp3["lossless"] is False and mp3["bit_rate"] == 192
+    # radio: realtime, MA's unknown rate (None / 0) stays null, MA's "?" codec is null
+    radio = stream_quality(_sd("?", bit_rate=0, media_type="radio", stream_type="icy"))
+    assert radio["realtime"] is True and radio["bit_rate"] is None and radio["codec"] is None
+    assert stream_quality(_sd("aac", bit_rate=128, media_type="track", stream_type="icy"))["realtime"] is True
+
+
+def test_stream_quality_without_is_lossless_uses_the_codec_name() -> None:
+    from custom_components.kindle_panel import stream_quality
+
+    sd = SimpleNamespace(
+        audio_format=SimpleNamespace(content_type="alac", sample_rate=96000, bit_depth=24, bit_rate=None),
+        media_type="track",
+        stream_type="local_file",
+    )
+    q = stream_quality(sd)
+    assert q["lossless"] is True and q["sample_rate"] == 96000 and q["bit_depth"] == 24 and q["realtime"] is False
+
+
+def test_player_quality_reads_the_active_queue_current_item() -> None:
+    from custom_components.kindle_panel import player_quality
+
+    cur = SimpleNamespace(streamdetails=_sd("flac", 96000, 24, 4000))
+    queues = {"up1": SimpleNamespace(current_item=cur), "p2": SimpleNamespace(current_item=None)}
+    mass = SimpleNamespace(player_queues=SimpleNamespace(get=lambda qid: queues.get(qid)))
+    # the active source is MA's queue id (AirPlay players: "up…"), else the player's own queue
+    assert player_quality(mass, SimpleNamespace(player_id="x", active_source="up1"))["sample_rate"] == 96000
+    assert player_quality(mass, SimpleNamespace(player_id="p2", active_source=None)) is None
+    assert player_quality(mass, SimpleNamespace(player_id="none", active_source="none")) is None
+    # a client without cached queues never breaks get_config
+    assert player_quality(SimpleNamespace(), SimpleNamespace(player_id="x", active_source="up1")) is None
+
+
+async def test_get_queue_items_carry_quality(hass, panel, monkeypatch) -> None:
+    import custom_components.kindle_panel as kp
+
+    def qi(i):
+        m = SimpleNamespace(uri=f"library://track/{i}", name=f"Song {i}", artists=[], album=None, provider_mappings=[])
+        # MA fills streamdetails only for items it has streamed (or prepared): 1 FLAC, 2 MP3, the rest nothing
+        sd = {1: _sd("flac", 44100, 16, 1086), 2: _sd("mp3", bit_rate=128)}.get(i)
+        return SimpleNamespace(queue_item_id=f"q{i}", name=f"Song {i}", duration=200, media_item=m, streamdetails=sd)
+
+    class Queues:
+        async def get_active_queue(self, pid):
+            return SimpleNamespace(queue_id="q", display_name="Q", items=4, current_index=1, shuffle_enabled=False)
+
+        async def get_queue_items(self, queue_id, limit=500, offset=0):
+            return [qi(i) for i in range(offset, min(offset + limit, 4))]
+
+    mass = SimpleNamespace(player_queues=Queues(), get_media_item_image_url=lambda qi: None)
+    monkeypatch.setattr(kp, "_mass_and_player", lambda hass, entry, eid: (mass, eid))
+    _ma_player(hass, "media_player.ma_amp_dlna", "R-N500 DLNA")
+    r = await call(hass, "get_queue", entity_id="media_player.ma_amp_dlna")
+    q = {i["index"]: i["quality"] for i in r["items"]}
+    assert q[1]["codec"] == "flac" and q[1]["lossless"] is True and q[1]["sample_rate"] == 44100
+    assert q[2] == {
+        "codec": "mp3",
+        "sample_rate": 44100,
+        "bit_depth": 16,
+        "bit_rate": 128,
+        "lossless": False,
+        "realtime": False,
+    }
+    assert q[0] is None and q[3] is None

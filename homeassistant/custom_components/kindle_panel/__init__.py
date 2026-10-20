@@ -22,6 +22,9 @@
   `{ok: false, reason, error}` when MA says no, so the panel shows why.
 * `/api/kindle_panel/ma_image?url=…` (HA auth): Music Assistant's image proxy through HA, so cover art reaches a panel
   that can only talk to HA (bus task 021). Only the loaded MA server's /imageproxy URLs are fetched.
+* Bus task 026: `get_config`'s `outputs` rows and `get_queue`'s items carry `quality` (codec, sample_rate, bit_depth,
+  bit_rate, lossless, realtime) from MA's `streamdetails.audio_format` of the current / that queue item, null when MA
+  has no stream for it yet; the panel turns it into its LQ / SQ / HQ badge.
 The panel only ever talks to Home Assistant.
 """
 
@@ -215,6 +218,8 @@ def ma_players(hass: HomeAssistant, mass: Any | None = None) -> list[dict[str, A
         }
         # MA's own "hide player" flag (what the MA UI hides, the panel hides; bus task 023); unknown = visible
         row["hidden_in_ma"] = bool(getattr(p, "hide_in_ui", False)) if p is not None else False
+        # bus task 026: the stream quality of its current queue item (the Kindle's LQ / SQ / HQ badge)
+        row["quality"] = player_quality(mass, p) if p is not None else None
         if p is not None and row["kind"] == "group":
             members = getattr(p, "group_members", None) or getattr(p, "static_group_members", None) or []
             row["members"] = [m for m in members if m != e.unique_id]
@@ -353,6 +358,54 @@ def _jellyfin_id(m: Any) -> str | None:
     return uri.rsplit("/", 1)[-1] if uri.startswith("jellyfin") else None
 
 
+# lossless codecs by MA's content_type value (MA's own ContentType.is_lossless, as a fallback when it is not there)
+LOSSLESS_CODECS = {
+    "flac", "alac", "wav", "aiff", "pcm", "wavpack", "tak", "ape", "dsf", "truehd", "ralf",
+    "s16le", "s24le", "s32le", "f32le", "f64le", "s16be", "s24be", "s32be", "pcm_bluray", "pcm_dvd",
+    "dsd_lsbf", "dsd_msbf", "dsd_lsbf_planar", "dsd_msbf_planar",
+}  # fmt: skip
+# what MA streams live (no end): radio, ICY / Shoutcast streams
+REALTIME_STREAM_TYPES = {"icy", "shoutcast"}
+
+
+def stream_quality(sd: Any) -> dict[str, Any] | None:
+    """Bus task 026: what Music Assistant streams for a queue item, from its `streamdetails.audio_format` (the
+    source's format, not what MA sends to the player): codec, sample rate (Hz), bit depth, bit rate (kbps), lossless,
+    realtime (radio / a live stream). None when MA has no stream for the item (not played yet)."""
+    af = getattr(sd, "audio_format", None) if sd is not None else None
+    if af is None:
+        return None
+    ct = getattr(af, "content_type", None)
+    codec = _enum(ct)
+    codec = None if codec in (None, "", "?", "unknown") else codec.lower()
+    try:
+        lossless = bool(ct.is_lossless())
+    except Exception:  # noqa: BLE001 - an older / plain value: by name
+        lossless = codec in LOSSLESS_CODECS
+    num = lambda v: v if isinstance(v, int | float) and v > 0 else None  # noqa: E731
+    return {
+        "codec": codec,
+        "sample_rate": num(getattr(af, "sample_rate", None)),
+        "bit_depth": num(getattr(af, "bit_depth", None)),
+        "bit_rate": num(getattr(af, "bit_rate", None)),
+        "lossless": lossless,
+        "realtime": _enum(getattr(sd, "media_type", None)) == "radio"
+        or _enum(getattr(sd, "stream_type", None)) in REALTIME_STREAM_TYPES,
+    }
+
+
+def player_quality(mass: Any, p: Any) -> dict[str, Any] | None:
+    """The stream quality of what an MA player plays: its active queue's current item (bus task 026). None without a
+    queue, a current item or stream details. Read from the client's cached queues: no call to MA."""
+    try:
+        queues = mass.player_queues
+        q = queues.get(getattr(p, "active_source", None) or "") or queues.get(p.player_id)
+        item = getattr(q, "current_item", None) if q is not None else None
+        return stream_quality(getattr(item, "streamdetails", None)) if item is not None else None
+    except Exception:  # noqa: BLE001 - the badge is optional; never break get_config
+        return None
+
+
 def _item_view(mass: Any, index: int, qi: Any) -> dict[str, Any]:
     m = getattr(qi, "media_item", None)
     artists = getattr(m, "artists", None) or []
@@ -375,6 +428,8 @@ def _item_view(mass: Any, index: int, qi: Any) -> dict[str, Any]:
         "album": getattr(album, "name", None),
         "album_id": _jellyfin_id(album) if album is not None else None,
         "image": image,
+        # bus task 026: null until MA has streamed (or prepared) the item
+        "quality": stream_quality(getattr(qi, "streamdetails", None)),
     }
 
 

@@ -629,3 +629,10 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .transport-reading > strong { font-size: 26px; line-height: 1.2; overflow-wrap: anywhere; }
 .transport-reading .transport-db { margin-top: 0; font-size: 30px; white-space: nowrap; }
 .transport-reading .transport-db small { font-size: 18px; }
+/* Stream quality badge under the volume (bus task 026): a fixed slot so a new badge only redraws its own box. */
+.quality-badge { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 3px 8px; box-sizing: border-box; border: 2px solid var(--foreground); border-radius: 8px; max-width: 100%; }
+.quality-badge[data-empty="true"] { border-color: transparent; }
+.quality-tier { display: flex; flex-direction: column; align-items: center; line-height: 1; }
+.quality-tier strong { font-size: 26px; font-weight: 800; letter-spacing: 1px; }
+.quality-tier small { font-size: 11px; font-weight: 700; margin-top: 2px; }
+.quality-detail { font-size: 15px; line-height: 1.1; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

@@ -101,6 +101,7 @@ import {
   isCatalogStationId,
   listById,
   playingPosition,
+  ampStationId,
   stationAt,
   toggleFavouriteInLists,
   withPosition,
@@ -633,7 +634,7 @@ export function useMediaPanel({
   });
   const radioLists = listsQuery.data?.lists ?? null;
   const radioListsError = listsQuery.isError ? t("err.server") : (listsQuery.data?.error ?? null);
-  const dialPos = dialPosition(radio, radioLists, data);
+  const dialPos = dialPosition(radio, radioLists, data, node);
   const dialList = listById(radioLists, dialPos.list);
   const dialStation = stationAt(radioLists, dialPos) ?? null;
   const radioRef = useRef(radio);
@@ -651,14 +652,15 @@ export function useMediaPanel({
   /** Dial state before the current run of tunes; restored when the server says no. */
   const revertTo = useRef<RadioPanelState | null>(null);
   const reported = result?.configured ? (result.snapshot ?? null) : demo;
+  // the amp's own NET RADIO station (bus task 026: the amp node's, with the HA backend)
   const playingKey = reported
-    ? `${reported.nowPlaying.stationId ?? ""}|${reported.radio?.list ?? ""}:${reported.radio?.index ?? ""}`
+    ? `${ampStationId(radioLists, reported, node) ?? ""}|${reported.radio?.list ?? ""}:${reported.radio?.index ?? ""}`
     : "";
   const syncedKey = useRef<string | null>(null);
   useEffect(() => {
     if (!radioLists || tuneBusy.current || syncedKey.current === playingKey) return;
     syncedKey.current = playingKey;
-    const pos = playingPosition(radioLists, reported, radioRef.current?.list ?? null);
+    const pos = playingPosition(radioLists, reported, radioRef.current?.list ?? null, node);
     if (pos) setRadio((r) => withPosition(r, pos));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playingKey, radioLists]);

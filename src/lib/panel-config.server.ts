@@ -1,6 +1,7 @@
 // Loads the panel configuration from Home Assistant (kindle_panel.get_config), seeds it on the first start, and
 // applies it to the shared constants. Without the kindle_panel integration the panel runs on DEFAULT_CONFIG plus
 // the env it always had, exactly as before.
+import type { StreamQuality } from "./quality";
 import { HomeError, ha, haConfigured } from "./home.server";
 import { applyHomeConfig } from "./home";
 import { parseLang } from "./i18n";
@@ -31,6 +32,8 @@ export type MaOutput = {
   group_with?: string[];
   group_members?: string[];
   synced_to?: string | null;
+  /** kindle_panel >= 0.9.3 (bus task 026): what MA streams for the player's current queue item; null = no stream. */
+  quality?: StreamQuality | null;
 };
 /** An MA player kindle_panel found in MA without an HA entity (bus task 021). */
 export type MaUnexposed = {

@@ -100,6 +100,11 @@ export function nodeView(n: MediaNode, states: Map<string, HaState>): NodeView {
           station,
           nowTitle: typeof a["media_title"] === "string" ? a["media_title"] : null,
           nowArtist: typeof a["media_artist"] === "string" ? a["media_artist"] : null,
+          stationId:
+            typeof a["net_radio_station_id"] === "string" && a["net_radio_station_id"]
+              ? a["net_radio_station_id"]
+              : null,
+          playing: state === "playing" || a["foreign_state"] === "playing",
         }
       : {}),
     movie: !!n.movie_on,

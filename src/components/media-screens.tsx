@@ -55,6 +55,7 @@ import {
   musicItemDetail,
   musicItemTitle,
   ampNode,
+  dialAmp,
   inputLabel,
   nodeLabel,
   powerOnStepKey,
@@ -62,6 +63,8 @@ import {
   ampElsewhereHint,
 } from "@/lib/media-ui";
 import { nodeIcon, optionalIcon, pickIcon } from "@/lib/icons";
+import { qualityBadge } from "@/lib/quality";
+import type { QualityBadge } from "@/lib/quality";
 import { OUTPUT_PAGE_SIZE, QUEUE_PAGE_SIZE, RADIO_PAGE_SIZE } from "@/lib/media-panel";
 import type { MediaPanel } from "@/lib/media-panel";
 import {
@@ -519,6 +522,8 @@ function TransportControl({
   sourceTitle,
   mode,
   small = false,
+  quality,
+  qualityLabel,
 }: {
   db: number | null;
   label: string;
@@ -526,6 +531,10 @@ function TransportControl({
   sourceTitle: string;
   mode: TransportMode;
   small?: boolean;
+  /** Music screen only (bus task 026): the stream quality badge under the dB; null = an empty slot (the layout stays
+   *  put, so a new badge is a small partial e-ink redraw like the volume); undefined = no slot at all. */
+  quality?: QualityBadge | null | undefined;
+  qualityLabel?: string;
 }) {
   // All five icons share one size; the square only frames the centre one.
   const icon = small ? 22 : 30;
@@ -572,7 +581,28 @@ function TransportControl({
             <small>dB</small>
           </Ltr>
         </div>
+        {quality !== undefined && <QualityBox badge={quality} label={qualityLabel ?? ""} />}
       </div>
+    </div>
+  );
+}
+
+/** The LQ / SQ / HQ badge (bus task 026): letters large, "Hi-Res" small under HQ, the detail line beside them. */
+function QualityBox({ badge, label }: { badge: QualityBadge | null; label: string }) {
+  if (!badge) return <div className="quality-badge" data-empty="true" aria-hidden="true" />;
+  return (
+    <div
+      className="quality-badge"
+      dir="ltr"
+      role="img"
+      aria-label={`${label} ${badge.tier} ${badge.detail}`}
+      data-tier={badge.tier}
+    >
+      <span className="quality-tier">
+        <strong>{badge.tier}</strong>
+        {badge.hiRes && <small>Hi-Res</small>}
+      </span>
+      <span className="quality-detail">{badge.detail}</span>
     </div>
   );
 }
@@ -679,6 +709,9 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
                 : sourceLabel(panel, s?.amp.source ?? null)
             }
             mode={transportMode(s)}
+            // HA backend only: Music Assistant's stream quality (bus task 026)
+            quality={s?.output ? (on ? qualityBadge(s.nowPlaying.quality) : null) : undefined}
+            qualityLabel={t("media.quality")}
           />
         </div>
       </div>
@@ -784,36 +817,43 @@ function StationLogo({
 function RadioDialView({ panel, status }: { panel: MediaPanel; status: string }) {
   const { t, lang, data: s, dialPos, dialStation, radioLists } = panel;
   const list = listById(radioLists, dialPos.list);
-  const on = s?.amp.on ?? false;
+  // bus task 026: with the HA backend the dial reads only the amp node it was opened from (power, input, volume,
+  // station, song), never the selected MA player's receiver projection
+  const amp = dialAmp(s, panel.node);
+  const available = amp ? amp.available : (s?.amp.available ?? false);
+  const on = amp ? amp.on : (s?.amp.on ?? false);
   // the amp's tuner only (bus task 025): Music Assistant radio over AirPlay / DLNA is not shown as the dial's station
-  const netRadio = on && s?.amp.source === "NET RADIO" && s.nowPlaying.kind === "radio";
-  const playingId = netRadio ? s.nowPlaying.stationId : null;
-  // the amp's own input and volume (its node), not the MA player's projection (AirPlay read "SERVER" here)
-  const amp = s?.output ? ampNode(s) : null;
-  const playing =
-    (playingId ? radioLists?.flatMap((l) => l.stations).find((x) => x.id === playingId) : null) ??
-    null;
+  const netRadio = amp
+    ? amp.netRadio
+    : on && s?.amp.source === "NET RADIO" && s.nowPlaying.kind === "radio";
+  const allStations = radioLists?.flatMap((l) => l.stations) ?? [];
+  const playingId = amp
+    ? (amp.stationId ?? allStations.find((x) => x.name === amp.station)?.id ?? null)
+    : netRadio
+      ? (s?.nowPlaying.stationId ?? null)
+      : null;
+  const playing = (playingId ? allStations.find((x) => x.id === playingId) : null) ?? null;
   const name = !s
     ? "—"
-    : !s.amp.available
+    : !available
       ? t("amp.unavailable")
       : !on
         ? t("amp.off")
         : netRadio
-          ? (playing?.name ?? s.nowPlaying.station ?? t("source.NET RADIO"))
+          ? (playing?.name ?? (amp ? amp.station : s.nowPlaying.station) ?? t("source.NET RADIO"))
           : t("amp.nothing");
   const song =
-    !s || !s.amp.available
+    !s || !available
       ? ""
       : !on
         ? t("radio.offHint")
         : netRadio
-          ? radioSongLine(s.nowPlaying)
+          ? radioSongLine(amp ?? s.nowPlaying)
           : amp
             ? t("radio.tuneHint")
             : (s.nowPlaying.title ?? "");
   const detail = on && playing ? stationDetail(playing) : "";
-  const db = amp ? (amp.on ? amp.volumeDb : null) : on && s ? displayDb(s.amp) : null;
+  const db = amp ? amp.volumeDb : on && s ? displayDb(s.amp) : null;
   const loading = panel.radioListsLoading && !radioLists;
   return (
     <FullModal label={t("radio.title")} actions={panel.modalActions} status={status} compactStatus>
@@ -868,11 +908,21 @@ function RadioDialView({ panel, status }: { panel: MediaPanel; status: string })
                 source={
                   amp
                     ? amp.on
-                      ? inputLabel(lang, amp, amp.source)
+                      ? inputLabel(lang, s?.nodes?.find((n) => n.id === amp.id) ?? null, amp.source)
                       : t("amp.off")
                     : sourceLabel(panel, s?.amp.source ?? null)
                 }
-                mode={amp && !netRadio ? (amp.on ? "stopped" : "off") : transportMode(s)}
+                mode={
+                  amp
+                    ? !amp.on
+                      ? "off"
+                      : netRadio
+                        ? amp.playing
+                          ? "playing"
+                          : "paused"
+                        : "stopped"
+                    : transportMode(s)
+                }
                 small
               />
             </div>

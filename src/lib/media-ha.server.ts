@@ -6,7 +6,14 @@
 import { HomeError, fetchStates, ha, service } from "./home.server";
 import { makeT, parseLang } from "./i18n";
 import { mediaKeyIcons, nodeViews } from "./media-nodes.server";
-import { invalidatePanelConfig, panelConfigNow, setMusicOutput } from "./panel-config.server";
+import {
+  ensurePanelConfig,
+  invalidatePanelConfig,
+  panelConfigNow,
+  setMusicOutput,
+} from "./panel-config.server";
+import { freshQuality } from "./quality";
+import type { StreamQuality } from "./quality";
 import type { HaState } from "./home.server";
 import {
   AMP,
@@ -654,6 +661,36 @@ export async function readMusicState(maxAgeMs = 0): Promise<HaMusicState> {
   return value;
 }
 
+/** The now-playing line a stale quality was last refetched for (one get_config per new track, never per poll). */
+let qualityRefetchedFor: string | null = null;
+/** Bus task 026: the stream quality of what the music state's player plays, from kindle_panel's output rows (they
+ *  come with the panel config, which every snapshot loads anyway, cached 30 s: no extra call per poll). When the
+ *  row's now-playing line differs from the player's live one (a new track since the config was read) the config is
+ *  read again once for that track; still different: no badge rather than the previous track's. */
+export async function playerQuality(
+  player: string,
+  states: Map<string, HaState>,
+): Promise<StreamQuality | null> {
+  const rowOf = () => panelConfigNow()?.outputs?.find((o) => o.entity_id === player) ?? null;
+  const live = nowLineOf(states.get(player));
+  let fq = freshQuality(rowOf(), live);
+  if (fq.stale && qualityRefetchedFor !== `${player}|${live}`) {
+    qualityRefetchedFor = `${player}|${live}`;
+    invalidatePanelConfig();
+    try {
+      await ensurePanelConfig();
+    } catch {
+      /* the badge is optional */
+    }
+    fq = freshQuality(rowOf(), live);
+  }
+  return fq.quality;
+}
+/** Test hook. */
+export const resetQualityRefetch = () => {
+  qualityRefetchedFor = null;
+};
+
 export async function readMediaSnapshotHa(
   build: (
     states: Map<string, HaState>,
@@ -677,7 +714,7 @@ export async function readMediaSnapshotHa(
     rememberMaStation(maStationId(np.station), np.station, np.logo ?? np.artUrl);
   // the nodes from the real states (the projection rewrites the receiver's entry for the music screen)
   const output = outputView(states);
-  return withRadio(
+  const out = withRadio(
     {
       ...snap,
       nodes: nodeViews(states),
@@ -690,6 +727,16 @@ export async function readMediaSnapshotHa(
     },
     s,
   );
+  // only Music Assistant's own playback has a badge: not the receiver's own inputs (NET RADIO, CD …), not an idle player
+  const maPlays =
+    out.nowPlaying.kind !== "none" &&
+    s.nowPlaying.kind !== "none" &&
+    ["playing", "paused", "buffering"].includes(states.get(s.player)?.state ?? "");
+  if (!maPlays) return out;
+  return {
+    ...out,
+    nowPlaying: { ...out.nowPlaying, quality: await playerQuality(s.player, states) },
+  };
 }
 
 export async function getQueueProgressHa(): Promise<QueueProgress | null> {

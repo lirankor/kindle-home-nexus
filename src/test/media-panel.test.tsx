@@ -814,6 +814,177 @@ describe("Media tab and amp view", () => {
     );
   });
 
+  // ---- bus task 026: the stream quality badge; the dial reads the amp node ----
+  const FLAC = {
+    codec: "flac",
+    sample_rate: 44100,
+    bit_depth: 16,
+    bit_rate: 1086,
+    lossless: true,
+    realtime: false,
+  };
+  /** Music through HA playing a queue item with this stream quality. */
+  const qualityResult = (quality: Record<string, unknown> | null): MediaSnapshotResult => {
+    const r = haResult("AirPlay");
+    r.snapshot!.nowPlaying = {
+      ...r.snapshot!.nowPlaying,
+      kind: "music",
+      station: null,
+      quality: quality as never,
+    };
+    r.snapshot!.queue = {
+      title: "Eagles",
+      index: 0,
+      count: 3,
+      track: null,
+      positionMs: 0,
+      durationMs: 0,
+      status: "playing",
+      prevTrack: null,
+      nextTracks: [],
+      stall: null,
+    };
+    return r;
+  };
+  const badgeOf = (el: Element) => el.querySelector(".quality-badge");
+
+  it("the music screen shows the stream quality badge under the volume dB: HQ FLAC 44.1/16, no Hi-Res (bus task 026)", async () => {
+    mocks.getMediaSnapshot.mockResolvedValue(qualityResult(FLAC));
+    renderPanel("he");
+    await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
+    press("F1");
+    const now = screen.getByRole("dialog", { name: "תצוגת המגבר" });
+    const badge = badgeOf(now)!;
+    expect(badge.querySelector(".quality-tier strong")?.textContent).toBe("HQ");
+    expect(badge.querySelector(".quality-detail")?.textContent).toBe("FLAC 44.1/16");
+    expect(badge.querySelector(".quality-tier small")).toBeNull();
+    // placement: the volume's column, right under its dB reading
+    expect(badge.parentElement?.querySelector(".transport-db")).not.toBeNull();
+    expect(badge.previousElementSibling?.classList.contains("transport-db")).toBe(true);
+    expect(badge.getAttribute("dir")).toBe("ltr");
+    // the queue screen keeps two-line rows: no badge there
+    press("F1");
+    const queue = screen.getByRole("dialog", { name: "רשימת השמעה" });
+    expect(badgeOf(queue)).toBeNull();
+  });
+
+  it("Hi-Res FLAC reads HQ with the Hi-Res caption; a lossy 320k track SQ; a radio stream without a rate LQ (bus task 026)", async () => {
+    mocks.getMediaSnapshot.mockResolvedValue(
+      qualityResult({ ...FLAC, sample_rate: 96000, bit_depth: 24, bit_rate: 4000 }),
+    );
+    const view = renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
+    press("F1");
+    let badge = badgeOf(screen.getByRole("dialog", { name: "Amplifier view" }))!;
+    expect(badge.querySelector(".quality-tier")?.textContent).toBe("HQHi-Res");
+    expect(badge.querySelector(".quality-detail")?.textContent).toBe("FLAC 96/24");
+    view.unmount();
+
+    mocks.getMediaSnapshot.mockResolvedValue(
+      qualityResult({ ...FLAC, codec: "mp3", lossless: false, bit_rate: 320 }),
+    );
+    const v2 = renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
+    press("F1");
+    badge = badgeOf(screen.getByRole("dialog", { name: "Amplifier view" }))!;
+    expect(badge.getAttribute("data-tier")).toBe("SQ");
+    expect(badge.querySelector(".quality-detail")?.textContent).toBe("MP3 320k");
+    v2.unmount();
+
+    const radio = qualityResult({
+      codec: null,
+      sample_rate: 44100,
+      bit_depth: 16,
+      bit_rate: null,
+      lossless: false,
+      realtime: true,
+    });
+    radio.snapshot!.nowPlaying = {
+      ...radio.snapshot!.nowPlaying,
+      kind: "radio",
+      station: "100FM Israeli",
+      stationId: "ma:100fm-israeli",
+    };
+    radio.snapshot!.queue = null;
+    mocks.getMediaSnapshot.mockResolvedValue(radio);
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
+    press("F1");
+    badge = badgeOf(screen.getByRole("dialog", { name: "Amplifier view" }))!;
+    expect(badge.getAttribute("data-tier")).toBe("LQ");
+    expect(badge.querySelector(".quality-detail")?.textContent).toBe("Stream");
+  });
+
+  it("no stream from Music Assistant: an empty badge slot (the layout stays), and no badge on the dial (bus task 026)", async () => {
+    mocks.getMediaSnapshot.mockResolvedValue(qualityResult(null));
+    const view = renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
+    press("F1");
+    const badge = badgeOf(screen.getByRole("dialog", { name: "Amplifier view" }))!;
+    expect(badge.getAttribute("data-empty")).toBe("true");
+    expect(badge.textContent).toBe("");
+    view.unmount();
+    const r = qualityResult(FLAC);
+    r.snapshot!.nodes![0] = { ...r.snapshot!.nodes![0]!, source: "NET RADIO", stations: [] };
+    mocks.getMediaSnapshot.mockResolvedValue(r);
+    mocks.getRadioLists.mockResolvedValue(haLists());
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open Amplifier")).toBeVisible());
+    press("F2");
+    const dial = screen.getByRole("dialog", { name: "Radio" });
+    expect(badgeOf(dial)).toBeNull();
+  });
+
+  it("the dial reads the amp node it was opened from, even with the TV as the music player: station, song, NET RADIO, the node's dB, the needle (bus task 026)", async () => {
+    const r = haResult("NET RADIO");
+    const station = RADIO_LISTS[0]!.stations[2]!;
+    // the TV is the panel's MA player: the music projection knows nothing about the amp
+    r.snapshot!.output = {
+      ...r.snapshot!.output!,
+      entity: "media_player.tv_3",
+      name: "TV",
+      outputs: [{ entity_id: "media_player.tv_3", name: "TV", state: "idle" }],
+    };
+    r.snapshot!.amp = { ...r.snapshot!.amp, source: null, volumeDb: null };
+    r.snapshot!.nowPlaying = {
+      ...r.snapshot!.nowPlaying,
+      kind: "none",
+      title: null,
+      station: null,
+      stationId: null,
+    };
+    r.snapshot!.radio = null;
+    r.snapshot!.nodes![0] = {
+      ...r.snapshot!.nodes![0]!,
+      source: "NET RADIO",
+      volumeDb: -41,
+      stations: [{ option: `G · ${station.name}`, name: station.name, group: "G", fm: null }],
+      station: `G · ${station.name}`,
+      stationId: station.id,
+      nowTitle: "Song Title",
+      nowArtist: "Some Band",
+      playing: true,
+    };
+    mocks.getMediaSnapshot.mockResolvedValue(r);
+    mocks.getRadioLists.mockResolvedValue(haLists());
+    renderPanel("en");
+    await waitFor(() => expect(screen.getByTitle("Open Amplifier")).toBeVisible());
+    press("F2"); // the amp node plays NET RADIO: straight onto the dial
+    const radio = screen.getByRole("dialog", { name: "Radio" });
+    await waitFor(() =>
+      expect(radio.querySelector(".radio-now-name")?.textContent).toBe(station.name),
+    );
+    expect(radio.querySelector(".radio-now-song")?.textContent).toBe("Song Title · Some Band");
+    const transport = radio.querySelector(".radio-transport-row .transport")!;
+    expect(transport.getAttribute("data-db")).toBe("-41");
+    expect(transport.getAttribute("data-mode")).toBe("playing");
+    expect(transport.querySelector(".transport-reading strong")?.textContent).toBe("NET RADIO");
+    // the needle sits on the node's station
+    const needle = () => document.querySelector("[data-list][data-index]");
+    await waitFor(() => expect(needle()?.getAttribute("data-index")).toBe("2"));
+    expect(needle()?.getAttribute("data-list")).toBe(RADIO_LISTS[0]!.id);
+  });
+
   it("opens the active source's screen from the amp card: the radio for NET RADIO, the amp view for the turntable", async () => {
     renderPanel();
     await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());

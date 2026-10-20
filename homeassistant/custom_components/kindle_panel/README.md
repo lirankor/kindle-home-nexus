@@ -133,6 +133,26 @@ sequence:
 
 `kindle_panel.set_output` takes any Music Assistant player; the panel shows the new player within 30 s.
 
+### Services
+
+| service | takes | answers |
+|---|---|---|
+| `get_config` | nothing | the panel config, `music_output`, `outputs` (MA players: name, state, `now`, kind, sync fields, **`quality`** since 0.9.3), `outputs_unexposed`, `effective_sources` |
+| `get_queue` | `entity_id` (MA player), `offset`, `limit` | the player's whole MA queue: `items` (title, artist, album, ids, image, **`quality`** since 0.9.3), `current_index`, `total` |
+| `play_index` | `entity_id`, `index` | nothing (plays that queue item) |
+| `set_output` | `entity_id` | `music_output` |
+| `move_queue` | `entity_id`, `source_player`, `auto_play` | `{ok, music_output, moved_from, items}` or `{ok: false, reason, error}` |
+| `sync_output` | `entity_id`, `leader`, `join` | `{ok, group_members}` or `{ok: false, reason, error}` |
+| `seed`, `pick_photo`, `mark_photo`, `get_marks` | see services.yaml | the panel's first start and the screensaver |
+
+**`quality`** (0.9.3, bus task 026) is what Music Assistant streams for that item, from its
+`streamdetails.audio_format` (the source file / station, not what MA sends on to the player):
+`{codec, sample_rate, bit_depth, bit_rate, lossless, realtime}` (Hz, bits, kbps; `realtime` = radio or a live ICY /
+Shoutcast stream), or `null` when MA has no stream for the item yet. On an `outputs` row it is the player's current
+queue item, read from the MA client's cached queue (no extra call to MA). The panel shows it as a badge on the music
+screen: **HQ** lossless (with "Hi-Res" above 48 kHz or 16 bit), **SQ** lossy at 192 kbps or more, **LQ** lossy below
+192 kbps or a live stream without a known rate.
+
 ## Icons: one pack for every button
 
 Every icon field in Configure offers the same 80 icons (since 0.7.0, bus task 019): lights, vacuum rooms, scene

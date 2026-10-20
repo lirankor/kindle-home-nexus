@@ -1,5 +1,6 @@
 // Shared (client + server) media model: amp entities, the radio station catalog,
 // snapshot / list / queue shapes, the action union and demo data. Contains no secrets.
+import type { StreamQuality } from "./quality";
 import type { EntityIcon, EntityIcons } from "./icons";
 import type { Lang } from "./i18n";
 import { KEY_MUSIC } from "./panel-config";
@@ -227,6 +228,9 @@ export type NowPlaying = {
   /** Catalog station id when the playing station is one of ours. */
   stationId: string | null;
   preset: number | null;
+  /** HA music backend (bus task 026): what Music Assistant streams for the current item (the LQ / SQ / HQ badge);
+   *  absent / null = MA reports no stream, no badge. */
+  quality?: StreamQuality | null;
 };
 export type PowerOnStep = "plug" | "wait" | "reload" | "turn_on" | "source" | "done" | "failed";
 export type PowerOnStatus = {
@@ -271,6 +275,10 @@ export type NodeView = {
   station?: string | null;
   nowTitle?: string | null;
   nowArtist?: string | null;
+  /** The bridge's id of the NET RADIO station it tuned (`net_radio_station_id`, = the dial's station ids) and the
+   *  receiver's own play state on its inputs (`foreign_state` playing, or state playing); bus task 026. */
+  stationId?: string | null;
+  playing?: boolean;
   /** tv: movie mode configured / on. */
   movie: boolean;
   movieActive: boolean;

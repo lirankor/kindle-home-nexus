@@ -213,3 +213,40 @@ describe("media nodes", () => {
     ).toThrow();
   });
 });
+
+describe("media nodes: the amp's own NET RADIO (bus task 026)", () => {
+  it("a receiver with a station select carries the bridge's station id and its own play state", () => {
+    const rx: MediaNode = { ...amp, net_radio: "select.r_n500_net_radio_station" };
+    const m = states(
+      st("media_player.r_n500", "on", {
+        source: "NET RADIO",
+        source_list: ["SERVER", "NET RADIO"],
+        volume_db: -41,
+        media_title: "Song",
+        media_artist: "Band",
+        net_radio_station_id: "wdr-5",
+        foreign_state: "playing",
+      }),
+    );
+    m.set(
+      "select.r_n500_net_radio_station",
+      st("select.r_n500_net_radio_station", "Düsseldorf · WDR 5", {
+        options: ["Düsseldorf · WDR 5"],
+        stations: [{ id: "wdr-5", name: "WDR 5", group: "Düsseldorf" }],
+      }),
+    );
+    expect(nodeView(rx, m)).toMatchObject({
+      station: "Düsseldorf · WDR 5",
+      stationId: "wdr-5",
+      playing: true,
+      nowTitle: "Song",
+      nowArtist: "Band",
+      volumeDb: -41,
+    });
+    m.set(
+      "media_player.r_n500",
+      st("media_player.r_n500", "on", { source: "NET RADIO", net_radio_station_id: "" }),
+    );
+    expect(nodeView(rx, m)).toMatchObject({ stationId: null, playing: false });
+  });
+});

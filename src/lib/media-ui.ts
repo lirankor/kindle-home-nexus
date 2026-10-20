@@ -496,3 +496,53 @@ export function nodeLabel(lang: Lang, name: string): string {
   const t = makeT(lang);
   return name === "Sony TV" ? t("media.tvName") : name === "Yamaha R-N500" ? t("media.amp") : name;
 }
+
+/** The radio dial's amp (bus task 026): the receiver node the dial was opened from (else the first receiver with a
+ *  NET RADIO station list), read from that node only (its power, input, volume, the bridge's NET RADIO station and the
+ *  receiver's song line), never from the selected Music Assistant player's projection (with the TV as the player the
+ *  dial used to find no amp). Null without the HA music backend or a receiver node: the dial keeps the amp snapshot. */
+export type DialAmp = {
+  id: string;
+  available: boolean;
+  on: boolean;
+  source: string | null;
+  volumeDb: number | null;
+  /** The receiver plays its own NET RADIO input. */
+  netRadio: boolean;
+  playing: boolean;
+  /** NET RADIO: the bridge's station id (= the dial's ids), its name from the station select, the song line. */
+  stationId: string | null;
+  station: string | null;
+  title: string | null;
+  artist: string | null;
+};
+export function dialAmp(
+  s: MediaSnapshot | null | undefined,
+  opened?: NodeView | null,
+): DialAmp | null {
+  if (!s?.output) return null;
+  const n =
+    opened && isNetRadioNode(opened)
+      ? opened
+      : (s.nodes?.find(isNetRadioNode) ?? ampNode(s) ?? null);
+  if (!n) return null;
+  const netRadio = n.on && n.source === INPUT_NET_RADIO;
+  const station = netRadio ? (n.stations?.find((x) => x.option === n.station)?.name ?? null) : null;
+  const same = (a: string | null | undefined, b: string | null | undefined) =>
+    !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+  const title = netRadio && n.nowTitle && !same(n.nowTitle, station) ? n.nowTitle : null;
+  const artist = netRadio && n.nowArtist && !same(n.nowArtist, station) ? n.nowArtist : null;
+  return {
+    id: n.id,
+    available: n.available,
+    on: n.on,
+    source: n.source,
+    volumeDb: n.on ? n.volumeDb : null,
+    netRadio,
+    playing: netRadio && !!n.playing,
+    stationId: netRadio ? (n.stationId ?? null) : null,
+    station,
+    title,
+    artist,
+  };
+}

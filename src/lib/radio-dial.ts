@@ -3,12 +3,14 @@
 import { FAVOURITES_LIST_ID, INPUT_NET_RADIO } from "./media";
 import type {
   MediaSnapshot,
+  NodeView,
   RadioListView,
   RadioListsResult,
   RadioPosition,
   RadioStationView,
 } from "./media";
 import { tryT } from "./i18n";
+import { dialAmp } from "./media-ui";
 import type { Key, Lang } from "./i18n";
 import type { RadioPanelState } from "./panel-state";
 
@@ -85,6 +87,7 @@ export function dialPosition(
   state: RadioPanelState | null,
   lists: RadioListView[] | null | undefined,
   snapshot: MediaSnapshot | null,
+  node?: NodeView | null,
 ): RadioPosition {
   if (!lists || lists.length === 0) return { list: state?.list ?? FAVOURITES_LIST_ID, index: 0 };
   if (state && isRadioBand(state.list, lists) && listById(lists, state.list)) {
@@ -92,7 +95,7 @@ export function dialPosition(
     const index = state.indexByList[state.list] ?? 0;
     return { list: state.list, index: size === 0 ? 0 : Math.min(index, size - 1) };
   }
-  const playing = playingPosition(lists, snapshot, null);
+  const playing = playingPosition(lists, snapshot, null, node);
   if (playing) return playing;
   return { list: defaultBand(lists), index: 0 };
 }
@@ -103,9 +106,10 @@ export function playingPosition(
   lists: RadioListView[],
   snapshot: MediaSnapshot | null,
   preferList: string | null,
+  node?: NodeView | null,
 ): RadioPosition | null {
   if (!snapshot) return null;
-  const id = snapshot.amp.source === INPUT_NET_RADIO ? snapshot.nowPlaying.stationId : null;
+  const id = ampStationId(lists, snapshot, node);
   if (id) {
     const found = findStationPosition(lists, id, preferList);
     if (found) return found;
@@ -113,6 +117,27 @@ export function playingPosition(
   const cur = snapshot.radio;
   if (cur && isRadioBand(cur.list, lists) && stationAt(lists, cur)) return cur;
   return null;
+}
+
+/** The station the amp's own NET RADIO plays (a dial id), null when it is on another input. Bus task 026: with the HA
+ *  backend from the amp node the dial was opened from (the bridge's station id, else the station select's name),
+ *  not from the selected Music Assistant player's projection. */
+export function ampStationId(
+  lists: RadioListView[] | null | undefined,
+  snapshot: MediaSnapshot | null,
+  node?: NodeView | null,
+): string | null {
+  if (!snapshot) return null;
+  const amp = dialAmp(snapshot, node);
+  if (amp) {
+    if (!amp.netRadio) return null;
+    return (
+      amp.stationId ??
+      (lists ?? []).flatMap((l) => l.stations).find((x) => x.name === amp.station)?.id ??
+      null
+    );
+  }
+  return snapshot.amp.source === INPUT_NET_RADIO ? snapshot.nowPlaying.stationId : null;
 }
 
 export const withPosition = (
