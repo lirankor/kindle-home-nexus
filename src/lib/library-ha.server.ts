@@ -4,6 +4,7 @@
 import { HomeError, ha } from "./home.server";
 import { artToken, forgetMusicState } from "./media-ha.server";
 import type {
+  DiscoverRow,
   LibHomeResult,
   LibItem,
   LibListResult,
@@ -59,19 +60,20 @@ async function panelService<T>(
   return r.service_response;
 }
 
-/** HA answers 400 for an unknown service (kindle_panel < 0.10.0) or a refused call. */
+/** HA answers 400 for an unknown service or field (kindle_panel < 0.11.0) or a refused call. */
 const errorText = (e: unknown) =>
   e instanceof HomeError && e.status === 400
-    ? "kindle_panel 0.10.0 needed (or Music Assistant refused)"
+    ? "kindle_panel 0.11.0 needed (or Music Assistant refused)"
     : e instanceof Error
       ? e.message
       : String(e);
 
-export async function readLibraryHome(): Promise<LibHomeResult> {
+/** Discover's rows; `sections` = the panel's media.discover_rows (bus task 029), left out = the panel's default. */
+export async function readLibraryHome(sections?: DiscoverRow[]): Promise<LibHomeResult> {
   try {
     const r = await panelService<{ rows: { id: string; name: string; items: PanelLibItem[] }[] }>(
       "library_home",
-      {},
+      sections?.length ? { sections } : {},
     );
     return {
       ok: true,

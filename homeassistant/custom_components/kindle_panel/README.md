@@ -67,7 +67,20 @@ own NET RADIO dial stays on its device screen). Options on the *Media tab and mu
 
 * *Library: tabs* (`media.library_tabs`, default all, always kept in the order above),
 * *Library: opens on* (`media.library_tab`, default Playlists),
-* *Discover on the music screen's free key* (`media.discover_key`, default on).
+* *Discover on the music screen's free key* (`media.discover_key`, default on),
+* *Discover: rows* (`media.discover_rows`, since 0.11.0, multi-select, always in this order): recently played,
+  favourite playlists, favourite albums, favourite artists, favourite radio, recommendations (the other rows of Music
+  Assistant's recommendation providers: Library Recommendations, Last.fm, MusicBrainz, in MA's order), recently added
+  albums, random albums; podcasts (trending, in progress) and audiobooks (in progress) are offered but **off by
+  default**, and without them no podcast / audiobook item appears in any row. A row with fewer than 2 items is left
+  out; a row holds up to 20 items (the library rows are built with MA's own queries, which MA's Home stops at 10).
+
+**Since 0.11.0 (bus task 029) Enter plays now everywhere** (a Library row, a container, a track in an opened album /
+playlist = that list from the track, a search result, a Discover item) and the Kindle returns to the music screen, as
+before 0.10.0. A container (artist, album, playlist, podcast, genre) is browsed with the fourth soft key **Open**
+(פתח); its opened view's first row "Play all" carries the container's heart. Keys on a row: Back · play next · add to
+queue · Open (container) or heart (anything else); play next / add to queue stay in the library. Discover and the
+Library use the list screens' standard footer (position on the left, the hint in words, no arrow glyphs).
 
 **Since 0.8.0 (bus task 021) the music screen is a Music Assistant controller like the MA app's Players sheet.** Every
 MA player has its own queue; the panel shows and controls only its player (state, queue, cover art), and says so when
@@ -160,7 +173,7 @@ sequence:
 | `set_output` | `entity_id` | `music_output` |
 | `move_queue` | `entity_id`, `source_player`, `auto_play` | `{ok, music_output, moved_from, items}` or `{ok: false, reason, error}` |
 | `sync_output` | `entity_id`, `leader`, `join` | `{ok, group_members}` or `{ok: false, reason, error}` |
-| `library_home` | `limit` (items per row, 20) | `{rows: [{id, provider, name, items}]}`: Music Assistant's Home rows (`music/recommendations` + `music/recommendations/items`): the rows MA shows by default and the favourites rows (+ favourite artists / albums from the library), empty rows left out (0.10.0) |
+| `library_home` | `limit` (items per row, 20), `sections` (Discover's rows, see *Discover: rows*; left out = all but podcasts / audiobooks) | `{rows: [{id, provider, name, items}]}` in the fixed order: the panel's library rows (`music/recently_played_items`, `music/<type>s/library_items` with MA's orders) and the recommendation rows (`music/recommendations` + MA's query or `music/recommendations/items`); rows under 2 items left out; podcast / audiobook items only when asked (0.11.0; 0.10.0 had no `sections`) |
 | `library_list` | `section` (artists, albums, tracks, playlists, radio, podcasts, audiobooks, genres) **or** `parent` (an MA uri), `favorite`, `search`, `offset`, `limit` | `{total, offset, favorites, parent, items}`: a tab favourites first (two MA lists glued at the favourites count), or what the parent opens (`artist_albums`, `album_tracks`, `playlist_tracks`, `podcast_episodes`, `music/genres/albums`), cached 2 min (0.10.0) |
 | `library_search` | `query`, `media_types`, `limit` (per type) | `{query, items}` from `music/search`, in MA's section order (0.10.0) |
 | `library_play` | `uri`, `entity_id` (default the panel's player), `option` (replace = play now, play, next, replace_next, add), `start_item` | `{ok, status: playing / queued / powering_on}` or `{ok: false, reason, error}`; play now first turns on the player's receiver (the receiver node that lists the player) and plays once it is on; a held receiver refuses (0.10.0) |

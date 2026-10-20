@@ -18,7 +18,7 @@ import time
 from typing import Any
 from urllib.parse import quote
 
-from .const import DEFAULT_LIBRARY_TAB, LIBRARY_TABS
+from .const import DEFAULT_DISCOVER_ROWS, DEFAULT_LIBRARY_TAB, DISCOVER_ROWS, LIBRARY_TABS
 
 # tab -> MA media type / API base
 TAB_MEDIA_TYPE = {
@@ -43,11 +43,6 @@ TAB_FEATURES = {
     "audiobooks": {"library_audiobooks"},
     "search": {"search"},
 }
-# MA Home rows the Kindle's Discover keeps besides MA's enabled-by-default rows: the favourites rows (the owner asked
-# for favourite playlists / radio); empty rows are dropped
-FAVOURITE_ROWS = {"favorite_playlists", "favorite_radio", "recent_favorite_tracks"}
-# rows the panel adds (MA has no Home row for them): favourite artists / albums from the library
-SYNTHETIC_ROWS = (("favorite_artists", "Favorite artists", "artists"), ("favorite_albums", "Favorite albums", "albums"))
 HOME_ROW_ITEMS = 20
 PLAYABLE_TYPES = {"artist", "album", "track", "playlist", "radio", "podcast", "podcast_episode", "audiobook", "genre"}
 # what opens a list instead of playing at once (Library; Discover plays everything at once)
@@ -85,7 +80,7 @@ def available_tabs(mass: Any | None) -> list[str]:
 
 def library_view(media: dict[str, Any], mass: Any | None) -> dict[str, Any]:
     """What get_config answers for the panel's library: the tabs the owner chose (media.library_tabs, owner's order)
-    that MA has a provider for, the tab it opens on and whether Discover has its key."""
+    that MA has a provider for, the tab it opens on, whether Discover has its key and Discover's rows."""
     have = available_tabs(mass)
     chosen = media.get("library_tabs") or list(LIBRARY_TABS)
     tabs = [t for t in LIBRARY_TABS if t in chosen and t in have]
@@ -94,6 +89,8 @@ def library_view(media: dict[str, Any], mass: Any | None) -> dict[str, Any]:
         "tabs": tabs,
         "tab": tab if tab in tabs else (tabs[0] if tabs else None),
         "discover_key": bool(media.get("discover_key", True)),
+        # bus task 029: Discover's rows (media.discover_rows), handed back to library_home as `sections`
+        "discover_rows": discover_sections(media.get("discover_rows")),
         "missing": [t for t in LIBRARY_TABS if t in chosen and t not in have],
     }
 
@@ -221,52 +218,129 @@ class LibraryCache:
 
 # ---------------------------------------------------------------- Discover (MA's Home)
 
+# Bus task 029: Discover = the rows of media.discover_rows (const.DISCOVER_ROWS order). The library rows are built here
+# with the same MA queries MA's Library Recommendations provider uses (which stops at 10 items), so a row holds up to
+# `limit` (20) items; the other recommendation rows (Last.fm, MusicBrainz, ...) come as MA returns them.
+RECENT_TYPES = ["album", "track", "playlist", "artist", "genre"]
+_LIB = "library_items"
+# row id -> (MA command, arguments without the limit); the rows MA's Library Recommendations provider has
+LIBRARY_ROW_QUERIES: dict[str, tuple[str, dict[str, Any]]] = {
+    "recently_added_tracks": (f"music/tracks/{_LIB}", {"order_by": "timestamp_added_desc"}),
+    "recently_added_albums": (f"music/albums/{_LIB}", {"order_by": "timestamp_added_desc"}),
+    "random_artists": (f"music/artists/{_LIB}", {"order_by": "random_play_count"}),
+    "random_albums": (f"music/albums/{_LIB}", {"order_by": "random_play_count"}),
+    "recent_favorite_tracks": (f"music/tracks/{_LIB}", {"favorite": True, "order_by": "timestamp_modified_desc"}),
+    "favorite_playlists": (f"music/playlists/{_LIB}", {"favorite": True, "order_by": "random"}),
+    "favorite_radio": (f"music/radios/{_LIB}", {"favorite": True, "order_by": "play_count_desc"}),
+    "recent_artists": ("music/recently_played_items", {"media_types": ["artist"], "user_initiated_only": False}),
+    "recent_tracks": ("music/recently_played_items", {"media_types": ["track"], "user_initiated_only": False}),
+    "forgotten_tracks": (f"music/tracks/{_LIB}", {"order_by": "last_played", "played_only": True}),
+    "forgotten_albums": (f"music/albums/{_LIB}", {"order_by": "last_played", "played_only": True}),
+    "forgotten_artists": (f"music/artists/{_LIB}", {"order_by": "last_played", "played_only": True}),
+    "most_played_tracks": (f"music/tracks/{_LIB}", {"order_by": "play_count_desc"}),
+    "never_played_tracks": (f"music/tracks/{_LIB}", {"order_by": "play_count"}),
+    # MA has no Home row for these two: favourite albums / artists from the library (MA's default sort)
+    "favorite_albums": (f"music/albums/{_LIB}", {"favorite": True}),
+    "favorite_artists": (f"music/artists/{_LIB}", {"favorite": True}),
+}
+# the panel's own rows (section id = row id) and their names (the app translates known ids)
+OWN_ROWS = {
+    "recently_played": "Recently played",
+    "favorite_playlists": "Favorite playlists",
+    "favorite_albums": "Favorite albums",
+    "favorite_artists": "Favorite artists",
+    "favorite_radio": "Favorite Radio stations",
+    "recently_added_albums": "Recently added albums",
+    "random_albums": "Random albums",
+}
+# MA rows that are not "recommendations": the panel's own rows and the podcast / audiobook rows
+IN_PROGRESS = "in_progress"
+PODCAST_TYPES = {"podcast", "podcast_episode"}
+AUDIOBOOK_TYPES = {"audiobook"}
+MIN_ROW_ITEMS = 2
 
-async def home(mass: Any, limit: int = HOME_ROW_ITEMS) -> dict[str, Any]:
-    """MA's Home rows in MA's order: the rows MA shows by default plus the favourites rows (and favourite artists /
-    albums, which MA has no row for), each with its items; empty rows are left out."""
+
+def discover_sections(sections: list[str] | None) -> list[str]:
+    """The asked rows in Discover's fixed order; none asked = the default (everything but podcasts / audiobooks)."""
+    want = set(sections) if sections else set(DEFAULT_DISCOVER_ROWS)
+    return [s for s in DISCOVER_ROWS if s in want]
+
+
+def _is_podcast_row(r: dict[str, Any]) -> bool:
+    return "podcast" in str(r.get("provider") or "") or "podcast" in str(r.get("item_id") or "")
+
+
+async def home(mass: Any, limit: int = HOME_ROW_ITEMS, sections: list[str] | None = None) -> dict[str, Any]:
+    """Discover's rows in the asked order (`sections`, see const.DISCOVER_ROWS), each with up to `limit` items; rows
+    with fewer than 2 items are left out. Podcast / audiobook items appear only when podcasts / audiobooks are asked."""
     base, schema = _server(mass)
-    rows = [r for r in (await mass.send_command("music/recommendations") or []) if isinstance(r, dict)]
-    keep = [r for r in rows if r.get("enabled_by_default") or r.get("item_id") in FAVOURITE_ROWS]
+    wanted = discover_sections(sections)
+    podcasts, audiobooks = "podcasts" in wanted, "audiobooks" in wanted
+    hidden = (set() if podcasts else PODCAST_TYPES) | (set() if audiobooks else AUDIOBOOK_TYPES)
 
-    async def items_of(r: dict[str, Any]) -> list[dict[str, Any]]:
+    async def safe(cmd: str, **kw: Any) -> list[dict[str, Any]]:
         try:
-            return list(
-                await mass.send_command(
-                    "music/recommendations/items", provider=r.get("provider"), item_id=r.get("item_id")
-                )
-                or []
-            )
+            return [i for i in (await mass.send_command(cmd, **kw) or []) if isinstance(i, dict)]
         except Exception:  # noqa: BLE001 - one row failing never hides the others (MA does the same)
             return []
 
-    async def favourites(tab: str) -> list[dict[str, Any]]:
-        try:
-            return list(
-                await mass.send_command(
-                    f"music/{API_BASE[TAB_MEDIA_TYPE[tab]]}/library_items", favorite=True, limit=limit, offset=0
-                )
-                or []
-            )
-        except Exception:  # noqa: BLE001
-            return []
+    ma_rows: list[dict[str, Any]] = []
+    if "recommendations" in wanted or podcasts or audiobooks:
+        ma_rows = await safe("music/recommendations")
 
-    got = await asyncio.gather(*(items_of(r) for r in keep), *(favourites(tab) for _, _, tab in SYNTHETIC_ROWS))
-    out: list[dict[str, Any]] = []
-    for r, items in zip(keep, got[: len(keep)], strict=True):
-        out.append({"id": str(r.get("item_id")), "provider": r.get("provider"), "name": r.get("name"), "items": items})
-    synthetic = [
-        {"id": rid, "provider": "library", "name": name, "items": items}
-        for (rid, name, _), items in zip(SYNTHETIC_ROWS, got[len(keep) :], strict=True)
-    ]
-    # the synthetic favourites go right after "Recently played" (else first), like the MA app's favourites rows
-    at = next((i + 1 for i, r in enumerate(out) if r["id"] == "recently_played"), 0)
-    out[at:at] = synthetic
+    # the plan: (row id, provider, name, coroutine) in Discover's order
+    plan: list[tuple[str, str | None, str | None, Any]] = []
+    for sec in wanted:
+        if sec == "recently_played":
+            extra = [t for t, on in (("podcast", podcasts), ("audiobook", audiobooks)) if on]
+            kw: dict[str, Any] = {"limit": limit, "media_types": RECENT_TYPES, "user_initiated_only": True}
+            if extra:
+                kw["always_include_media_types"] = extra
+            plan.append((sec, "library", OWN_ROWS[sec], safe("music/recently_played_items", **kw)))
+        elif sec in OWN_ROWS:
+            cmd, kw = LIBRARY_ROW_QUERIES[sec]
+            plan.append((sec, "library", OWN_ROWS[sec], safe(cmd, limit=limit, offset=0, **kw)))
+        elif sec == "recommendations":
+            for r in ma_rows:
+                rid = str(r.get("item_id") or "")
+                if rid in OWN_ROWS or rid == IN_PROGRESS or _is_podcast_row(r):
+                    continue
+                if r.get("provider") == "recommendations" and rid in LIBRARY_ROW_QUERIES:
+                    cmd, kw = LIBRARY_ROW_QUERIES[rid]
+                    if cmd.endswith(_LIB):
+                        kw = {**kw, "offset": 0}
+                    coro = safe(cmd, limit=limit, **kw)
+                else:
+                    coro = safe("music/recommendations/items", provider=r.get("provider"), item_id=rid)
+                plan.append((rid, r.get("provider"), r.get("name"), coro))
+        elif sec == "podcasts":
+            for r in ma_rows:
+                if _is_podcast_row(r) or (str(r.get("item_id")) == IN_PROGRESS):
+                    rid = str(r.get("item_id"))
+                    coro = (
+                        safe("music/in_progress_items", limit=limit)
+                        if rid == IN_PROGRESS
+                        else safe("music/recommendations/items", provider=r.get("provider"), item_id=rid)
+                    )
+                    plan.append((rid, r.get("provider"), r.get("name"), coro))
+        elif sec == "audiobooks" and not podcasts:
+            # "In progress" holds podcasts and audiobooks; with podcasts asked it is already in the plan
+            r = next((x for x in ma_rows if str(x.get("item_id")) == IN_PROGRESS), None)
+            if r is not None:
+                plan.append(
+                    (IN_PROGRESS, r.get("provider"), r.get("name"), safe("music/in_progress_items", limit=limit))
+                )
+
+    got = await asyncio.gather(*(coro for *_, coro in plan))
     rows_out = []
-    for r in out:
-        views = _views(r["items"], base, schema)[:limit]
-        if views:
-            rows_out.append({"id": r["id"], "provider": r["provider"], "name": r["name"], "items": views})
+    seen: set[str] = set()
+    for (rid, provider, name, _), items in zip(plan, got, strict=True):
+        if rid in seen:
+            continue
+        seen.add(rid)
+        views = [v for v in _views(items, base, schema) if v["media_type"] not in hidden][:limit]
+        if len(views) >= MIN_ROW_ITEMS:
+            rows_out.append({"id": rid, "provider": provider, "name": name, "items": views})
     return {"rows": rows_out}
 
 

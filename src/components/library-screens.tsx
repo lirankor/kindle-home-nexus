@@ -265,7 +265,8 @@ function rowKey(r: LibRow) {
 }
 
 /** The Library (F2 on the music screen): MA's sections as tabs (Right / Left), Up / Down through the list (pages of 8),
- *  Enter opens an artist / album / playlist / podcast / genre or plays, F2 play next, F3 add to queue, F4 the heart. */
+ *  Enter plays now (any row) and returns to the music screen, F2 play next, F3 add to queue, F4 Open on an artist /
+ *  album / playlist / podcast / genre (its "Play all" row then carries the heart), else the heart (bus task 029). */
 export function LibraryScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   const lib = panel.library;
   const { t } = panel;
@@ -356,8 +357,10 @@ export function LibraryScreen({ panel, status }: { panel: MediaPanel; status: st
 const rowName = (panel: MediaPanel, id: string, name: string) =>
   tryT(panel.lang, `discover.row.${id}`) ?? name;
 
-/** Discover (the music screen's free key): MA's Home rows. A row's title, then its items (pages of 8); Right / Left the
- *  next / previous row, Enter plays now, F2 play next, F3 add to queue, F4 the heart. */
+/** Discover (the music screen's free key): the rows of the panel option media.discover_rows. A row's title, then its
+ *  items (pages of 8, up to 20); Right / Left the next / previous row, Enter plays now and returns to the music screen,
+ *  F2 play next, F3 add to queue, F4 Open on a container (in the Library) else the heart. Footer: "item i/n · row r/m"
+ *  and the hint, as the list screens (bus task 029). */
 export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   const lib = panel.library;
   const { t } = panel;
@@ -366,6 +369,8 @@ export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: s
     row?.items.slice(lib.discPage * DISCOVER_PAGE_SIZE, (lib.discPage + 1) * DISCOVER_PAGE_SIZE) ??
     [];
   const n = lib.homeRows.length;
+  const next = n > 1 ? lib.homeRows[(lib.discRowIndex + 1) % n] : undefined;
+  const count = row?.items.length ?? 0;
   return (
     <FullModal
       label={t("discover.title")}
@@ -377,32 +382,9 @@ export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: s
       <header className="modal-heading radio-list-heading discover-heading">
         <h1>{row ? rowName(panel, row.id, row.name) : t("discover.title")}</h1>
         <p>
-          {n > 0 && (
-            <Ltr>
-              {lib.discRowIndex + 1}/{n}
-            </Ltr>
-          )}
-          {n > 0 && lib.homeRows[(lib.discRowIndex + 1) % n] && n > 1 && (
-            <>
-              {" "}
-              ·{" "}
-              {t("discover.next", {
-                name: rowName(
-                  panel,
-                  lib.homeRows[(lib.discRowIndex + 1) % n]!.id,
-                  lib.homeRows[(lib.discRowIndex + 1) % n]!.name,
-                ),
-              })}
-            </>
-          )}
-          {lib.discPages > 1 && (
-            <>
-              {" · "}
-              <Ltr>
-                {lib.discPage + 1}/{lib.discPages}
-              </Ltr>
-            </>
-          )}
+          {n > 1 && next
+            ? t("discover.next", { name: rowName(panel, next.id, next.name) })
+            : "\u00a0"}
         </p>
       </header>
       <div
@@ -424,6 +406,28 @@ export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: s
             detail={item.sub ?? kindLabel(panel, item.mediaType)}
           />
         ))}
+      </div>
+      {/* bus task 029: the list screens' standard footer: the position on the left, the hint under it (no glyphs) */}
+      <div className="music-foot discover-foot">
+        <strong className="music-page">
+          {count > 0 && (
+            <>
+              {t("discover.item")}{" "}
+              <Ltr>
+                {lib.discCursor + 1}/{count}
+              </Ltr>
+              {" · "}
+            </>
+          )}
+          {n > 0 && (
+            <>
+              {t("discover.rowWord")}{" "}
+              <Ltr>
+                {lib.discRowIndex + 1}/{n}
+              </Ltr>
+            </>
+          )}
+        </strong>
       </div>
     </FullModal>
   );

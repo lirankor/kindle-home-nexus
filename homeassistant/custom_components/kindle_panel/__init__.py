@@ -63,6 +63,7 @@ from . import library as lib
 from .config import effective_sources, needs_media_migration, normalize
 from .const import (
     CONF_MA_ENTRY,
+    DISCOVER_ROWS,
     DOMAIN,
     EVENT_CONFIG_UPDATED,
     IMMICH_DOMAIN,
@@ -136,7 +137,11 @@ LIBRARY_LIST_SCHEMA = vol.Schema(
     }
 )
 LIBRARY_HOME_SCHEMA = vol.Schema(
-    {vol.Optional("limit", default=lib.HOME_ROW_ITEMS): vol.All(vol.Coerce(int), vol.Range(1, 50))}
+    {
+        vol.Optional("limit", default=lib.HOME_ROW_ITEMS): vol.All(vol.Coerce(int), vol.Range(1, 50)),
+        # bus task 029: the rows to answer (Discover's fixed order); left out = all but podcasts / audiobooks
+        vol.Optional("sections"): vol.All(cv.ensure_list, [vol.In(DISCOVER_ROWS)]),
+    }
 )
 LIBRARY_SEARCH_SCHEMA = vol.Schema(
     {
@@ -816,7 +821,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
         return mass
 
     async def library_home(call: ServiceCall) -> ServiceResponse:
-        return await lib.home(_library_mass(), call.data["limit"])
+        return await lib.home(_library_mass(), call.data["limit"], call.data.get("sections"))
 
     async def library_list(call: ServiceCall) -> ServiceResponse:
         d = call.data

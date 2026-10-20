@@ -1,7 +1,11 @@
 // Bus task 027: the library's section model, the tab strip (four + More), the key maps and the config flags.
+// Bus task 029: Discover's rows option, F4 Open on a container, play now leaves the library (play next / add do not).
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_DISCOVER_ROWS,
   LIBRARY_TABS,
+  discoverKeys,
+  leavesLibrary,
   libraryKeys,
   libraryViewFrom,
   maStations,
@@ -9,6 +13,7 @@ import {
   pageWindow,
   playNowTarget,
   playingStationIndex,
+  rowOpens,
   stepStrip,
   stripSlotsOf,
   tabStrip,
@@ -59,12 +64,29 @@ describe("library config flags (kindle_panel get_config library)", () => {
       tabs: ["albums", "search"],
       tab: "albums",
       discoverKey: true,
+      discoverRows: DEFAULT_DISCOVER_ROWS,
     });
     expect(libraryViewFrom({ tabs: TODAY, tab: "genres", discover_key: false })).toMatchObject({
       tab: "genres",
       discoverKey: false,
     });
     expect(libraryViewFrom(undefined).tab).toBe("playlists");
+  });
+  it("Discover's rows: the panel's choice in the fixed order; default without podcasts / audiobooks", () => {
+    expect(DEFAULT_DISCOVER_ROWS).toEqual([
+      "recently_played",
+      "favorite_playlists",
+      "favorite_albums",
+      "favorite_artists",
+      "favorite_radio",
+      "recommendations",
+      "recently_added_albums",
+      "random_albums",
+    ]);
+    expect(
+      libraryViewFrom({ discover_rows: ["podcasts", "random_albums", "nope"] }).discoverRows,
+    ).toEqual(["random_albums", "podcasts"]);
+    expect(libraryViewFrom({}).discoverRows).toEqual(DEFAULT_DISCOVER_ROWS);
   });
 });
 
@@ -86,6 +108,30 @@ describe("library rows and play targets", () => {
 });
 
 describe("key maps", () => {
+  it("F4 = Open on a container row (not on Play all), the heart on a leaf; Discover the same", () => {
+    const album = item("library://album/1", "album");
+    const track = item("library://track/9", "track");
+    expect(rowOpens(album)).toBe(true);
+    expect(rowOpens(album, true)).toBe(false); // the Play all row: the parent's heart
+    expect(rowOpens(track)).toBe(false);
+    expect(rowOpens(null)).toBe(false);
+    const opens = { tab: "albums" as const, opened: false, more: false, searchKeys: false };
+    expect(libraryKeys({ ...opens, opens: true })).toEqual([
+      "back",
+      "playNext",
+      "addQueue",
+      "open",
+    ]);
+    expect(libraryKeys({ ...opens, opened: true, opens: false })[3]).toBe("favourite");
+    expect(libraryKeys({ ...opens, tab: "search", opens: true })[3]).toBe("open"); // results
+    expect(discoverKeys(true)).toEqual(["back", "playNext", "addQueue", "open"]);
+    expect(discoverKeys(false)).toEqual(["back", "playNext", "addQueue", "favourite"]);
+  });
+  it("only play now leaves the library for the music screen", () => {
+    expect(leavesLibrary("replace")).toBe(true);
+    expect(leavesLibrary("next")).toBe(false);
+    expect(leavesLibrary("add")).toBe(false);
+  });
   it("library footer by context", () => {
     expect(libraryKeys({ tab: "albums", opened: false, more: false, searchKeys: false })).toEqual([
       "back",

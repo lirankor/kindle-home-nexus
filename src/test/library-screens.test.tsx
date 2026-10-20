@@ -1,4 +1,6 @@
 // Bus task 027: the Music Assistant client screens on the panel (Library with four tabs + More, Discover, MA dial).
+// Bus task 029: Enter plays now everywhere and returns to the music screen; F4 Open browses a container; Discover's rows
+// come from the panel option and its footer is the list screens' one.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
@@ -71,6 +73,7 @@ const haResult = (radio = false): MediaSnapshotResult => {
       tabs: ["playlists", "radio", "genres", "albums", "artists", "tracks", "podcasts", "search"],
       tab: "playlists",
       discoverKey: true,
+      discoverRows: ["recently_played", "favorite_radio", "recommendations"],
     },
   };
   return { configured: true, amp: true, jellyfin: false, snapshot: s, lang: "en" };
@@ -159,10 +162,10 @@ describe("the Music Assistant library (bus task 027)", () => {
     });
   });
 
-  it("F2 opens the Library on Playlists: four tabs + More, the item keys, the heart", async () => {
+  it("F2 opens the Library on Playlists: four tabs + More; a container row has Open, its Play all row the heart", async () => {
     await openMusic();
     const now = screen.getByRole("dialog", { name: "Amplifier view" });
-    expect(keysOf(now)).toEqual([" ", "Library", "Player", "Discover"]);
+    expect(keysOf(now)).toEqual(["\u00a0", "Library", "Player", "Discover"]);
     press("F2");
     const libDlg = screen.getByRole("dialog", { name: "Library" });
     expect(tabsOf(libDlg)).toEqual(["Playlists", "Radio", "Genres", "Albums", "More"]);
@@ -170,8 +173,31 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(lib.getLibraryList).toHaveBeenCalledWith({
       data: { section: "playlists", offset: 0, limit: 8 },
     });
-    expect(keysOf(libDlg)).toEqual(["Back", "Play next", "Add to queue", "Favourite"]);
-    press("F4");
+    // the standard footer: the page on the left, the hint in words (no glyphs the Kindle font lacks)
+    expect(libDlg.querySelector(".music-page")?.textContent).toBe("1/1");
+    expect(libDlg.textContent).toContain("Up/Down choose · Right/Left tab · Enter play");
+    expect(libDlg.textContent).not.toMatch(/[◀▶]/);
+    expect(keysOf(libDlg)).toEqual(["Back", "Play next", "Add to queue", "Open"]);
+    // play next stays in the library (the owner may queue several)
+    press("F2");
+    await waitFor(() =>
+      expect(lib.playLibrary).toHaveBeenCalledWith({ data: { uri: ALBUM.uri, option: "next" } }),
+    );
+    expect(screen.getByRole("dialog", { name: "Library" })).toBeVisible();
+    press("F4"); // Open
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Library" }).textContent).toContain("Play all"),
+    );
+    expect(lib.getLibraryList).toHaveBeenLastCalledWith({
+      data: { parent: ALBUM.uri, offset: 0, limit: 7 },
+    });
+    expect(keysOf(screen.getByRole("dialog", { name: "Library" }))).toEqual([
+      "Back",
+      "Play next",
+      "Add to queue",
+      "Favourite",
+    ]);
+    press("F4"); // the heart of the album, on its Play all row
     await waitFor(() =>
       expect(lib.favouriteLibrary).toHaveBeenCalledWith({
         data: { uri: ALBUM.uri, favorite: true },
@@ -180,10 +206,10 @@ describe("the Music Assistant library (bus task 027)", () => {
     await waitFor(() =>
       expect(keysOf(screen.getByRole("dialog", { name: "Library" }))[3]).toBe("Unfavourite"),
     );
-    press("F2");
-    await waitFor(() =>
-      expect(lib.playLibrary).toHaveBeenCalledWith({ data: { uri: ALBUM.uri, option: "next" } }),
-    );
+    press("ArrowDown"); // Track 1: a leaf keeps the heart
+    expect(keysOf(screen.getByRole("dialog", { name: "Library" }))[3]).toBe("Favourite");
+    press("Escape"); // back to the list, the album row again
+    expect(keysOf(screen.getByRole("dialog", { name: "Library" }))[3]).toBe("Open");
   });
 
   it("Right walks the tabs (Radio has the Dial key); past Albums More opens; a choice takes the fourth slot", async () => {
@@ -192,7 +218,14 @@ describe("the Music Assistant library (bus task 027)", () => {
     press("ArrowRight");
     let dlg = screen.getByRole("dialog", { name: "Library" });
     expect(dlg.querySelector('[role=tab][aria-selected="true"]')?.textContent).toBe("Radio");
-    expect(keysOf(dlg)).toEqual(["Back", "Dial", "Add to queue", "Favourite"]);
+    await waitFor(() =>
+      expect(keysOf(screen.getByRole("dialog", { name: "Library" }))).toEqual([
+        "Back",
+        "Dial",
+        "Add to queue",
+        "Unfavourite",
+      ]),
+    );
     press("ArrowRight");
     press("ArrowRight");
     press("ArrowRight"); // Albums -> More
@@ -206,7 +239,7 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(tabsOf(dlg)).toEqual(["Playlists", "Radio", "Genres", "Tracks", "More"]);
   });
 
-  it("Enter opens an album: Play all first, a track plays the album from that track", async () => {
+  it("Enter plays a container at once and returns to the music screen", async () => {
     await openMusic();
     press("F2");
     await waitFor(() =>
@@ -214,11 +247,26 @@ describe("the Music Assistant library (bus task 027)", () => {
     );
     press("Enter");
     await waitFor(() =>
-      expect(screen.getByRole("dialog", { name: "Library" }).textContent).toContain("Play all"),
+      expect(lib.playLibrary).toHaveBeenCalledWith({
+        data: { uri: ALBUM.uri, option: "replace" },
+      }),
     );
-    expect(lib.getLibraryList).toHaveBeenLastCalledWith({
-      data: { parent: ALBUM.uri, offset: 0, limit: 7 },
-    });
+    expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
+    expect(lib.getLibraryList).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ parent: ALBUM.uri }) }),
+    );
+  });
+
+  it("an opened album: Enter on Play all plays it, a track plays the album from that track, both leave", async () => {
+    await openMusic();
+    press("F2");
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Library" }).textContent).toContain("Sheer"),
+    );
+    press("F4"); // Open
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Library" }).textContent).toContain("Track 2"),
+    );
     press("ArrowDown");
     press("ArrowDown");
     press("Enter"); // Track 2
@@ -227,30 +275,68 @@ describe("the Music Assistant library (bus task 027)", () => {
         data: { uri: ALBUM.uri, startItem: "library://track/2", option: "replace" },
       }),
     );
-    // play now lands on the music screen
+    expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
+    // the library opens fresh (top of the tab) next time
+    press("F2");
+    expect(screen.getByRole("dialog", { name: "Library" }).textContent).not.toContain("Play all");
+    press("F4");
     await waitFor(() =>
-      expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible(),
+      expect(screen.getByRole("dialog", { name: "Library" }).textContent).toContain("Play all"),
     );
+    press("Enter"); // Play all
+    await waitFor(() =>
+      expect(lib.playLibrary).toHaveBeenLastCalledWith({
+        data: { uri: ALBUM.uri, option: "replace" },
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
   });
 
-  it("Discover on F4: MA's Home rows, Right / Left to the next row, Enter plays now", async () => {
+  it("Discover on F4: the panel's rows, the standard footer, Open on a container, Enter plays now and leaves", async () => {
     await openMusic(false, "he");
     press("F4");
-    const dlg = screen.getByRole("dialog", { name: "גילוי" });
+    let dlg = screen.getByRole("dialog", { name: "גילוי" });
     await waitFor(() => expect(dlg.textContent).toContain("הושמעו לאחרונה"));
-    expect(keysOf(dlg)).toEqual(["חזרה", "הבא בתור", "הוסף לתור", "מועדף"]);
+    expect(lib.getLibraryHome).toHaveBeenCalledWith({
+      data: { sections: ["recently_played", "favorite_radio", "recommendations"] },
+    });
+    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe(
+      "פריט 1/1 · שורה 1/2",
+    );
+    expect(dlg.textContent).toContain("למעלה/למטה בחירה · ימין/שמאל שורה · Enter נגינה");
+    expect(dlg.textContent).not.toMatch(/[◀▶]/);
+    expect(keysOf(dlg)).toEqual(["חזרה", "הבא בתור", "הוסף לתור", "פתח"]);
+    // Open: the album in the Library (Play all first); Back returns to Discover
+    press("F4");
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "ספריה" }).textContent).toContain("נגן הכל"),
+    );
+    press("F1");
+    dlg = screen.getByRole("dialog", { name: "גילוי" });
+    expect(dlg.textContent).toContain("הושמעו לאחרונה");
     press("ArrowLeft"); // Hebrew: left = forward
     await waitFor(() =>
       expect(screen.getByRole("dialog", { name: "גילוי" }).textContent).toContain(
         "תחנות רדיו מועדפות",
       ),
     );
+    dlg = screen.getByRole("dialog", { name: "גילוי" });
+    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe(
+      "פריט 1/2 · שורה 2/2",
+    );
+    expect(keysOf(dlg)[3]).toBe("הסר ממועדפים"); // a radio is a leaf: the heart
+    press("ArrowDown");
+    expect(
+      screen.getByRole("dialog", { name: "גילוי" }).querySelector(".discover-foot .music-page")
+        ?.textContent,
+    ).toBe("פריט 2/2 · שורה 2/2");
     press("Enter");
     await waitFor(() =>
       expect(lib.playLibrary).toHaveBeenCalledWith({
-        data: { uri: "library://radio/1", option: "replace" },
+        data: { uri: "library://radio/2", option: "replace" },
       }),
     );
+    expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
   });
 
   it("an MA radio plays: F1 reads Radio and opens the MA dial on the playing station; F2 switches the band", async () => {
@@ -265,6 +351,10 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(keysOf(dlg)).toEqual(["Back", "Favourites", "Unfavourite", "List"]);
     press("F2");
     expect(keysOf(screen.getByRole("dialog", { name: "MA radio" }))[1]).toBe("All stations");
+    // tuning plays on the player and stays on the dial (bus task 029: only the library's play now leaves)
+    press("Enter");
+    await waitFor(() => expect(lib.playLibrary).toHaveBeenCalled());
+    expect(screen.getByRole("dialog", { name: "MA radio" })).toBeVisible();
     press("Escape");
     expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
   });

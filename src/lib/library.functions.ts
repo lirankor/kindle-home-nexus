@@ -2,9 +2,15 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { haConfigured } from "./home.server";
-import { LIBRARY_TABS } from "./library";
+import { DISCOVER_ROWS, LIBRARY_TABS } from "./library";
 import { SEARCH_MAX_CHARS } from "./media";
-import type { LibHomeResult, LibListResult, LibPlayResult, LibSearchResult } from "./library";
+import type {
+  DiscoverRow,
+  LibHomeResult,
+  LibListResult,
+  LibPlayResult,
+  LibSearchResult,
+} from "./library";
 import {
   favouriteLibraryItem,
   playLibraryItem,
@@ -29,6 +35,9 @@ function buildSchemas() {
       offset: z.number().int().min(0),
       limit: z.number().int().min(1).max(100).optional(),
     }),
+    home: z.object({
+      sections: z.array(z.enum(DISCOVER_ROWS)).max(DISCOVER_ROWS.length).optional(),
+    }),
     search: z.object({ query: z.string().trim().min(1).max(SEARCH_MAX_CHARS) }),
     play: z.object({ uri, option: z.enum(["replace", "next", "add"]), startItem: uri.optional() }),
     favourite: z.object({ uri, favorite: z.boolean() }),
@@ -44,9 +53,14 @@ type PlayInput = {
   startItem?: string | undefined;
 };
 
-export const getLibraryHome = createServerFn({ method: "GET" }).handler(
-  async (): Promise<LibHomeResult> => (haConfigured() ? readLibraryHome() : { ...noHa, rows: [] }),
-);
+type HomeInput = { sections?: DiscoverRow[] | undefined };
+
+/** Discover's rows; `sections` = the panel option media.discover_rows (bus task 029). */
+export const getLibraryHome = createServerFn({ method: "GET" })
+  .validator((d: HomeInput) => schemas().home.parse(d ?? {}) as HomeInput)
+  .handler(async ({ data }): Promise<LibHomeResult> =>
+    haConfigured() ? readLibraryHome(data.sections) : { ...noHa, rows: [] },
+  );
 
 export const getLibraryList = createServerFn({ method: "GET" })
   .validator((d: ListInput) => schemas().list.parse(d) as ListInput)

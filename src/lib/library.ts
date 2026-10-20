@@ -34,21 +34,55 @@ export type MaDialBand = (typeof MA_DIAL_BANDS)[number];
  *  target, like the amp dial's coalescing). */
 export const MA_DIAL_SETTLE_MS = 1500;
 
+/** Bus task 029: Discover's rows (kindle_panel option media.discover_rows), in this fixed order; "recommendations" =
+ *  the other rows of MA's recommendation providers. Podcasts / audiobooks exist but are off by default. */
+export const DISCOVER_ROWS = [
+  "recently_played",
+  "favorite_playlists",
+  "favorite_albums",
+  "favorite_artists",
+  "favorite_radio",
+  "recommendations",
+  "recently_added_albums",
+  "random_albums",
+  "podcasts",
+  "audiobooks",
+] as const;
+export type DiscoverRow = (typeof DISCOVER_ROWS)[number];
+export const DEFAULT_DISCOVER_ROWS: DiscoverRow[] = DISCOVER_ROWS.filter(
+  (r) => r !== "podcasts" && r !== "audiobooks",
+);
+
 /** The panel's library, as kindle_panel's get_config answers it (`library`). */
-export type LibraryView = { tabs: LibraryTab[]; tab: LibraryTab | null; discoverKey: boolean };
+export type LibraryView = {
+  tabs: LibraryTab[];
+  tab: LibraryTab | null;
+  discoverKey: boolean;
+  /** Discover's rows, handed back to library_home as `sections`. */
+  discoverRows: DiscoverRow[];
+};
 export const DEFAULT_LIBRARY_VIEW: LibraryView = {
   tabs: [...LIBRARY_TABS],
   tab: DEFAULT_LIBRARY_TAB,
   discoverKey: true,
+  discoverRows: [...DEFAULT_DISCOVER_ROWS],
 };
 export function libraryViewFrom(raw: unknown): LibraryView {
   if (!raw || typeof raw !== "object") return DEFAULT_LIBRARY_VIEW;
-  const r = raw as { tabs?: unknown; tab?: unknown; discover_key?: unknown };
+  const r = raw as {
+    tabs?: unknown;
+    tab?: unknown;
+    discover_key?: unknown;
+    discover_rows?: unknown;
+  };
   const tabs = Array.isArray(r.tabs)
     ? LIBRARY_TABS.filter((t) => (r.tabs as unknown[]).includes(t))
     : [...LIBRARY_TABS];
   const tab = isLibraryTab(r.tab) && tabs.includes(r.tab) ? r.tab : (tabs[0] ?? null);
-  return { tabs, tab, discoverKey: r.discover_key !== false };
+  const discoverRows = Array.isArray(r.discover_rows)
+    ? DISCOVER_ROWS.filter((d) => (r.discover_rows as unknown[]).includes(d))
+    : [...DEFAULT_DISCOVER_ROWS];
+  return { tabs, tab, discoverKey: r.discover_key !== false, discoverRows };
 }
 
 export type LibMediaType =
@@ -69,7 +103,8 @@ export type LibItem = {
   sub: string | null;
   /** null = MA did not say (an item mapping). */
   favorite: boolean | null;
-  /** Enter opens it (artist -> albums, album / playlist -> tracks, podcast -> episodes, genre -> albums). */
+  /** A container: the Open key (F4) browses it (artist -> albums, album / playlist -> tracks, podcast -> episodes,
+   *  genre -> albums); Enter plays it (bus task 029). */
   opens: boolean;
   art: string | null;
   inLibrary: boolean;
@@ -136,9 +171,13 @@ export function pageWindow(
   const first = page * size;
   return first === 0 ? { offset: 0, limit: size - shift } : { offset: first - shift, limit: size };
 }
-/** What Enter does on an item: open it (Library) or play it now. Discover plays everything at once. */
-export const enterOpens = (item: LibItem, screen: "library" | "discover"): boolean =>
-  screen === "library" && item.opens;
+/** Bus task 029: Enter plays now everywhere (Library, an opened list, search results, Discover) and the panel returns
+ *  to the music screen; a container is browsed with the Open key (F4) instead. Play next / add to queue stay put. */
+/** The row offers the Open key: a container item (not the "Play all" row, whose F4 is the parent's heart). */
+export const rowOpens = (item: LibItem | null, playAllRow = false): boolean =>
+  !!item && !playAllRow && item.opens;
+/** Play options that leave the library for the music screen (play now); play next / add to queue do not. */
+export const leavesLibrary = (option: LibPlayOption): boolean => option === "replace";
 /** Play now: a track opened inside an album / playlist plays that list from the track (as MA does), else the item. */
 export function playNowTarget(
   item: LibItem,
@@ -159,6 +198,7 @@ export type LibKey =
   | "playNext"
   | "addQueue"
   | "favourite"
+  | "open"
   | "dial"
   | "list"
   | "band"
@@ -167,20 +207,29 @@ export type LibKey =
   | "results"
   | "choose"
   | null;
-/** The Library's footer by context (documented in the report and KINDLE-APP.md). */
+/** The Library's footer by context (documented in the report and KINDLE-APP.md). `opens`: the highlighted row is a
+ *  container (F4 = Open instead of the heart; the heart of a container is on its opened view's "Play all" row). */
 export function libraryKeys(ctx: {
   tab: LibraryTab;
   opened: boolean;
   more: boolean;
   searchKeys: boolean;
+  opens?: boolean;
 }): LibKey[] {
   if (ctx.more) return ["back", null, null, "choose"];
   if (ctx.tab === "search" && ctx.searchKeys && !ctx.opened)
     return ["back", "backspace", "space", "results"];
-  if (ctx.tab === "radio" && !ctx.opened) return ["back", "dial", "addQueue", "favourite"];
-  return ["back", "playNext", "addQueue", "favourite"];
+  const f4: LibKey = ctx.opens ? "open" : "favourite";
+  if (ctx.tab === "radio" && !ctx.opened) return ["back", "dial", "addQueue", f4];
+  return ["back", "playNext", "addQueue", f4];
 }
-export const DISCOVER_KEYS: LibKey[] = ["back", "playNext", "addQueue", "favourite"];
+/** Discover's footer: F4 = Open on a container (it opens in the Library; Back returns to Discover), else the heart. */
+export const discoverKeys = (opens: boolean): LibKey[] => [
+  "back",
+  "playNext",
+  "addQueue",
+  opens ? "open" : "favourite",
+];
 export const MA_DIAL_KEYS: LibKey[] = ["back", "band", "favourite", "list"];
 
 /** The music screen's footer with the HA backend (bus tasks 025 + 027): F1 = the playlist while the player has a queue,

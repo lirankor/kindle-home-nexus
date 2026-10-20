@@ -107,6 +107,22 @@ library_home:
       default: 20
       selector:
         number: { min: 1, max: 50, mode: box }
+    sections:
+      example: '["recently_played", "favorite_radio", "recommendations"]'
+      selector:
+        select:
+          multiple: true
+          options:
+            - recently_played
+            - favorite_playlists
+            - favorite_albums
+            - favorite_artists
+            - favorite_radio
+            - recommendations
+            - recently_added_albums
+            - random_albums
+            - podcasts
+            - audiobooks
 library_list:
   fields:
     section:

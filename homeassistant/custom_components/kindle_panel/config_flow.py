@@ -19,7 +19,9 @@ from .const import (
     CARD_TYPES,
     CONF_MA_ENTRY,
     CUSTOM_PREFIX,
+    DEFAULT_DISCOVER_ROWS,
     DEFAULT_LIBRARY_TAB,
+    DISCOVER_ROWS,
     DOMAIN,
     ICON_AUTO,
     ICON_AUTO_LABEL,
@@ -717,6 +719,8 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 "library_tabs": list(user_input.get("library_tabs") or LIBRARY_TABS),
                 "library_tab": user_input.get("library_tab") or DEFAULT_LIBRARY_TAB,
                 "discover_key": bool(user_input.get("discover_key", True)),
+                # bus task 029: Discover's rows
+                "discover_rows": list(user_input.get("discover_rows") or DEFAULT_DISCOVER_ROWS),
             }
             edit = user_input.get("inputs_for")
             if edit:
@@ -772,6 +776,9 @@ class KindlePanelOptionsFlow(OptionsFlow):
                         LIBRARY_TABS, "library_tab"
                     ),
                     vol.Optional("discover_key", default=bool(m.get("discover_key", True))): sel.BooleanSelector(),
+                    vol.Optional(
+                        "discover_rows", default=list(m.get("discover_rows") or DEFAULT_DISCOVER_ROWS)
+                    ): _select(DISCOVER_ROWS, "discover_rows", multiple=True),
                     vol.Optional("inputs_for"): sel.SelectSelector(
                         sel.SelectSelectorConfig(
                             options=[sel.SelectOptionDict(value=n["id"], label=n["name"]) for n in m["nodes"]],

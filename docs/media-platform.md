@@ -9,7 +9,10 @@ What this branch changes in the app:
   `music_radio_favourites` until bus task 025, deleted in 026) and the `media_player.r_n500` bridge entity. Since bus
   task 027 the library is a Music Assistant client (`src/lib/library*.ts`, `use-library.ts`, `components/library-screens.tsx`;
   kindle_panel 0.10.0 `library_*` services): Discover, the Library tabs, search, favourites and the MA radio dial read
-  Music Assistant; the Jellyfin list views (lists, mixes, artist, search) remain for `MUSIC_BACKEND=app` only. The snapshot reuses `buildMediaSnapshot`
+  Music Assistant; the Jellyfin list views (lists, mixes, artist, search) remain for `MUSIC_BACKEND=app` only. Since bus
+  task 029 (kindle_panel 0.11.0) Enter plays now everywhere in the Library / Discover and returns to the music screen,
+  F4 **Open** browses a container, Discover's rows come from `media.discover_rows` (no podcasts by default, up to 20
+  items a row) and both screens use the list screens' standard footer. The snapshot reuses `buildMediaSnapshot`
   by projecting the bridge entity onto `AMP.player`, so the screen rules are unchanged.
 - In HA mode the legacy queue never resumes or touches the amp, and `/api/voice/{play,action,radio}` answer 409.
 - For every mode:

@@ -95,7 +95,8 @@
           "inputs_for": "Then rename / hide the inputs of",
           "library_tabs": "Library: tabs",
           "library_tab": "Library: opens on",
-          "discover_key": "Discover on the music screen's free key"
+          "discover_key": "Discover on the music screen's free key",
+          "discover_rows": "Discover: rows"
         },
         "data_description": {
           "nodes": "One row per device. Type receiver: Entity = the receiver's media player (power, inputs); optional volume number, plug, stream output select (DLNA/AirPlay) and the Music Assistant players it plays (the panel's player among them turns the receiver on first). Type tv: Entity = the TV's media player; optional movie mode scripts and boolean. Id: a-z, 0-9, _ (keep it once chosen; the F-keys use it).",
@@ -106,7 +107,8 @@
           "inputs_for": "Pick a device (or type the id of one added above) to go on to its inputs: the list comes live from its media player (source_list), in the device's order; rename an input (e.g. CD -> Bluetooth & TV) or hide it. Both pages are saved together there.",
           "library_tabs": "The Kindle's library is a Music Assistant client: its tabs are Music Assistant's library sections, always in this order (the strip shows the first four, the rest are under More). A tab Music Assistant has no provider for (e.g. Audiobooks) is left out anyway.",
           "library_tab": "The tab the library opens on (default Playlists); a tab that is not shown falls back to the first one.",
-          "discover_key": "On (default): the music screen's free soft key opens Discover (Music Assistant's Home rows: recently played, favourites, recommendations). Off: no Discover key."
+          "discover_key": "On (default): the music screen's free soft key opens Discover (Music Assistant's Home rows: recently played, favourites, recommendations). Off: no Discover key.",
+          "discover_rows": "The rows Discover shows, always in this order; a row with fewer than 2 items is left out, each row holds up to 20 items. Recommendations = the other rows Music Assistant's recommendation providers return (Library Recommendations, Last.fm, MusicBrainz), in Music Assistant's order. Podcasts / audiobooks (off by default) also let podcast / audiobook items into the other rows."
         }
       },
       "media_inputs": {
@@ -234,6 +236,20 @@
         "podcasts": "Podcasts",
         "audiobooks": "Audiobooks",
         "search": "Search"
+      }
+    },
+    "discover_rows": {
+      "options": {
+        "recently_played": "Recently played",
+        "favorite_playlists": "Favourite playlists",
+        "favorite_albums": "Favourite albums",
+        "favorite_artists": "Favourite artists",
+        "favorite_radio": "Favourite radio stations",
+        "recommendations": "Recommendations (Music Assistant's recommendation rows)",
+        "recently_added_albums": "Recently added albums",
+        "random_albums": "Random albums",
+        "podcasts": "Podcasts (trending, in progress)",
+        "audiobooks": "Audiobooks (in progress)"
       }
     }
   },
@@ -382,11 +398,15 @@
     },
     "library_home": {
       "name": "Library: Discover",
-      "description": "Music Assistant's Home rows (recently played, favourites, recommendations) with their items, for the panel's Discover screen.",
+      "description": "Music Assistant's Home rows (recently played, favourites, recommendations, recently added / random albums) with their items, for the panel's Discover screen; rows with fewer than 2 items are left out.",
       "fields": {
         "limit": {
           "name": "Items per row",
           "description": "At most this many items per row."
+        },
+        "sections": {
+          "name": "Rows",
+          "description": "The rows to answer, in the fixed order (recently_played, favorite_playlists, favorite_albums, favorite_artists, favorite_radio, recommendations, recently_added_albums, random_albums, podcasts, audiobooks). Left out: every row but podcasts / audiobooks."
         }
       }
     },

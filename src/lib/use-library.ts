@@ -1,4 +1,5 @@
-// Bus task 027: state and keys of the Music Assistant client screens (MUSIC_BACKEND=ha): the Library (MA's sections as
+// Bus task 027 (+ 029: Enter plays now everywhere and returns to the music screen, F4 Open browses a container, Discover
+// rows from the panel option): state and keys of the Music Assistant client screens (MUSIC_BACKEND=ha): the Library (MA's sections as
 // tabs, four + More), Discover (MA's Home rows) and the MA radio dial (MA's radios on the amp dial's slider). Data comes
 // from kindle_panel's library_* services through library.functions.ts. useMediaPanel owns the screen and the footer.
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,6 +9,7 @@ import {
   Check,
   CornerDownLeft,
   Delete,
+  FolderOpen,
   Gauge,
   Heart,
   ListEnd,
@@ -21,18 +23,19 @@ import { isRtl } from "@/lib/i18n";
 import type { Key, Lang } from "@/lib/i18n";
 import {
   DEFAULT_LIBRARY_VIEW,
-  DISCOVER_KEYS,
   DISCOVER_PAGE_SIZE,
   LIBRARY_PAGE_SIZE,
   MA_DIAL_KEYS,
   MA_DIAL_SETTLE_MS,
-  enterOpens,
+  discoverKeys,
   hasPlayAll,
   isFavourite,
+  leavesLibrary,
   libraryKeys,
   pageWindow,
   playNowTarget,
   playingStationIndex,
+  rowOpens,
   stepStrip,
   stripSlotsOf,
   tabStrip,
@@ -97,6 +100,8 @@ export function useLibrary({
   const [stack, setStack] = useState<Opened[]>([]);
   const [cursor, setCursor] = useState(0);
   const [more, setMore] = useState<{ cursor: number } | null>(null);
+  /** Bus task 029: a container opened from Discover (F4 Open) shows in the Library; Back from it returns to Discover. */
+  const [fromDiscover, setFromDiscover] = useState(false);
   const [search, setSearch] = useState<{ query: string; focus: "keys" | "results"; key: number }>({
     query: "",
     focus: "keys",
@@ -159,9 +164,10 @@ export function useLibrary({
   const searchKeysFocus = tab === "search" && !opened && search.focus === "keys";
 
   // ---- Discover ----
+  const discoverRows = view.discoverRows;
   const homeQuery = useQuery<LibHomeResult>({
-    queryKey: ["lib", "home"],
-    queryFn: () => getLibraryHome(),
+    queryKey: ["lib", "home", discoverRows.join(",")],
+    queryFn: () => getLibraryHome({ data: { sections: discoverRows } }),
     enabled: screen === "discover",
     staleTime: HOME_STALE_MS,
   });
@@ -229,10 +235,18 @@ export function useLibrary({
 
   // ---- actions ----
   const play = useCallback(
-    async (target: { uri: string; startItem?: string }, option: LibPlayOption, title: string) => {
+    async (
+      target: { uri: string; startItem?: string },
+      option: LibPlayOption,
+      title: string,
+      leave: boolean = leavesLibrary(option),
+    ) => {
       notify({
         text: option === "replace" ? t("music.playing", { title }) : t("lib.sending", { title }),
       });
+      // bus task 029: play now leaves the library at once for the music screen (as before task 027); play next / add
+      // to queue stay (the owner may queue several); the MA dial stays on the dial while tuning
+      if (leave) open("now");
       try {
         const r = await playLibrary({ data: { ...target, option } });
         if (!r.ok) {
@@ -249,12 +263,12 @@ export function useLibrary({
                   ? t("lib.queuedAdd", { title })
                   : t("music.playing", { title }),
         });
-        afterPlay(option === "replace");
+        afterPlay(leave);
       } catch {
         notify({ text: t("err.server"), error: true });
       }
     },
-    [notify, t, afterPlay],
+    [notify, t, afterPlay, open],
   );
   const toggleFavourite = useCallback(
     async (item: LibItem) => {
@@ -279,6 +293,7 @@ export function useLibrary({
     setMore(null);
     setCursor(0);
     setFavs({});
+    setFromDiscover(false);
     open("library");
   };
   const openDiscover = () => {
@@ -299,6 +314,7 @@ export function useLibrary({
     setStack([]);
     setMore(null);
     setCursor(0);
+    setFromDiscover(false);
   };
   const stepTab = (delta: 1 | -1) => {
     const slot = stepStrip(stripSlotsOf(strip), tab, delta);
@@ -311,39 +327,36 @@ export function useLibrary({
       const top = stack[stack.length - 1]!;
       setStack(stack.slice(0, -1));
       setCursor(top.cursor);
+      if (stack.length === 1 && fromDiscover) {
+        setFromDiscover(false);
+        open("discover");
+      }
       return;
     }
     if (tab === "search" && search.focus === "results")
       return setSearch((s) => ({ ...s, focus: "keys" }));
     open("now");
   };
-  const highlighted = (): LibItem | null => {
-    if (tab === "search" && !opened)
-      return search.focus === "results" ? (searchRows[searchCursor] ?? null) : null;
-    const row = rowAt(Math.min(cursor, Math.max(0, listTotal - 1)));
-    return row ? (row.kind === "playAll" ? row.parent : row.item) : null;
-  };
-  const enterItem = (item: LibItem) => {
-    if (enterOpens(item, "library")) {
-      setStack((s) => [
-        ...s,
-        { item, cursor: tab === "search" && !opened ? searchCursor : cursor },
-      ]);
-      setCursor(0);
-      return;
-    }
-    void play(playNowTarget(item, opened), "replace", item.name);
-  };
-  const enter = () => {
+  const highlightedRow = (): LibRow | null => {
     if (tab === "search" && !opened) {
-      const item = searchRows[searchCursor];
-      if (item) enterItem(item);
-      return;
+      const item = search.focus === "results" ? searchRows[searchCursor] : undefined;
+      return item ? { kind: "item", item } : null;
     }
-    const row = rowAt(cursor);
+    return rowAt(Math.min(cursor, Math.max(0, listTotal - 1))) ?? null;
+  };
+  /** F4 Open on a container row: browse it (its "Play all" row first). */
+  const openItem = (item: LibItem) => {
+    if (!item.opens) return;
+    setStack((s) => [...s, { item, cursor: tab === "search" && !opened ? searchCursor : cursor }]);
+    setCursor(0);
+  };
+  /** Enter (bus task 029): play now, whatever the row (a container plays whole, a track inside an opened album /
+   *  playlist plays that list from the track), then the music screen. */
+  const enter = () => {
+    const row = highlightedRow();
     if (!row) return;
     if (row.kind === "playAll") void play({ uri: row.parent.uri }, "replace", row.parent.name);
-    else enterItem(row.item);
+    else void play(playNowTarget(row.item, opened), "replace", row.item.name);
   };
   const moveCursor = (delta: number) => {
     if (tab === "search" && !opened) {
@@ -387,6 +400,16 @@ export function useLibrary({
       cursor: Math.max(0, Math.min(Math.max(0, discItems.length - 1), discCursor + delta)),
     }));
 
+  /** F4 Open on a Discover container: it opens in the Library (Back returns to Discover). */
+  const openFromDiscover = (item: LibItem) => {
+    if (!item.opens) return;
+    setMore(null);
+    setStack([{ item, cursor: 0 }]);
+    setCursor(0);
+    setFromDiscover(true);
+    open("library");
+  };
+
   // MA dial
   const tuneDial = (index: number, now = false) => {
     const item = dialItems[index];
@@ -395,7 +418,7 @@ export function useLibrary({
     if (dialSettle.current) clearTimeout(dialSettle.current);
     const go = () => {
       dialSettle.current = null;
-      void play({ uri: item.uri }, "replace", item.name);
+      void play({ uri: item.uri }, "replace", item.name, false);
     };
     if (now) go();
     else dialSettle.current = setTimeout(go, MA_DIAL_SETTLE_MS);
@@ -450,6 +473,13 @@ export function useLibrary({
           onClick: () => item && void toggleFavourite(item),
         };
       }
+      case "open":
+        return {
+          label: t("lib.open"),
+          icon: FolderOpen,
+          disabled: !item?.opens,
+          onClick: () => item && (screen === "discover" ? openFromDiscover(item) : openItem(item)),
+        };
       case "dial":
         return { label: t("lib.dial"), icon: Gauge, onClick: () => openMaDial("library") };
       case "list":
@@ -500,12 +530,19 @@ export function useLibrary({
     }
   };
   const actionsFor = (s: string | null): (DeviceAction | null)[] | null => {
-    if (s === "library")
-      return libraryKeys({ tab, opened: !!opened, more: !!more, searchKeys: searchKeysFocus }).map(
-        (k) => keyAction(k, highlighted(), back),
-      );
+    if (s === "library") {
+      const row = highlightedRow();
+      const item = row ? (row.kind === "playAll" ? row.parent : row.item) : null;
+      return libraryKeys({
+        tab,
+        opened: !!opened,
+        more: !!more,
+        searchKeys: searchKeysFocus,
+        opens: rowOpens(item, row?.kind === "playAll"),
+      }).map((k) => keyAction(k, item, back));
+    }
     if (s === "discover")
-      return DISCOVER_KEYS.map((k) => keyAction(k, discItem, () => open("now")));
+      return discoverKeys(rowOpens(discItem)).map((k) => keyAction(k, discItem, () => open("now")));
     if (s === "madial") return MA_DIAL_KEYS.map((k) => keyAction(k, dialStation, dialBack));
     return null;
   };

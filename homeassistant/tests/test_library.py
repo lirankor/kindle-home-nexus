@@ -1,4 +1,5 @@
-"""Bus task 027: the library is a Music Assistant client (library_home / list / search / play / favorite)."""
+"""Bus task 027: the library is a Music Assistant client (library_home / list / search / play / favorite).
+Bus task 029: Discover's rows (sections filter, fixed order, up to 20 items, rows under 2 items dropped)."""
 
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+import voluptuous as vol
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.exceptions import ServiceValidationError
@@ -61,6 +63,17 @@ def _radio(i, fav=False):
         "name": f"Radio {i}",
         "favorite": fav,
         **_img(f"https://cdn.example/r{i}.png", provider="builtin", remote=True),
+    }
+
+
+def _podcast(i, mt="podcast"):
+    return {
+        "item_id": f"p{i}",
+        "provider": "itunes_podcasts",
+        "uri": f"itunes_podcasts://{mt}/p{i}",
+        "media_type": mt,
+        "name": f"Podcast {i}",
+        "publisher": "Kan",
     }
 
 
@@ -132,6 +145,13 @@ class FakeMass:
             ]
         if cmd == "music/item_by_uri":
             return self.albums[0] if kw["uri"] == "library://album/1" else None
+        if cmd == "music/recently_played_items":
+            out = [self.albums[2], {"media_type": "folder", "uri": "x://folder/1", "name": "F"}, self.albums[3]]
+            if "podcast" in (kw.get("always_include_media_types") or []):
+                out.append(_podcast(7))
+            return out[: kw.get("limit", 10)]
+        if cmd == "music/in_progress_items":
+            return [_podcast(3, "podcast_episode"), _podcast(4, "podcast_episode"), _podcast(5, "audiobook")]
         if cmd == "music/recommendations":
             return [
                 {
@@ -164,21 +184,32 @@ class FakeMass:
                     "name": "Trending Podcasts",
                     "enabled_by_default": True,
                 },
+                {
+                    "item_id": "forgotten_albums",
+                    "provider": "recommendations",
+                    "name": "Forgotten Albums",
+                    "enabled_by_default": False,
+                },
+                {
+                    "item_id": "similar",
+                    "provider": "lastfm_recommendations",
+                    "name": "Similar to what you play",
+                    "enabled_by_default": True,
+                },
+                {
+                    "item_id": "musicbrainz_timeline",
+                    "provider": "musicbrainz",
+                    "name": "Artist Events",
+                    "enabled_by_default": False,
+                },
             ]
         if cmd == "music/recommendations/items":
             return {
                 "recently_played": [self.albums[2], {"media_type": "folder", "uri": "x://folder/1", "name": "F"}],
                 "favorite_radio": [self.radios[1]],
-                "itunes-top": [
-                    {
-                        "item_id": "p1",
-                        "provider": "itunes_podcasts",
-                        "uri": "itunes_podcasts://podcast/p1",
-                        "media_type": "podcast",
-                        "name": "Daily",
-                        "publisher": "Kan",
-                    }
-                ],
+                "itunes-top": [_podcast(1), _podcast(2)],
+                "similar": [self.albums[10], self.albums[11]],
+                "musicbrainz_timeline": [self.albums[12]],
             }.get(kw["item_id"], [])
         if cmd == "music/search":
             return {
@@ -281,15 +312,76 @@ async def test_get_config_answers_the_library(hass, panel, mass) -> None:
     assert r["config"]["media"]["library_tabs"] == ["playlists", "albums"]
 
 
-async def test_library_home_rows(hass, panel, mass) -> None:
+async def test_library_home_default_rows(hass, panel, mass) -> None:
     r = await call(hass, "library_home")
     ids = [row["id"] for row in r["rows"]]
-    # MA's default rows + the favourites rows, MA's order; empty rows (In progress, favourite artists) left out,
-    # a disabled row (Random albums) left out; favourite albums (synthetic) right after Recently played
-    assert ids == ["recently_played", "favorite_albums", "favorite_radio", "itunes-top"]
-    assert [i["name"] for i in r["rows"][0]["items"]] == ["Album 3"]  # the folder is dropped
-    assert [i["name"] for i in r["rows"][1]["items"]] == ["Album 5", "Album 9"]
-    assert r["rows"][3]["items"][0]["sub"] == "Kan"
+    # Discover's order: recently played, favourite playlists / albums / artists / radio, the recommendation rows (MA's
+    # order), recently added albums, random albums. Left out: rows under 2 items (favourite radio has 1, MusicBrainz 1,
+    # no favourite playlists / artists), podcasts (Trending Podcasts, In progress) and the podcast in Recently played
+    assert ids == [
+        "recently_played",
+        "favorite_albums",
+        "forgotten_albums",
+        "similar",
+        "recently_added_albums",
+        "random_albums",
+    ]
+    rows = {row["id"]: row for row in r["rows"]}
+    assert [i["name"] for i in rows["recently_played"]["items"]] == ["Album 3", "Album 4"]  # folder dropped
+    assert [i["name"] for i in rows["favorite_albums"]["items"]] == ["Album 5", "Album 9"]
+    assert len(rows["random_albums"]["items"]) == 20 and len(rows["forgotten_albums"]["items"]) == 20
+    sent = {c: kw for c, kw in mass.sent}
+    assert sent["music/recently_played_items"]["limit"] == 20
+    assert "always_include_media_types" not in sent["music/recently_played_items"]
+    assert "music/in_progress_items" not in sent
+    assert all(kw.get("item_id") != "itunes-top" for c, kw in mass.sent if c == "music/recommendations/items")
+    # MA's library rows are built with MA's own query at 20 items (MA's provider stops at 10)
+    assert (
+        "music/albums/library_items",
+        {"limit": 20, "offset": 0, "order_by": "last_played", "played_only": True},
+    ) in (mass.sent)
+    assert ("music/albums/library_items", {"limit": 20, "offset": 0, "order_by": "random_play_count"}) in mass.sent
+
+
+async def test_library_home_sections_filter_and_podcasts(hass, panel, mass) -> None:
+    r = await call(hass, "library_home", sections=["podcasts", "favorite_albums", "recently_played"], limit=5)
+    ids = [row["id"] for row in r["rows"]]
+    assert ids == ["recently_played", "favorite_albums", "in_progress", "itunes-top"]  # fixed order, not the asked one
+    rows = {row["id"]: row for row in r["rows"]}
+    assert [i["media_type"] for i in rows["recently_played"]["items"]] == ["album", "album", "podcast"]
+    assert [i["media_type"] for i in rows["in_progress"]["items"]] == ["podcast_episode", "podcast_episode"]
+    sent = {c: kw for c, kw in mass.sent}
+    assert sent["music/recently_played_items"]["always_include_media_types"] == ["podcast"]
+    assert sent["music/recently_played_items"]["limit"] == 5
+    r = await call(hass, "library_home", sections=["random_albums"], limit=5)
+    assert [row["id"] for row in r["rows"]] == ["random_albums"] and len(r["rows"][0]["items"]) == 5
+    r = await call(hass, "library_home", sections=["audiobooks"])
+    assert [row["id"] for row in r["rows"]] == []  # one audiobook in progress: under 2 items
+    with pytest.raises((vol.Invalid, ServiceValidationError)):
+        await call(hass, "library_home", sections=["nope"])
+
+
+def test_discover_sections_order_and_default() -> None:
+    assert lib.discover_sections(None) == [
+        "recently_played",
+        "favorite_playlists",
+        "favorite_albums",
+        "favorite_artists",
+        "favorite_radio",
+        "recommendations",
+        "recently_added_albums",
+        "random_albums",
+    ]
+    assert lib.discover_sections(["podcasts", "random_albums"]) == ["random_albums", "podcasts"]
+
+
+async def test_get_config_answers_discover_rows(hass, panel, mass) -> None:
+    r = await call(hass, "get_config")
+    assert r["library"]["discover_rows"] == lib.discover_sections(None)
+    assert r["config"]["media"]["discover_rows"] == lib.discover_sections(None)
+    await call(hass, "seed", config={"media": {"discover_rows": ["podcasts", "recently_played"]}})
+    r = await call(hass, "get_config")
+    assert r["library"]["discover_rows"] == ["recently_played", "podcasts"]
 
 
 async def test_library_list_favourites_first_across_pages(hass, panel, mass) -> None:

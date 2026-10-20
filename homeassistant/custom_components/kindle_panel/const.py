@@ -197,3 +197,20 @@ SOURCE_MEDIA = "media_source"
 # the first four + More); the default first tab
 LIBRARY_TABS = ["playlists", "radio", "genres", "albums", "artists", "tracks", "podcasts", "audiobooks", "search"]
 DEFAULT_LIBRARY_TAB = "playlists"
+
+# Bus task 029: Discover's rows (the media.discover_rows option, in this order). "recommendations" = the other rows the
+# recommendation providers return (Library Recommendations, Last.fm, MusicBrainz ...), in MA's order. Podcasts and
+# audiobooks are offered but not on by default (the owner does not want them on Discover).
+DISCOVER_ROWS = [
+    "recently_played",
+    "favorite_playlists",
+    "favorite_albums",
+    "favorite_artists",
+    "favorite_radio",
+    "recommendations",
+    "recently_added_albums",
+    "random_albums",
+    "podcasts",
+    "audiobooks",
+]
+DEFAULT_DISCOVER_ROWS = [r for r in DISCOVER_ROWS if r not in ("podcasts", "audiobooks")]
