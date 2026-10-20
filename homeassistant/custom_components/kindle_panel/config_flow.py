@@ -19,11 +19,13 @@ from .const import (
     CARD_TYPES,
     CONF_MA_ENTRY,
     CUSTOM_PREFIX,
+    DEFAULT_LIBRARY_TAB,
     DOMAIN,
     ICON_AUTO,
     ICON_AUTO_LABEL,
     ICONS,
     LANGUAGES,
+    LIBRARY_TABS,
     MA_DOMAIN,
     MEDIA_KEY_MUSIC,
     MUSIC_BACKENDS,
@@ -711,6 +713,10 @@ class KindlePanelOptionsFlow(OptionsFlow):
                 "output_keys": [user_input.get(f"out_f{i + 1}") or POWER_KEY_NONE for i in range(POWER_KEY_COUNT)],
                 "show_unavailable_outputs": bool(user_input.get("show_unavailable_outputs", False)),
                 "hidden_outputs": list(user_input.get("hidden_outputs") or []),
+                # bus task 027: the library's tabs, its first tab, Discover on the music screen's free key
+                "library_tabs": list(user_input.get("library_tabs") or LIBRARY_TABS),
+                "library_tab": user_input.get("library_tab") or DEFAULT_LIBRARY_TAB,
+                "discover_key": bool(user_input.get("discover_key", True)),
             }
             edit = user_input.get("inputs_for")
             if edit:
@@ -759,6 +765,13 @@ class KindlePanelOptionsFlow(OptionsFlow):
                     vol.Optional("hidden_outputs", default=list(m.get("hidden_outputs") or [])): sel.EntitySelector(
                         sel.EntitySelectorConfig(integration=MA_DOMAIN, domain="media_player", multiple=True)
                     ),
+                    vol.Optional("library_tabs", default=list(m.get("library_tabs") or LIBRARY_TABS)): _select(
+                        LIBRARY_TABS, "library_tab", multiple=True
+                    ),
+                    vol.Required("library_tab", default=m.get("library_tab") or DEFAULT_LIBRARY_TAB): _select(
+                        LIBRARY_TABS, "library_tab"
+                    ),
+                    vol.Optional("discover_key", default=bool(m.get("discover_key", True))): sel.BooleanSelector(),
                     vol.Optional("inputs_for"): sel.SelectSelector(
                         sel.SelectSelectorConfig(
                             options=[sel.SelectOptionDict(value=n["id"], label=n["name"]) for n in m["nodes"]],

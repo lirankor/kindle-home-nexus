@@ -546,3 +546,20 @@ export function dialAmp(
     artist,
   };
 }
+
+/** What the centre of the transport pad shows. */
+export type TransportMode = "playing" | "paused" | "stopped" | "off";
+/** Centre glyph of the transport pad for the current snapshot. */
+export function transportMode(s: MediaSnapshot | null): TransportMode {
+  if (!s || !s.amp.on) return "off";
+  if (s.nowPlaying.kind === "music" && s.queue)
+    return s.queue.status === "playing"
+      ? "playing"
+      : s.queue.status === "paused"
+        ? "paused"
+        : "stopped";
+  // Radio / FM: Enter stops and restarts the stream, so the centre reads like a player too.
+  if (s.nowPlaying.kind === "radio" || s.nowPlaying.kind === "fm")
+    return s.amp.state === "playing" ? "playing" : "paused";
+  return s.amp.state === "playing" ? "playing" : "stopped";
+}

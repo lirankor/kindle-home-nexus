@@ -13,6 +13,7 @@ import {
   setMusicOutput,
 } from "./panel-config.server";
 import { freshQuality } from "./quality";
+import { DEFAULT_LIBRARY_VIEW } from "./library";
 import type { StreamQuality } from "./quality";
 import type { HaState } from "./home.server";
 import {
@@ -240,6 +241,7 @@ export function outputView(
     moveError,
     groupName,
     showUnavailable,
+    library: l.library ?? DEFAULT_LIBRARY_VIEW,
   };
 }
 
@@ -652,6 +654,11 @@ function currentPowerOn(s: HaMusicState, now = Date.now()): PowerOnStatus | null
 }
 let lastRadio: RadioPosition | null = null;
 
+/** The next snapshot reads the music state fresh (after a library play, bus task 027). */
+export const forgetMusicState = () => {
+  lastState = null;
+};
+
 export async function readMusicState(maxAgeMs = 0): Promise<HaMusicState> {
   if (lastState && Date.now() - lastState.at <= maxAgeMs) return lastState.value;
   const value = await haScript<HaMusicState>("music_state", outputFields());
@@ -766,77 +773,9 @@ async function queueJumpHa(index: number) {
   for (let i = 0; i < Math.abs(delta); i++) await control(delta > 0 ? "next" : "previous");
 }
 
-type PlayAnswer = { ok: boolean; error?: string; status?: string };
-type PlayMixAnswer = PlayAnswer & { chosen?: { title?: string; mt?: string } };
-/** A mix plays the nightly Music Assistant playlist of that name (bus task 018: bin/ma-mixes.py rebuilds them at
- *  04:45, so the Kindle, the MA app, HA and voice share the same lists). Null = MA has no such playlist (yet): the
- *  caller falls back to the panel's own mix. */
-async function playMixPlaylistHa(sel: PlaySelection): Promise<QueueProgress | null> {
-  const r = await haScript<PlayMixAnswer>(
-    "play_music",
-    { query: sel.id, kind: "mix", fallback: false, ...outputFields() },
-    30_000,
-  );
-  if (!r.ok) {
-    if ((r.error ?? "").startsWith("nothing found")) return null;
-    throw new HomeError(r.error ?? "Music Assistant refused");
-  }
-  if (r.status === "powering_on") powerStartedAt = Date.now();
-  lastState = null;
-  sentQueue = null; // MA's queue is the list now (kindle_panel.get_queue / music_state)
-  return {
-    title: r.chosen?.title ?? sel.id,
-    index: 0,
-    count: 0,
-    track: null,
-    positionMs: 0,
-    durationMs: 0,
-    status: "playing",
-    prevTrack: null,
-    nextTracks: [],
-    stall: null,
-  };
-}
-/** The panel picks the tracks (an album in order, an artist shuffle; a mix only when MA has no playlist for it) and
- *  MA plays exactly those. */
-export async function playSelectionHa(
-  sel: PlaySelection,
-  tracksFor: (sel: PlaySelection) => Promise<{ title: string; tracks: MusicTrack[] }>,
-): Promise<QueueProgress | null> {
-  if (sel.kind === "mix") {
-    const q = await playMixPlaylistHa(sel);
-    if (q) return q;
-  }
-  const { title, tracks } = await tracksFor(sel);
-  if (!tracks.length) throw new HomeError("Nothing to play");
-  const r = await haScript<PlayAnswer>(
-    "music_play_items",
-    {
-      media_ids: tracks.map((t) => `jellyfin://track/${t.id}`),
-      media_type: "track",
-      title,
-      ...outputFields(),
-    },
-    30_000,
-  );
-  if (!r.ok) throw new HomeError(r.error ?? "Music Assistant refused");
-  if (r.status === "powering_on") powerStartedAt = Date.now();
-  lastState = null;
-  sentQueue = { title, tracks };
-  // A just-started queue: show it at once (MA needs a moment to report it).
-  return {
-    title,
-    index: 0,
-    count: tracks.length,
-    track: tracks[0] ?? null,
-    positionMs: 0,
-    durationMs: tracks[0]?.durationMs ?? 0,
-    status: "playing",
-    prevTrack: null,
-    nextTracks: tracks.slice(1, 4),
-    stall: null,
-  };
-}
+// Bus task 027: the Kindle's library is Music Assistant's (kindle_panel library_* through library-ha.server.ts); the
+// panel's own Jellyfin lists (a mix as the MA playlist, an album / artist shuffle handed over as tracks) are gone from
+// the HA backend. The house scripts play_music / music_play_items stay for voice and dashboards.
 
 /** The dial's bands (bus task 025): the amp's own station directory only, i.e. the groups of the bridge's NET RADIO
  *  station select (RADIO_LISTS). No Music Assistant favourites band: MA radio is MA's, not the amp's tuner. The bridge

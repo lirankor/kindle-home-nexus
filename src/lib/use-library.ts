@@ -1,0 +1,649 @@
+// Bus task 027: state and keys of the Music Assistant client screens (MUSIC_BACKEND=ha): the Library (MA's sections as
+// tabs, four + More), Discover (MA's Home rows) and the MA radio dial (MA's radios on the amp dial's slider). Data comes
+// from kindle_panel's library_* services through library.functions.ts. useMediaPanel owns the screen and the footer.
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  Check,
+  CornerDownLeft,
+  Delete,
+  Gauge,
+  Heart,
+  ListEnd,
+  ListMusic,
+  ListPlus,
+  Radio,
+  Space,
+} from "lucide-react";
+import type { DeviceAction } from "@/components/device-actions";
+import { isRtl } from "@/lib/i18n";
+import type { Key, Lang } from "@/lib/i18n";
+import {
+  DEFAULT_LIBRARY_VIEW,
+  DISCOVER_KEYS,
+  DISCOVER_PAGE_SIZE,
+  LIBRARY_PAGE_SIZE,
+  MA_DIAL_KEYS,
+  MA_DIAL_SETTLE_MS,
+  enterOpens,
+  hasPlayAll,
+  isFavourite,
+  libraryKeys,
+  pageWindow,
+  playNowTarget,
+  playingStationIndex,
+  stepStrip,
+  stripSlotsOf,
+  tabStrip,
+} from "@/lib/library";
+import type {
+  LibHomeResult,
+  LibItem,
+  LibKey,
+  LibListResult,
+  LibPlayOption,
+  LibSearchResult,
+  LibraryTab,
+  MaDialBand,
+} from "@/lib/library";
+import {
+  favouriteLibrary,
+  getLibraryHome,
+  getLibraryList,
+  playLibrary,
+  searchLibraryItems,
+} from "@/lib/library.functions";
+import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS } from "@/lib/media";
+import type { MediaAction, MediaSnapshot } from "@/lib/media";
+import { SEARCH_KEYS, SEARCH_KEY_COLS, appendSearchChar } from "@/lib/media-ui";
+
+export type LibScreen = "library" | "discover" | "madial";
+/** A row of the Library's list: the "Play all" row of an opened album / playlist / artist / genre, or an item. */
+export type LibRow = { kind: "playAll"; parent: LibItem } | { kind: "item"; item: LibItem };
+type Opened = { item: LibItem; cursor: number };
+const NAV = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"];
+const HOME_STALE_MS = 2 * 60_000;
+const LIST_STALE_MS = 60_000;
+const SEARCH_DEBOUNCE_MS = 250;
+const DIAL_LIST_LIMIT = 100;
+
+export function useLibrary({
+  screen,
+  open,
+  lang,
+  t,
+  notify,
+  data,
+  act,
+  afterPlay,
+}: {
+  screen: string | null;
+  open: (s: "now" | LibScreen) => void;
+  lang: Lang;
+  t: (key: Key, vars?: Record<string, string | number>) => string;
+  notify: (n: { text: string; error?: boolean }) => void;
+  data: MediaSnapshot | null;
+  act: (a: MediaAction) => Promise<void>;
+  /** A play went through: the panel refreshes its snapshot (and goes to the music screen for play now). */
+  afterPlay: (nowScreen: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const view = data?.output?.library ?? DEFAULT_LIBRARY_VIEW;
+  const tabs = view.tabs;
+  const [tabState, setTab] = useState<LibraryTab | null>(null);
+  const tab: LibraryTab =
+    (tabState && tabs.includes(tabState) ? tabState : view.tab) ?? "playlists";
+  const [stack, setStack] = useState<Opened[]>([]);
+  const [cursor, setCursor] = useState(0);
+  const [more, setMore] = useState<{ cursor: number } | null>(null);
+  const [search, setSearch] = useState<{ query: string; focus: "keys" | "results"; key: number }>({
+    query: "",
+    focus: "keys",
+    key: 0,
+  });
+  /** The panel's own heart presses, shown until the lists are read again. */
+  const [favs, setFavs] = useState<Record<string, boolean>>({});
+  const opened = stack.length ? stack[stack.length - 1]!.item : null;
+  const strip = tabStrip(tabs, tab);
+
+  // ---- Library list ----
+  const shift: 0 | 1 = hasPlayAll(opened) ? 1 : 0;
+  const page = Math.floor(cursor / LIBRARY_PAGE_SIZE);
+  const win = pageWindow(page, LIBRARY_PAGE_SIZE, shift);
+  const listMode = screen === "library" && (opened !== null || tab !== "search");
+  const listQuery = useQuery<LibListResult>({
+    queryKey: ["lib", "list", opened?.uri ?? tab, win.offset, win.limit],
+    queryFn: () =>
+      getLibraryList({
+        data: opened
+          ? { parent: opened.uri, offset: win.offset, limit: win.limit }
+          : { section: tab as Exclude<LibraryTab, "search">, offset: win.offset, limit: win.limit },
+      }),
+    enabled: listMode,
+    staleTime: LIST_STALE_MS,
+    placeholderData: keepPreviousData,
+  });
+  const list = listQuery.data ?? null;
+  const listTotal = (list?.total ?? 0) + shift;
+  const listRows: LibRow[] = [
+    ...(shift && page === 0 && opened
+      ? [{ kind: "playAll" as const, parent: list?.parent ?? opened }]
+      : []),
+    ...(list?.items ?? []).map((item) => ({ kind: "item" as const, item })),
+  ];
+  const listPages = Math.max(1, Math.ceil(listTotal / LIBRARY_PAGE_SIZE));
+  const rowAt = (abs: number): LibRow | undefined => listRows[abs - page * LIBRARY_PAGE_SIZE];
+
+  // ---- Search tab ----
+  const [term, setTerm] = useState("");
+  useEffect(() => {
+    const q = search.query.trim();
+    if (q.length < SEARCH_MIN_CHARS) {
+      setTerm("");
+      return;
+    }
+    const id = setTimeout(() => setTerm(q), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [search.query]);
+  const searchQuery = useQuery<LibSearchResult>({
+    queryKey: ["lib", "search", term],
+    queryFn: () => searchLibraryItems({ data: { query: term } }),
+    enabled: screen === "library" && tab === "search" && !opened && term.length >= SEARCH_MIN_CHARS,
+    staleTime: LIST_STALE_MS,
+    placeholderData: keepPreviousData,
+  });
+  const searchActive = search.query.trim().length >= SEARCH_MIN_CHARS;
+  const searchRows: LibItem[] = searchActive ? (searchQuery.data?.items ?? []) : [];
+  const searchCursor = Math.min(cursor, Math.max(0, searchRows.length - 1));
+  const searchKeysFocus = tab === "search" && !opened && search.focus === "keys";
+
+  // ---- Discover ----
+  const homeQuery = useQuery<LibHomeResult>({
+    queryKey: ["lib", "home"],
+    queryFn: () => getLibraryHome(),
+    enabled: screen === "discover",
+    staleTime: HOME_STALE_MS,
+  });
+  const homeRows = homeQuery.data?.rows ?? [];
+  const [disc, setDisc] = useState({ row: 0, cursor: 0 });
+  const discRowIndex = Math.min(disc.row, Math.max(0, homeRows.length - 1));
+  const discRow = homeRows[discRowIndex] ?? null;
+  const discItems = discRow?.items ?? [];
+  const discCursor = Math.min(disc.cursor, Math.max(0, discItems.length - 1));
+  const discPage = Math.floor(discCursor / DISCOVER_PAGE_SIZE);
+  const discPages = Math.max(1, Math.ceil(discItems.length / DISCOVER_PAGE_SIZE));
+
+  // ---- MA radio dial ----
+  const [dial, setDial] = useState<{ band: MaDialBand; index: number; from: "now" | "library" }>({
+    band: "favourites",
+    index: 0,
+    from: "now",
+  });
+  const dialFav = useQuery<LibListResult>({
+    queryKey: ["lib", "dial", "favourites"],
+    queryFn: () =>
+      getLibraryList({
+        data: { section: "radio", favorite: true, offset: 0, limit: DIAL_LIST_LIMIT },
+      }),
+    enabled: screen === "madial",
+    staleTime: LIST_STALE_MS,
+  });
+  const dialAll = useQuery<LibListResult>({
+    queryKey: ["lib", "dial", "all"],
+    queryFn: () =>
+      getLibraryList({ data: { section: "radio", offset: 0, limit: DIAL_LIST_LIMIT } }),
+    enabled: screen === "madial",
+    staleTime: LIST_STALE_MS,
+  });
+  const dialItems = useMemo(
+    () => (dial.band === "favourites" ? dialFav.data?.items : dialAll.data?.items) ?? [],
+    [dial.band, dialFav.data, dialAll.data],
+  );
+  const dialIndex = Math.min(dial.index, Math.max(0, dialItems.length - 1));
+  const dialStation = dialItems[dialIndex] ?? null;
+  const playingStation =
+    data?.output && data.amp.on && data.amp.source === "SERVER" && data.nowPlaying.kind === "radio"
+      ? (data.nowPlaying.station ?? null)
+      : null;
+  const dialSettle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (dialSettle.current) clearTimeout(dialSettle.current);
+    },
+    [],
+  );
+  // opened while a station plays: the needle on it (once the band's list is there)
+  const needleSynced = useRef<string | null>(null);
+  useEffect(() => {
+    if (screen !== "madial") {
+      needleSynced.current = null;
+      return;
+    }
+    const key = `${dial.band}|${playingStation ?? ""}|${dialItems.length}`;
+    if (!playingStation || !dialItems.length || needleSynced.current === key) return;
+    needleSynced.current = key;
+    const i = playingStationIndex(dialItems, playingStation);
+    if (i >= 0) setDial((d) => ({ ...d, index: i }));
+  }, [screen, dial.band, playingStation, dialItems]);
+
+  // ---- actions ----
+  const play = useCallback(
+    async (target: { uri: string; startItem?: string }, option: LibPlayOption, title: string) => {
+      notify({
+        text: option === "replace" ? t("music.playing", { title }) : t("lib.sending", { title }),
+      });
+      try {
+        const r = await playLibrary({ data: { ...target, option } });
+        if (!r.ok) {
+          notify({ text: r.error ?? t("err.failed"), error: true });
+          return;
+        }
+        notify({
+          text:
+            r.status === "powering_on"
+              ? t("lib.poweringOn", { title })
+              : option === "next"
+                ? t("lib.queuedNext", { title })
+                : option === "add"
+                  ? t("lib.queuedAdd", { title })
+                  : t("music.playing", { title }),
+        });
+        afterPlay(option === "replace");
+      } catch {
+        notify({ text: t("err.server"), error: true });
+      }
+    },
+    [notify, t, afterPlay],
+  );
+  const toggleFavourite = useCallback(
+    async (item: LibItem) => {
+      const want = !isFavourite(item, favs);
+      setFavs((f) => ({ ...f, [item.uri]: want }));
+      try {
+        const r = await favouriteLibrary({ data: { uri: item.uri, favorite: want } });
+        if (!r.ok) throw new Error(r.error ?? "refused");
+        notify({ text: t(want ? "lib.faved" : "lib.unfaved", { title: item.name }) });
+        void queryClient.invalidateQueries({ queryKey: ["lib"] });
+      } catch (e) {
+        setFavs((f) => ({ ...f, [item.uri]: !want }));
+        notify({ text: e instanceof Error ? e.message : t("err.failed"), error: true });
+      }
+    },
+    [favs, notify, t, queryClient],
+  );
+
+  // ---- navigation ----
+  const openLibrary = () => {
+    setStack([]);
+    setMore(null);
+    setCursor(0);
+    setFavs({});
+    open("library");
+  };
+  const openDiscover = () => {
+    setFavs({});
+    open("discover");
+  };
+  const openMaDial = (from: "now" | "library") => {
+    // the band of the station that plays (favourites when it is one), else favourites
+    const favItems =
+      queryClient.getQueryData<LibListResult>(["lib", "dial", "favourites"])?.items ?? [];
+    const inFav =
+      !playingStation || playingStationIndex(favItems, playingStation) >= 0 || !favItems.length;
+    setDial((d) => ({ ...d, band: inFav ? "favourites" : "all", from }));
+    open("madial");
+  };
+  const selectTab = (next: LibraryTab) => {
+    setTab(next);
+    setStack([]);
+    setMore(null);
+    setCursor(0);
+  };
+  const stepTab = (delta: 1 | -1) => {
+    const slot = stepStrip(stripSlotsOf(strip), tab, delta);
+    if (slot === "more") setMore({ cursor: 0 });
+    else selectTab(slot);
+  };
+  const back = () => {
+    if (more) return setMore(null);
+    if (stack.length) {
+      const top = stack[stack.length - 1]!;
+      setStack(stack.slice(0, -1));
+      setCursor(top.cursor);
+      return;
+    }
+    if (tab === "search" && search.focus === "results")
+      return setSearch((s) => ({ ...s, focus: "keys" }));
+    open("now");
+  };
+  const highlighted = (): LibItem | null => {
+    if (tab === "search" && !opened)
+      return search.focus === "results" ? (searchRows[searchCursor] ?? null) : null;
+    const row = rowAt(Math.min(cursor, Math.max(0, listTotal - 1)));
+    return row ? (row.kind === "playAll" ? row.parent : row.item) : null;
+  };
+  const enterItem = (item: LibItem) => {
+    if (enterOpens(item, "library")) {
+      setStack((s) => [
+        ...s,
+        { item, cursor: tab === "search" && !opened ? searchCursor : cursor },
+      ]);
+      setCursor(0);
+      return;
+    }
+    void play(playNowTarget(item, opened), "replace", item.name);
+  };
+  const enter = () => {
+    if (tab === "search" && !opened) {
+      const item = searchRows[searchCursor];
+      if (item) enterItem(item);
+      return;
+    }
+    const row = rowAt(cursor);
+    if (!row) return;
+    if (row.kind === "playAll") void play({ uri: row.parent.uri }, "replace", row.parent.name);
+    else enterItem(row.item);
+  };
+  const moveCursor = (delta: number) => {
+    if (tab === "search" && !opened) {
+      if (delta < 0 && searchCursor === 0) setSearch((s) => ({ ...s, focus: "keys" }));
+      else setCursor(Math.max(0, Math.min(searchRows.length - 1, searchCursor + delta)));
+      return;
+    }
+    setCursor((c) => Math.max(0, Math.min(Math.max(0, listTotal - 1), c + delta)));
+  };
+  const typeChar = (ch: string) => {
+    setSearch((s) => ({
+      ...s,
+      query: appendSearchChar(s.query, ch, SEARCH_MAX_CHARS),
+      focus: "keys",
+    }));
+    setCursor(0);
+  };
+  const backspace = () => setSearch((s) => ({ ...s, query: s.query.slice(0, -1), focus: "keys" }));
+  const toResults = () => {
+    if (!searchRows.length) return;
+    setSearch((s) => ({ ...s, focus: "results" }));
+    setCursor(0);
+  };
+  const setSearchKey = (key: number) =>
+    setSearch((s) => ({
+      ...s,
+      focus: "keys",
+      key: Math.max(0, Math.min(SEARCH_KEYS.length - 1, key)),
+    }));
+
+  // Discover
+  const discItem = discItems[discCursor] ?? null;
+  const stepDiscRow = (delta: 1 | -1) => {
+    if (!homeRows.length) return;
+    const n = homeRows.length;
+    setDisc({ row: (((discRowIndex + delta) % n) + n) % n, cursor: 0 });
+  };
+  const moveDisc = (delta: number) =>
+    setDisc((d) => ({
+      ...d,
+      cursor: Math.max(0, Math.min(Math.max(0, discItems.length - 1), discCursor + delta)),
+    }));
+
+  // MA dial
+  const tuneDial = (index: number, now = false) => {
+    const item = dialItems[index];
+    if (!item) return;
+    setDial((d) => ({ ...d, index }));
+    if (dialSettle.current) clearTimeout(dialSettle.current);
+    const go = () => {
+      dialSettle.current = null;
+      void play({ uri: item.uri }, "replace", item.name);
+    };
+    if (now) go();
+    else dialSettle.current = setTimeout(go, MA_DIAL_SETTLE_MS);
+  };
+  const stepDial = (delta: 1 | -1) => {
+    const n = dialItems.length;
+    if (!n) return;
+    tuneDial((((dialIndex + delta) % n) + n) % n);
+  };
+  const dialBack = () => {
+    if (dialSettle.current) clearTimeout(dialSettle.current);
+    if (dial.from === "library") {
+      setTab("radio");
+      open("library");
+    } else open("now");
+  };
+  const dialToList = () => {
+    if (dialSettle.current) clearTimeout(dialSettle.current);
+    setTab("radio");
+    setStack([]);
+    setMore(null);
+    setCursor(0);
+    open("library");
+  };
+
+  // ---- footer ----
+  const keyAction = (k: LibKey, item: LibItem | null, onBack: () => void): DeviceAction | null => {
+    switch (k) {
+      case "back":
+        return { label: t("amp.back"), icon: ArrowLeft, onClick: onBack };
+      case "playNext":
+        return {
+          label: t("lib.playNext"),
+          icon: ListPlus,
+          disabled: !item,
+          onClick: () => item && void play({ uri: item.uri }, "next", item.name),
+        };
+      case "addQueue":
+        return {
+          label: t("lib.addQueue"),
+          icon: ListEnd,
+          disabled: !item,
+          onClick: () => item && void play({ uri: item.uri }, "add", item.name),
+        };
+      case "favourite": {
+        const fav = !!item && isFavourite(item, favs);
+        return {
+          label: t(fav ? "lib.unfav" : "lib.fav"),
+          icon: Heart,
+          pressed: fav,
+          disabled: !item,
+          onClick: () => item && void toggleFavourite(item),
+        };
+      }
+      case "dial":
+        return { label: t("lib.dial"), icon: Gauge, onClick: () => openMaDial("library") };
+      case "list":
+        return { label: t("lib.list"), icon: ListMusic, onClick: dialToList };
+      case "band":
+        return {
+          label: t(dial.band === "favourites" ? "madial.band.favourites" : "madial.band.all"),
+          icon: Radio,
+          onClick: () =>
+            setDial((d) => ({
+              ...d,
+              band: d.band === "favourites" ? "all" : "favourites",
+              index: 0,
+            })),
+        };
+      case "backspace":
+        return {
+          label: t("search.backspace"),
+          icon: Delete,
+          disabled: search.query === "",
+          onClick: backspace,
+        };
+      case "space":
+        return {
+          label: t("search.space"),
+          icon: Space,
+          disabled: search.query === "",
+          onClick: () => typeChar(" "),
+        };
+      case "results":
+        return {
+          label: t("search.enter"),
+          icon: CornerDownLeft,
+          disabled: !searchRows.length,
+          onClick: toResults,
+        };
+      case "choose":
+        return {
+          label: t("source.apply"),
+          icon: Check,
+          onClick: () => {
+            const next = strip.more[more?.cursor ?? 0];
+            if (next) selectTab(next);
+          },
+        };
+      default:
+        return null;
+    }
+  };
+  const actionsFor = (s: string | null): (DeviceAction | null)[] | null => {
+    if (s === "library")
+      return libraryKeys({ tab, opened: !!opened, more: !!more, searchKeys: searchKeysFocus }).map(
+        (k) => keyAction(k, highlighted(), back),
+      );
+    if (s === "discover")
+      return DISCOVER_KEYS.map((k) => keyAction(k, discItem, () => open("now")));
+    if (s === "madial") return MA_DIAL_KEYS.map((k) => keyAction(k, dialStation, dialBack));
+    return null;
+  };
+
+  // ---- keys ----
+  const forward = (key: string) => (key === "ArrowRight" ? !isRtl(lang) : isRtl(lang));
+  const onKey = (s: string | null, event: KeyboardEvent): boolean => {
+    const k = event.key;
+    if (s === "library") {
+      if (k === "Escape") {
+        event.preventDefault();
+        back();
+        return true;
+      }
+      if (more) {
+        if (k === "Enter") {
+          const next = strip.more[more.cursor];
+          if (next) selectTab(next);
+        } else if (k === "ArrowUp" || k === "PageUp")
+          setMore({ cursor: Math.max(0, more.cursor - 1) });
+        else if (k === "ArrowDown" || k === "PageDown")
+          setMore({ cursor: Math.min(strip.more.length - 1, more.cursor + 1) });
+        else if (!NAV.includes(k)) return false;
+        event.preventDefault();
+        return true;
+      }
+      if (searchKeysFocus) {
+        if (k === "Enter") {
+          const ch = SEARCH_KEYS[search.key];
+          if (ch) typeChar(ch);
+        } else if (k === "ArrowLeft") setSearchKey(search.key - 1);
+        else if (k === "ArrowRight") setSearchKey(search.key + 1);
+        else if (k === "ArrowUp") {
+          // the top key row: up goes to the tab strip's neighbour is not wanted (the 5-way walks the keys)
+          setSearchKey(search.key - SEARCH_KEY_COLS);
+        } else if (k === "ArrowDown") {
+          if (search.key + SEARCH_KEY_COLS > SEARCH_KEYS.length - 1) toResults();
+          else setSearchKey(search.key + SEARCH_KEY_COLS);
+        } else if (k === "PageDown") toResults();
+        else if (k === "PageUp") stepTab(-1);
+        else return false;
+        event.preventDefault();
+        return true;
+      }
+      if (k === "Enter") enter();
+      else if (k === "ArrowUp") moveCursor(-1);
+      else if (k === "ArrowDown") moveCursor(1);
+      else if (k === "PageUp") moveCursor(-LIBRARY_PAGE_SIZE);
+      else if (k === "PageDown") moveCursor(LIBRARY_PAGE_SIZE);
+      else if (k === "ArrowLeft" || k === "ArrowRight") stepTab(forward(k) ? 1 : -1);
+      else return false;
+      event.preventDefault();
+      return true;
+    }
+    if (s === "discover") {
+      if (k === "Escape") open("now");
+      else if (k === "Enter") {
+        if (discItem) void play({ uri: discItem.uri }, "replace", discItem.name);
+      } else if (k === "ArrowUp") moveDisc(-1);
+      else if (k === "ArrowDown") moveDisc(1);
+      else if (k === "PageUp") moveDisc(-DISCOVER_PAGE_SIZE);
+      else if (k === "PageDown") moveDisc(DISCOVER_PAGE_SIZE);
+      else if (k === "ArrowLeft" || k === "ArrowRight") stepDiscRow(forward(k) ? 1 : -1);
+      else return false;
+      event.preventDefault();
+      return true;
+    }
+    if (s === "madial") {
+      if (k === "Escape") dialBack();
+      else if (k === "Enter") tuneDial(dialIndex, true);
+      else if (k === "ArrowLeft" || k === "ArrowRight") stepDial(k === "ArrowRight" ? 1 : -1);
+      else if (k === "ArrowUp" || k === "ArrowDown") {
+        if (data?.amp.on) void act({ type: "amp.volume.step", delta: k === "ArrowUp" ? 1 : -1 });
+      } else if (k === "PageUp" || k === "PageDown") return false;
+      else return false;
+      event.preventDefault();
+      return true;
+    }
+    return false;
+  };
+
+  return {
+    view,
+    tab,
+    strip,
+    more,
+    opened,
+    stack,
+    cursor,
+    page,
+    listPages,
+    listTotal,
+    listRows,
+    list,
+    listLoading: listQuery.isPending && listMode,
+    listError: listQuery.isError
+      ? t("err.server")
+      : list && !list.ok
+        ? (list.error ?? t("err.failed"))
+        : null,
+    search,
+    searchRows,
+    searchCursor,
+    searchActive,
+    searchLoading: searchActive && (searchQuery.isFetching || term === ""),
+    searchError: searchQuery.data && !searchQuery.data.ok ? (searchQuery.data.error ?? null) : null,
+    typeChar,
+    setSearchKey,
+    selectTab,
+    favs,
+    // Discover
+    homeRows,
+    homeLoading: homeQuery.isPending && screen === "discover",
+    homeError: homeQuery.isError
+      ? t("err.server")
+      : homeQuery.data && !homeQuery.data.ok
+        ? (homeQuery.data.error ?? null)
+        : null,
+    discRowIndex,
+    discRow,
+    discCursor,
+    discPage,
+    discPages,
+    // MA dial
+    dial,
+    dialItems,
+    dialIndex,
+    dialStation,
+    dialLoading:
+      screen === "madial" && (dial.band === "favourites" ? dialFav.isPending : dialAll.isPending),
+    playingStation,
+    // wiring
+    openLibrary,
+    openDiscover,
+    openMaDial,
+    actionsFor,
+    onKey,
+    refreshKey: `${tab}|${opened?.uri ?? ""}|${page}|${more ? 1 : 0}|${discRowIndex}|${discPage}|${dial.band}`,
+  };
+}
+export type LibraryPanel = ReturnType<typeof useLibrary>;

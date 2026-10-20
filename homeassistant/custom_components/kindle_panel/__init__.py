@@ -25,6 +25,12 @@
 * Bus task 026: `get_config`'s `outputs` rows and `get_queue`'s items carry `quality` (codec, sample_rate, bit_depth,
   bit_rate, lossless, realtime) from MA's `streamdetails.audio_format` of the current / that queue item, null when MA
   has no stream for it yet; the panel turns it into its LQ / SQ / HQ badge.
+* Bus task 027: the panel's library is a Music Assistant client (library.py): `library_home` (MA's Home rows, the
+  panel's Discover), `library_list` (a library tab, favourites first, paged; or what an artist / album / playlist /
+  podcast / genre opens), `library_search`, `library_play` (MA's queue options; the receiver of the player is woken
+  first, as the house scripts do) and `library_favorite` (the heart). `get_config` answers `library`: the tabs the
+  panel option `media.library_tabs` keeps that MA has a provider for, the tab it opens on (`media.library_tab`) and
+  `media.discover_key`.
 The panel only ever talks to Home Assistant.
 """
 
@@ -53,6 +59,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from yarl import URL
 
+from . import library as lib
 from .config import effective_sources, needs_media_migration, normalize
 from .const import (
     CONF_MA_ENTRY,
@@ -118,6 +125,43 @@ SYNC_OUTPUT_SCHEMA = vol.Schema(
 SYNC_CONFIRM_S = 8.0
 SYNC_POLL_S = 0.5
 MA_IMAGE_MAX_BYTES = 8 * 1024 * 1024
+LIBRARY_LIST_SCHEMA = vol.Schema(
+    {
+        vol.Optional("section"): vol.In(list(lib.TAB_MEDIA_TYPE)),
+        vol.Optional("parent"): vol.All(cv.string, vol.Length(min=3, max=512)),
+        vol.Optional("favorite"): vol.Any(None, cv.boolean),
+        vol.Optional("search"): vol.Any(None, vol.All(cv.string, vol.Length(max=80))),
+        vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0)),
+        vol.Optional("limit", default=8): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
+    }
+)
+LIBRARY_HOME_SCHEMA = vol.Schema(
+    {vol.Optional("limit", default=lib.HOME_ROW_ITEMS): vol.All(vol.Coerce(int), vol.Range(1, 50))}
+)
+LIBRARY_SEARCH_SCHEMA = vol.Schema(
+    {
+        vol.Required("query"): vol.All(cv.string, vol.Length(min=1, max=80)),
+        vol.Optional("media_types"): vol.All(cv.ensure_list, [vol.In(lib.SEARCH_TYPES)]),
+        vol.Optional("limit", default=6): vol.All(vol.Coerce(int), vol.Range(1, 25)),
+    }
+)
+LIBRARY_PLAY_SCHEMA = vol.Schema(
+    {
+        vol.Required("uri"): vol.All(cv.string, vol.Length(min=3, max=512)),
+        # left out: the panel's output
+        vol.Optional(ATTR_ENTITY_ID): vol.All(cv.entity_id, cv.entity_domain("media_player")),
+        vol.Optional("option", default="replace"): vol.In(sorted(lib.QUEUE_OPTIONS)),
+        # a track within its album / playlist: `uri` = the album / playlist, `start_item` = the track's uri
+        vol.Optional("start_item"): vol.All(cv.string, vol.Length(min=1, max=512)),
+    }
+)
+LIBRARY_FAVORITE_SCHEMA = vol.Schema(
+    {vol.Required("uri"): vol.All(cv.string, vol.Length(min=3, max=512)), vol.Required("favorite"): cv.boolean}
+)
+# how long library_play waits for a woken receiver before it gives up (deep standby takes 25-60 s)
+WAKE_TIMEOUT_S = 180.0
+WAKE_POLL_S = 1.0
+RECEIVER_ON = {"on", "idle", "playing", "paused", "buffering"}
 MARK_SCHEMA = vol.Schema(
     {
         vol.Required("photo_id"): vol.All(cv.string, vol.Length(min=1, max=512)),
@@ -301,6 +345,14 @@ def ma_unexposed(hass: HomeAssistant, mass: Any | None) -> list[dict[str, Any]]:
     return sorted(out, key=lambda x: str(x["name"]).lower())
 
 
+def receiver_of(cfg: dict[str, Any], player: str) -> str | None:
+    """The receiver (a receiver node's power device) that plays this MA player (the node lists it in `players`)."""
+    for n in cfg.get("media", {}).get("nodes", []):
+        if n.get("type") == "receiver" and player in (n.get("players") or []) and n.get("power_device"):
+            return str(n["power_device"])
+    return None
+
+
 def fill_net_radio(hass: HomeAssistant, nodes: list[dict[str, Any]]) -> None:
     """A receiver node without `net_radio` gets the NET RADIO station select of its receiver's device
     (yamaha_netbridge >= 0.3.0 with a station list), so the panel needs no extra setup. Only in get_config's answer;
@@ -323,6 +375,7 @@ class PanelRuntime:
     marks: MarkStore
     library: PhotoLibrary
     output: OutputStore
+    ma_cache: lib.LibraryCache | None = None
 
 
 type KindlePanelConfigEntry = ConfigEntry[PanelRuntime]
@@ -528,7 +581,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
     ):
         # kindle_panel <= 0.4.0 played to the owner's amp (DLNA player) hard-wired: that stays the panel's output
         await output.async_set(LEGACY_MA_PLAYERS[0])
-    rt = PanelRuntime(marks=marks, library=PhotoLibrary(hass), output=output)
+    rt = PanelRuntime(marks=marks, library=PhotoLibrary(hass), output=output, ma_cache=lib.LibraryCache())
     entry.runtime_data = rt
 
     async def get_queue(call: ServiceCall) -> ServiceResponse:
@@ -584,6 +637,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
             "seeded": bool(entry.options.get(OPT_SEEDED)),
             "marks_seeded": rt.marks.seeded,
             "config": cfg,
+            # bus task 027: the library's tabs (owner's choice that MA has a provider for), its first tab, Discover
+            "library": lib.library_view(cfg["media"], mass),
             # the panel's music output; null (or not in `outputs` any more) = the panel opens its output picker
             "music_output": rt.output.output,
             "music_output_valid": rt.output.output in ids,
@@ -752,6 +807,101 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
             await asyncio.sleep(SYNC_POLL_S)
             waited += SYNC_POLL_S
 
+    # ------------------------------------------------------------ bus task 027: the library (MA client)
+
+    def _library_mass() -> Any:
+        mass = _mass_client(hass)
+        if mass is None:
+            raise ServiceValidationError("Music Assistant is not loaded")
+        return mass
+
+    async def library_home(call: ServiceCall) -> ServiceResponse:
+        return await lib.home(_library_mass(), call.data["limit"])
+
+    async def library_list(call: ServiceCall) -> ServiceResponse:
+        d = call.data
+        if not d.get("section") and not d.get("parent"):
+            raise ServiceValidationError("library_list needs a section or a parent")
+        try:
+            return await lib.library_list(
+                _library_mass(),
+                rt.ma_cache or lib.LibraryCache(),
+                section=d.get("section"),
+                parent=d.get("parent"),
+                favorite=d.get("favorite"),
+                search=d.get("search"),
+                offset=d["offset"],
+                limit=d["limit"],
+            )
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+
+    async def library_search(call: ServiceCall) -> ServiceResponse:
+        return await lib.search(_library_mass(), call.data["query"], call.data.get("media_types"), call.data["limit"])
+
+    async def library_favorite(call: ServiceCall) -> ServiceResponse:
+        try:
+            r = await lib.set_favorite(_library_mass(), call.data["uri"], call.data["favorite"])
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        if rt.ma_cache:
+            rt.ma_cache.clear()
+        return r
+
+    async def library_play(call: ServiceCall) -> ServiceResponse:
+        """Play an MA item on the panel's output (or `entity_id`) with MA's queue option. Play now (replace / play)
+        wakes the player's receiver first, like the house scripts: a receiver that is off is turned on and the item
+        starts once it reports on (`status: powering_on`); a held receiver (a movie-mode script runs) refuses."""
+        d = call.data
+        player = d.get(ATTR_ENTITY_ID) or rt.output.output
+        if not player:
+            raise ServiceValidationError("the panel has no player yet")
+        try:
+            lib.parse_uri(d["uri"])
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+        mass, player_id = _mass_and_player(hass, entry, player)
+        cfg = panel_config(entry)
+        option = d["option"]
+        if held := receiver_held(hass, cfg, player, player_id):
+            return {"ok": False, "reason": "held", "error": f"the receiver is held by another owner ({held})"}
+        st = hass.states.get(player)
+        if st is None or st.state == "unavailable":
+            return {"ok": False, "reason": "unavailable", "error": f"{player} is not available"}
+        queue = await mass.player_queues.get_active_queue(player_id)
+        queue_id = getattr(queue, "queue_id", None) or player_id
+        args: dict[str, Any] = {"queue_id": queue_id, "media": d["uri"], "option": option}
+        if d.get("start_item"):
+            args["start_item"] = d["start_item"]
+
+        async def play() -> None:
+            await mass.send_command("player_queues/play_media", **args)
+
+        rx = receiver_of(cfg, player) if option in ("replace", "play") else None
+        rx_state = hass.states.get(rx) if rx else None
+        if rx and (rx_state is None or rx_state.state not in RECEIVER_ON):
+
+            async def wake_and_play() -> None:
+                await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: rx}, blocking=True)
+                waited = 0.0
+                while waited < WAKE_TIMEOUT_S:
+                    cur = hass.states.get(rx)
+                    if cur is not None and cur.state in RECEIVER_ON:
+                        if receiver_held(hass, panel_config(entry), player, player_id):
+                            return  # movie mode started while the receiver woke up
+                        await play()
+                        return
+                    await asyncio.sleep(WAKE_POLL_S)
+                    waited += WAKE_POLL_S
+
+            entry.async_create_background_task(hass, wake_and_play(), f"{DOMAIN}_library_play_wake")
+            return {"ok": True, "status": "powering_on", "player": player, "receiver": rx}
+        try:
+            await play()
+        except Exception as err:  # noqa: BLE001 - MA's errors are plain exceptions; the panel shows them
+            return {"ok": False, "reason": "failed", "error": str(err) or type(err).__name__}
+        return {"ok": True, "status": "playing" if option in ("replace", "play") else "queued", "player": player}
+
     async def get_marks(call: ServiceCall) -> ServiceResponse:
         return {"kept": dict(rt.marks.kept), "skipped": dict(rt.marks.skipped)}
 
@@ -765,6 +915,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
     hass.services.async_register(DOMAIN, "set_output", set_output, SET_OUTPUT_SCHEMA, SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "move_queue", move_queue, MOVE_QUEUE_SCHEMA, SupportsResponse.OPTIONAL)
     hass.services.async_register(DOMAIN, "sync_output", sync_output, SYNC_OUTPUT_SCHEMA, SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, "library_home", library_home, LIBRARY_HOME_SCHEMA, SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "library_list", library_list, LIBRARY_LIST_SCHEMA, SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "library_search", library_search, LIBRARY_SEARCH_SCHEMA, SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, "library_play", library_play, LIBRARY_PLAY_SCHEMA, SupportsResponse.OPTIONAL)
+    hass.services.async_register(
+        DOMAIN, "library_favorite", library_favorite, LIBRARY_FAVORITE_SCHEMA, SupportsResponse.OPTIONAL
+    )
     if not hass.data.get(f"{DOMAIN}_ma_image_view"):
         hass.http.register_view(MaImageView())
         hass.data[f"{DOMAIN}_ma_image_view"] = True
@@ -791,6 +948,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "set_output",
         "move_queue",
         "sync_output",
+        "library_home",
+        "library_list",
+        "library_search",
+        "library_play",
+        "library_favorite",
     ):
         hass.services.async_remove(DOMAIN, svc)
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

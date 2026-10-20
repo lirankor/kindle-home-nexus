@@ -92,7 +92,10 @@
           "out_f4": "F4 in the player picker",
           "show_unavailable_outputs": "Player picker: also list unavailable players (debugging)",
           "hidden_outputs": "Player picker: never list these players",
-          "inputs_for": "Then rename / hide the inputs of"
+          "inputs_for": "Then rename / hide the inputs of",
+          "library_tabs": "Library: tabs",
+          "library_tab": "Library: opens on",
+          "discover_key": "Discover on the music screen's free key"
         },
         "data_description": {
           "nodes": "One row per device. Type receiver: Entity = the receiver's media player (power, inputs); optional volume number, plug, stream output select (DLNA/AirPlay) and the Music Assistant players it plays (the panel's player among them turns the receiver on first). Type tv: Entity = the TV's media player; optional movie mode scripts and boolean. Id: a-z, 0-9, _ (keep it once chosen; the F-keys use it).",
@@ -100,7 +103,10 @@
           "out_f1": "Quick keys in the player picker: a Music Assistant player or group (picks it), a script (runs it, e.g. plug on, amp on, input SERVER, output DLNA; see the README), or nothing.",
           "show_unavailable_outputs": "Off (default): the picker lists only players that can be chosen now. On: unavailable players and Music Assistant players without a Home Assistant entity (MA's Expose to Home Assistant is off, e.g. a browser's web player) are listed greyed.",
           "hidden_outputs": "Music Assistant players the Kindle's picker leaves out (e.g. a phone). Players hidden in Music Assistant itself (its \"Hide player\" setting) are left out anyway. The panel's current player is always listed; the F-key dropdowns above still offer every player.",
-          "inputs_for": "Pick a device (or type the id of one added above) to go on to its inputs: the list comes live from its media player (source_list), in the device's order; rename an input (e.g. CD -> Bluetooth & TV) or hide it. Both pages are saved together there."
+          "inputs_for": "Pick a device (or type the id of one added above) to go on to its inputs: the list comes live from its media player (source_list), in the device's order; rename an input (e.g. CD -> Bluetooth & TV) or hide it. Both pages are saved together there.",
+          "library_tabs": "The Kindle's library is a Music Assistant client: its tabs are Music Assistant's library sections, always in this order (the strip shows the first four, the rest are under More). A tab Music Assistant has no provider for (e.g. Audiobooks) is left out anyway.",
+          "library_tab": "The tab the library opens on (default Playlists); a tab that is not shown falls back to the first one.",
+          "discover_key": "On (default): the music screen's free soft key opens Discover (Music Assistant's Home rows: recently played, favourites, recommendations). Off: no Discover key."
         }
       },
       "media_inputs": {
@@ -215,6 +221,19 @@
       "options": {
         "unsplash": "Black-and-white photos from Unsplash",
         "sample": "The built-in sample photo"
+      }
+    },
+    "library_tab": {
+      "options": {
+        "playlists": "Playlists",
+        "radio": "Radio",
+        "genres": "Genres",
+        "albums": "Albums",
+        "artists": "Artists",
+        "tracks": "Tracks",
+        "podcasts": "Podcasts",
+        "audiobooks": "Audiobooks",
+        "search": "Search"
       }
     }
   },
@@ -358,6 +377,100 @@
         "join": {
           "name": "Join",
           "description": "On (default): join the group. Off: leave it."
+        }
+      }
+    },
+    "library_home": {
+      "name": "Library: Discover",
+      "description": "Music Assistant's Home rows (recently played, favourites, recommendations) with their items, for the panel's Discover screen.",
+      "fields": {
+        "limit": {
+          "name": "Items per row",
+          "description": "At most this many items per row."
+        }
+      }
+    },
+    "library_list": {
+      "name": "Library: list",
+      "description": "One page of a library tab (favourites first, Music Assistant's default sort), or what an artist / album / playlist / podcast / genre opens.",
+      "fields": {
+        "section": {
+          "name": "Section",
+          "description": "artists, albums, tracks, playlists, radio, podcasts, audiobooks or genres."
+        },
+        "parent": {
+          "name": "Parent",
+          "description": "A Music Assistant uri to open (artist -> albums, album / playlist -> tracks, podcast -> episodes, genre -> albums)."
+        },
+        "favorite": {
+          "name": "Favourites",
+          "description": "Only favourites (true) or only the rest (false); left out: favourites first."
+        },
+        "search": {
+          "name": "Filter",
+          "description": "Only items whose name matches."
+        },
+        "offset": {
+          "name": "Offset",
+          "description": "First item."
+        },
+        "limit": {
+          "name": "Limit",
+          "description": "Items on the page."
+        }
+      }
+    },
+    "library_search": {
+      "name": "Library: search",
+      "description": "Music Assistant's search over all media types (or the given ones).",
+      "fields": {
+        "query": {
+          "name": "Query",
+          "description": "What to look for."
+        },
+        "media_types": {
+          "name": "Media types",
+          "description": "Left out: all."
+        },
+        "limit": {
+          "name": "Limit",
+          "description": "Results per media type."
+        }
+      }
+    },
+    "library_play": {
+      "name": "Library: play",
+      "description": "Play a Music Assistant item on the panel's player with a queue option. Play now wakes the player's receiver first (status powering_on).",
+      "fields": {
+        "uri": {
+          "name": "Item",
+          "description": "Music Assistant uri (an album / playlist when start_item is given)."
+        },
+        "entity_id": {
+          "name": "Player",
+          "description": "Left out: the panel's player."
+        },
+        "option": {
+          "name": "Queue option",
+          "description": "replace (play now), play, next, replace_next or add."
+        },
+        "start_item": {
+          "name": "Start at",
+          "description": "The track's uri to start the album / playlist from."
+        }
+      }
+    },
+    "library_favorite": {
+      "name": "Library: favourite",
+      "description": "Add a Music Assistant item to the favourites or remove it.",
+      "fields": {
+        "uri": {
+          "name": "Item",
+          "description": "Music Assistant uri."
+        },
+        "favorite": {
+          "name": "Favourite",
+          "description": "true adds, false removes."
         }
       }
     }

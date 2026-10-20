@@ -52,6 +52,23 @@ the group shows up as one more player. Since bus task 025 (0.9.2: labels only; t
 the player has a queue), F2 = library, F3 = player; no radio key. When the player's receiver is on an input of its own
 (NET RADIO, TUNER, …) the screen says so and names the Media key of the receiver ("המגבר על NET RADIO · מגבר ← F2 במדיה").
 
+**Since 0.10.0 (bus task 027) the panel's library is a Music Assistant client.** The music screen's keys: F1 = playlist
+(while the player has a queue) or **Radio** (רדיו, while it plays a Music Assistant radio station: the MA radio dial),
+F2 = **Library** (ספריה), F3 = player, and **Discover** (גילוי) on the free key (F4). Discover shows Music Assistant's
+Home rows (what the MA app opens on: recently played, trending podcasts, recently added albums, in progress, plus the
+favourites rows); the Library shows Music Assistant's library sections as tabs, four on the strip (Playlists, Radio,
+Genres, Albums) and the rest (Artists, Tracks, Podcasts, Audiobooks, Search) under **More**; a tab Music Assistant has
+no provider for (e.g. Audiobooks without an audiobook provider) is left out. Lists are favourites first in MA's default
+order; Enter opens an artist (albums), album / playlist (tracks, with "Play all" first), podcast (episodes) or genre
+(albums), and plays everything else on the panel's player (a track opened in an album plays that album from the track,
+as MA does). Soft keys on an item: Back, **play next**, **add to queue**, **favourite** (the heart); on the Radio tab
+F2 is **Dial** (the MA radio dial: MA's favourite radios or all MA radios on the receiver dial's slider; the receiver's
+own NET RADIO dial stays on its device screen). Options on the *Media tab and music* page:
+
+* *Library: tabs* (`media.library_tabs`, default all, always kept in the order above),
+* *Library: opens on* (`media.library_tab`, default Playlists),
+* *Discover on the music screen's free key* (`media.discover_key`, default on).
+
 **Since 0.8.0 (bus task 021) the music screen is a Music Assistant controller like the MA app's Players sheet.** Every
 MA player has its own queue; the panel shows and controls only its player (state, queue, cover art), and says so when
 another player plays instead ("R-N500 AirPlay is playing · F3 to switch"). In the picker:
@@ -143,7 +160,16 @@ sequence:
 | `set_output` | `entity_id` | `music_output` |
 | `move_queue` | `entity_id`, `source_player`, `auto_play` | `{ok, music_output, moved_from, items}` or `{ok: false, reason, error}` |
 | `sync_output` | `entity_id`, `leader`, `join` | `{ok, group_members}` or `{ok: false, reason, error}` |
+| `library_home` | `limit` (items per row, 20) | `{rows: [{id, provider, name, items}]}`: Music Assistant's Home rows (`music/recommendations` + `music/recommendations/items`): the rows MA shows by default and the favourites rows (+ favourite artists / albums from the library), empty rows left out (0.10.0) |
+| `library_list` | `section` (artists, albums, tracks, playlists, radio, podcasts, audiobooks, genres) **or** `parent` (an MA uri), `favorite`, `search`, `offset`, `limit` | `{total, offset, favorites, parent, items}`: a tab favourites first (two MA lists glued at the favourites count), or what the parent opens (`artist_albums`, `album_tracks`, `playlist_tracks`, `podcast_episodes`, `music/genres/albums`), cached 2 min (0.10.0) |
+| `library_search` | `query`, `media_types`, `limit` (per type) | `{query, items}` from `music/search`, in MA's section order (0.10.0) |
+| `library_play` | `uri`, `entity_id` (default the panel's player), `option` (replace = play now, play, next, replace_next, add), `start_item` | `{ok, status: playing / queued / powering_on}` or `{ok: false, reason, error}`; play now first turns on the player's receiver (the receiver node that lists the player) and plays once it is on; a held receiver refuses (0.10.0) |
+| `library_favorite` | `uri`, `favorite` | `{ok, favorite}` (MA adds an item to the library when it becomes a favourite) (0.10.0) |
 | `seed`, `pick_photo`, `mark_photo`, `get_marks` | see services.yaml | the panel's first start and the screensaver |
+
+Every library item is `{uri, media_type, name, sub, item_id, provider, in_library, favorite, duration, image, opens,
+album_uri}`; `image` is always a Music Assistant `/imageproxy` URL (also for logos MA marks remotely accessible), so a
+panel that only reaches Home Assistant fetches it through `/api/kindle_panel/ma_image`.
 
 **`quality`** (0.9.3, bus task 026) is what Music Assistant streams for that item, from its
 `streamdetails.audio_format` (the source file / station, not what MA sends on to the player):
@@ -151,7 +177,8 @@ sequence:
 Shoutcast stream), or `null` when MA has no stream for the item yet. On an `outputs` row it is the player's current
 queue item, read from the MA client's cached queue (no extra call to MA). The panel shows it as a badge on the music
 screen: **HQ** lossless (with "Hi-Res" above 48 kHz or 16 bit), **SQ** lossy at 192 kbps or more, **LQ** lossy below
-192 kbps or a live stream without a known rate.
+192 kbps or a live stream without a known rate. Since bus task 027 (addendum 4) the badge shows only the letters (HQ /
+SQ / LQ, one fixed box); codec, rate and Hi-Res stay in the data.
 
 ## Icons: one pack for every button
 

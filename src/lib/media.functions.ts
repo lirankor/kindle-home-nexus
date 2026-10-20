@@ -35,14 +35,12 @@ import {
   startPowerOn,
   tuneRadio,
   getQueueList,
-  tracksFor,
 } from "./media.server";
 import {
   getQueueListHa,
   getQueueProgressHa,
   haBackend,
   performMediaActionHa,
-  playSelectionHa,
   powerOnStatusHa,
   readRadioListsHa,
   startPowerOnHa,
@@ -245,10 +243,12 @@ export type PlayResult = { ok: boolean; error?: string; queue?: QueueProgress | 
 export const playMusic = createServerFn({ method: "POST" })
   .validator(z.object({ kind: z.enum(["album", "artist", "track", "mix"]), id: itemIdSchema }))
   .handler(async ({ data }): Promise<PlayResult> => {
+    // HA backend (bus task 027): the library is Music Assistant's (library.functions.ts), not these Jellyfin lists
+    if (haBackend()) return { ok: false, error: "the library plays through Music Assistant" };
     try {
       return {
         ok: true,
-        queue: haBackend() ? await playSelectionHa(data, tracksFor) : await playSelection(data),
+        queue: await playSelection(data),
       };
     } catch (e) {
       return { ok: false, error: mediaErrorMessage(e) };

@@ -2,6 +2,8 @@
 // applies it to the shared constants. Without the kindle_panel integration the panel runs on DEFAULT_CONFIG plus
 // the env it always had, exactly as before.
 import type { StreamQuality } from "./quality";
+import { libraryViewFrom } from "./library";
+import type { LibraryView } from "./library";
 import { HomeError, ha, haConfigured } from "./home.server";
 import { applyHomeConfig } from "./home";
 import { parseLang } from "./i18n";
@@ -54,6 +56,8 @@ type Loaded = {
   musicOutputValid?: boolean;
   outputs?: MaOutput[];
   outputsUnexposed?: MaUnexposed[];
+  /** kindle_panel >= 0.10.0 (bus task 027): the library's tabs, first tab and Discover key. */
+  library?: LibraryView;
 };
 let current: Loaded | null = null;
 let missingUntil = 0;
@@ -97,6 +101,7 @@ type GetConfig = {
   music_output_valid?: boolean;
   outputs?: MaOutput[];
   outputs_unexposed?: MaUnexposed[];
+  library?: unknown;
 };
 
 async function call<T>(service: string, data: Record<string, unknown> = {}): Promise<T> {
@@ -226,6 +231,7 @@ async function load(): Promise<Loaded> {
     musicOutputValid: got.music_output_valid ?? false,
     outputs: got.outputs ?? [],
     outputsUnexposed: got.outputs_unexposed ?? [],
+    library: libraryViewFrom(got.library),
   };
 }
 

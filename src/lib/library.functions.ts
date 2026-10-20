@@ -1,0 +1,75 @@
+// Server functions of the Music Assistant library (bus task 027, MUSIC_BACKEND=ha). Thin: validate, call kindle_panel.
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { haConfigured } from "./home.server";
+import { LIBRARY_TABS } from "./library";
+import { SEARCH_MAX_CHARS } from "./media";
+import type { LibHomeResult, LibListResult, LibPlayResult, LibSearchResult } from "./library";
+import {
+  favouriteLibraryItem,
+  playLibraryItem,
+  readLibraryHome,
+  readLibraryList,
+  searchLibrary,
+} from "./library-ha.server";
+
+// The zod schemas are built on first use, not at import: the UI tests import the panel (and with it this module) under
+// vitest-jsdom, where zod is not available at module load (the voice route does the same).
+let built: ReturnType<typeof buildSchemas> | null = null;
+function buildSchemas() {
+  /** A Music Assistant uri (provider://type/id); no whitespace. */
+  const uri = z.string().regex(/^[a-z0-9_-]+:\/\/[a-z_]+\/\S{1,400}$/i);
+  return {
+    list: z.object({
+      section: z
+        .enum(LIBRARY_TABS.filter((t) => t !== "search") as [string, ...string[]])
+        .optional(),
+      parent: uri.optional(),
+      favorite: z.boolean().optional(),
+      offset: z.number().int().min(0),
+      limit: z.number().int().min(1).max(100).optional(),
+    }),
+    search: z.object({ query: z.string().trim().min(1).max(SEARCH_MAX_CHARS) }),
+    play: z.object({ uri, option: z.enum(["replace", "next", "add"]), startItem: uri.optional() }),
+    favourite: z.object({ uri, favorite: z.boolean() }),
+  };
+}
+const schemas = () => (built ??= buildSchemas());
+const noHa = { ok: false, error: "HA not configured" } as const;
+
+type ListInput = Parameters<typeof readLibraryList>[0];
+type PlayInput = {
+  uri: string;
+  option: "replace" | "next" | "add";
+  startItem?: string | undefined;
+};
+
+export const getLibraryHome = createServerFn({ method: "GET" }).handler(
+  async (): Promise<LibHomeResult> => (haConfigured() ? readLibraryHome() : { ...noHa, rows: [] }),
+);
+
+export const getLibraryList = createServerFn({ method: "GET" })
+  .validator((d: ListInput) => schemas().list.parse(d) as ListInput)
+  .handler(async ({ data }): Promise<LibListResult> =>
+    haConfigured()
+      ? readLibraryList(data)
+      : { ...noHa, total: 0, offset: 0, favorites: 0, parent: null, items: [] },
+  );
+
+export const searchLibraryItems = createServerFn({ method: "GET" })
+  .validator((d: { query: string }) => schemas().search.parse(d))
+  .handler(async ({ data }): Promise<LibSearchResult> =>
+    haConfigured() ? searchLibrary(data.query) : { ...noHa, query: data.query, items: [] },
+  );
+
+export const playLibrary = createServerFn({ method: "POST" })
+  .validator((d: PlayInput) => schemas().play.parse(d) as PlayInput)
+  .handler(async ({ data }): Promise<LibPlayResult> =>
+    haConfigured() ? playLibraryItem(data) : noHa,
+  );
+
+export const favouriteLibrary = createServerFn({ method: "POST" })
+  .validator((d: { uri: string; favorite: boolean }) => schemas().favourite.parse(d))
+  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> =>
+    haConfigured() ? favouriteLibraryItem(data.uri, data.favorite) : noHa,
+  );

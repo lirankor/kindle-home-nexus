@@ -1,5 +1,6 @@
 // Shared (client + server) media model: amp entities, the radio station catalog,
 // snapshot / list / queue shapes, the action union and demo data. Contains no secrets.
+import type { LibraryView } from "./library";
 import type { StreamQuality } from "./quality";
 import type { EntityIcon, EntityIcons } from "./icons";
 import type { Lang } from "./i18n";
@@ -288,6 +289,8 @@ export type InputName = { name?: string; name_he?: string };
 export type NodeStation = { option: string; name: string; group: string; fm: number | null };
 /** The music output (MUSIC_BACKEND=ha): what the panel plays to, and what the picker offers. */
 export type OutputView = {
+  /** Bus task 027: the library's tabs (owner's choice MA has a provider for), its first tab, Discover on a key. */
+  library?: LibraryView;
   /** The chosen MA player; null = none chosen yet. */
   entity: string | null;
   name: string | null;

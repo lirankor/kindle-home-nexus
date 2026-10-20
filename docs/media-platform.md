@@ -6,8 +6,10 @@ The plan, rollout phases, rollback and status live in homeserver-cloud: `docs/ME
 What this branch changes in the app:
 - `src/lib/media-ha.server.ts`: with `MUSIC_BACKEND=ha`, playback, queue, radio, amp power/volume/input and power-on
   go through Home Assistant scripts (`music_state`, `music_play_items`, `music_control`, `play_radio`;
-  `music_radio_favourites` until bus task 025, deleted in 026) and the `media_player.r_n500` bridge entity. The library views (lists, mixes, search, art)
-  still read Jellyfin; MA plays the same items as `jellyfin://track/<id>`. The snapshot reuses `buildMediaSnapshot`
+  `music_radio_favourites` until bus task 025, deleted in 026) and the `media_player.r_n500` bridge entity. Since bus
+  task 027 the library is a Music Assistant client (`src/lib/library*.ts`, `use-library.ts`, `components/library-screens.tsx`;
+  kindle_panel 0.10.0 `library_*` services): Discover, the Library tabs, search, favourites and the MA radio dial read
+  Music Assistant; the Jellyfin list views (lists, mixes, artist, search) remain for `MUSIC_BACKEND=app` only. The snapshot reuses `buildMediaSnapshot`
   by projecting the bridge entity onto `AMP.player`, so the screen rules are unchanged.
 - In HA mode the legacy queue never resumes or touches the amp, and `/api/voice/{play,action,radio}` answer 409.
 - For every mode:

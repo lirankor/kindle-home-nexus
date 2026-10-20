@@ -192,3 +192,8 @@ DEFAULT_UNSPLASH_QUERY = "black and white art"
 
 SOURCE_IMMICH_FAVORITES = "immich_favorites"
 SOURCE_MEDIA = "media_source"
+
+# Bus task 027: the library's tabs = Music Assistant's sidebar sections, in the owner's order (the Kindle's strip shows
+# the first four + More); the default first tab
+LIBRARY_TABS = ["playlists", "radio", "genres", "albums", "artists", "tracks", "podcasts", "audiobooks", "search"]
+DEFAULT_LIBRARY_TAB = "playlists"

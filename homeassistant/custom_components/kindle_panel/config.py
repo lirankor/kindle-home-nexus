@@ -19,6 +19,7 @@ from .const import (
     CUSTOM_ID,
     CUSTOM_PREFIX,
     DEFAULT_CARDS,
+    DEFAULT_LIBRARY_TAB,
     DEFAULT_UNSPLASH_QUERY,
     ICON_AUTO,
     ICONS,
@@ -28,6 +29,7 @@ from .const import (
     LEGACY_MEDIA_KEYS,
     LEGACY_POWER_DEVICE,
     LEGACY_STREAM_OUTPUT,
+    LIBRARY_TABS,
     MAX_CARDS,
     MAX_CUSTOM_TABS,
     MAX_INPUT_ROWS,
@@ -396,6 +398,13 @@ CONFIG_SCHEMA = vol.Schema(
                 # MA players the picker never lists (the owner's choice, bus task 023); MA's own "hide player" flag
                 # hides a player too. The panel's current output is always listed.
                 vol.Optional("hidden_outputs", default=[]): vol.All(cv.ensure_list, [cv.entity_id]),
+                # bus task 027: the library's tabs (Music Assistant's sections, the owner's order; a tab MA has no
+                # provider for is left out anyway), the tab it opens on, and Discover on the music screen's free key
+                vol.Optional("library_tabs", default=lambda: list(LIBRARY_TABS)): vol.All(
+                    cv.ensure_list, [vol.In(LIBRARY_TABS)]
+                ),
+                vol.Optional("library_tab", default=DEFAULT_LIBRARY_TAB): vol.In(LIBRARY_TABS),
+                vol.Optional("discover_key", default=True): cv.boolean,
             }
         ),
         vol.Optional("sensors", default={}): vol.Schema(
@@ -487,6 +496,8 @@ def normalize(config: dict[str, Any] | None) -> dict[str, Any]:
     ids = [n["id"] for n in media["nodes"]]
     if len(set(ids)) != len(ids):
         raise vol.Invalid("two media nodes have the same id")
+    # the owner's order (bus task 027), whatever order a multi-select handed over; none chosen = all
+    media["library_tabs"] = [t for t in LIBRARY_TABS if t in (media.get("library_tabs") or LIBRARY_TABS)]
     media["keys"] = _pad(media["keys"]) if media.get("keys") is not None else default_media_keys(media["nodes"])
     for key in media["keys"]:
         if re.match(CUSTOM_ID, key) and key not in (POWER_KEY_NONE, POWER_KEY_ALL_OFF, MEDIA_KEY_MUSIC) + tuple(ids):

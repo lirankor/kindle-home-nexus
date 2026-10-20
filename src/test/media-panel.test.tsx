@@ -590,7 +590,7 @@ describe("Media tab and amp view", () => {
       "\u00a0", // no queue: F1 empty; no radio key (bus task 025)
       "Library",
       "Player",
-      "\u00a0",
+      "Discover", // the free key (bus task 027)
     ]);
     expect(now.textContent).toContain("R-N500");
     press("F3");
@@ -633,7 +633,7 @@ describe("Media tab and amp view", () => {
       "\u00a0", // no queue: F1 empty; no radio key (bus task 025)
       "Library",
       "Player",
-      "\u00a0",
+      "Discover", // the free key (bus task 027)
     ]);
     expect(now.textContent).toContain("Playing something turns it on"); // no "right-hand button" hint
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -701,7 +701,7 @@ describe("Media tab and amp view", () => {
   const keysOf = (el: Element) =>
     Array.from(el.querySelectorAll("[data-soft-key]")).map((b) => b.textContent);
 
-  it("music screen keys through HA: F1 Playlist when the player has a queue, F2 Library, F3 Player, F4 empty, no Radio (bus task 025)", async () => {
+  it("music screen keys through HA: F1 Playlist when the player has a queue, F2 Library, F3 Player, F4 Discover (bus tasks 025 + 027)", async () => {
     const r = haResult("AirPlay");
     r.snapshot!.nowPlaying = { ...r.snapshot!.nowPlaying, kind: "music", station: null };
     r.snapshot!.queue = {
@@ -721,7 +721,7 @@ describe("Media tab and amp view", () => {
     await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
     press("F1");
     const now = screen.getByRole("dialog", { name: "תצוגת המגבר" });
-    expect(keysOf(now)).toEqual(["רשימת השמעה", "ספריה", "נגן", "\u00a0"]);
+    expect(keysOf(now)).toEqual(["רשימת השמעה", "ספריה", "נגן", "גילוי"]); // Discover on F4 (bus task 027)
     press("F3");
     expect(screen.getByRole("dialog", { name: "נגנים" })).toBeVisible();
   });
@@ -856,7 +856,8 @@ describe("Media tab and amp view", () => {
     const now = screen.getByRole("dialog", { name: "תצוגת המגבר" });
     const badge = badgeOf(now)!;
     expect(badge.querySelector(".quality-tier strong")?.textContent).toBe("HQ");
-    expect(badge.querySelector(".quality-detail")?.textContent).toBe("FLAC 44.1/16");
+    expect(badge.getAttribute("aria-label")).toContain("FLAC 44.1/16"); // detail kept for the reader only (addendum 4)
+    expect(badge.querySelector(".quality-detail")).toBeNull();
     expect(badge.querySelector(".quality-tier small")).toBeNull();
     // placement: the volume's column, right under its dB reading
     expect(badge.parentElement?.querySelector(".transport-db")).not.toBeNull();
@@ -868,7 +869,7 @@ describe("Media tab and amp view", () => {
     expect(badgeOf(queue)).toBeNull();
   });
 
-  it("Hi-Res FLAC reads HQ with the Hi-Res caption; a lossy 320k track SQ; a radio stream without a rate LQ (bus task 026)", async () => {
+  it("Hi-Res FLAC reads HQ (letters only since task 027 addendum 4); a lossy 320k track SQ; a radio stream without a rate LQ (bus task 026)", async () => {
     mocks.getMediaSnapshot.mockResolvedValue(
       qualityResult({ ...FLAC, sample_rate: 96000, bit_depth: 24, bit_rate: 4000 }),
     );
@@ -876,8 +877,9 @@ describe("Media tab and amp view", () => {
     await waitFor(() => expect(screen.getByTitle("Open music")).toBeVisible());
     press("F1");
     let badge = badgeOf(screen.getByRole("dialog", { name: "Amplifier view" }))!;
-    expect(badge.querySelector(".quality-tier")?.textContent).toBe("HQHi-Res");
-    expect(badge.querySelector(".quality-detail")?.textContent).toBe("FLAC 96/24");
+    expect(badge.querySelector(".quality-tier")?.textContent).toBe("HQ"); // no Hi-Res caption (bus task 027 addendum 4)
+    expect(badge.getAttribute("aria-label")).toContain("FLAC 96/24"); // detail kept for the reader only (addendum 4)
+    expect(badge.querySelector(".quality-detail")).toBeNull();
     view.unmount();
 
     mocks.getMediaSnapshot.mockResolvedValue(
@@ -888,7 +890,8 @@ describe("Media tab and amp view", () => {
     press("F1");
     badge = badgeOf(screen.getByRole("dialog", { name: "Amplifier view" }))!;
     expect(badge.getAttribute("data-tier")).toBe("SQ");
-    expect(badge.querySelector(".quality-detail")?.textContent).toBe("MP3 320k");
+    expect(badge.getAttribute("aria-label")).toContain("MP3 320k"); // detail kept for the reader only (addendum 4)
+    expect(badge.querySelector(".quality-detail")).toBeNull();
     v2.unmount();
 
     const radio = qualityResult({
@@ -912,7 +915,8 @@ describe("Media tab and amp view", () => {
     press("F1");
     badge = badgeOf(screen.getByRole("dialog", { name: "Amplifier view" }))!;
     expect(badge.getAttribute("data-tier")).toBe("LQ");
-    expect(badge.querySelector(".quality-detail")?.textContent).toBe("Stream");
+    expect(badge.getAttribute("aria-label")).toContain("Stream"); // detail kept for the reader only (addendum 4)
+    expect(badge.querySelector(".quality-detail")).toBeNull();
   });
 
   it("no stream from Music Assistant: an empty badge slot (the layout stays), and no badge on the dial (bus task 026)", async () => {

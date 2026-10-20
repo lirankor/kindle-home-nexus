@@ -8,6 +8,8 @@ import {
   ArrowRightLeft,
   Check,
   ChevronLeft,
+  Compass,
+  Gauge,
   ChevronRight,
   CornerDownLeft,
   Delete,
@@ -36,6 +38,7 @@ import type { Lang } from "@/lib/i18n";
 import {
   FAVOURITES_LIST_ID,
   INPUT_NET_RADIO,
+  INPUT_SERVER,
   MUSIC_PAGE_SIZE,
   MUSIC_TABS,
   SEARCH_MAX_CHARS,
@@ -94,6 +97,8 @@ import {
   tuneRadioStation,
 } from "@/lib/media.functions";
 import type { MusicPanelState, RadioPanelState } from "@/lib/panel-state";
+import { musicScreenKeys } from "@/lib/library";
+import { useLibrary } from "@/lib/use-library";
 import {
   bandLabel,
   radioBands,
@@ -139,7 +144,11 @@ export type MediaScreen =
   /** A Media tab node's controls (bus task 014), its source list, and the music output picker. */
   | "node"
   | "nodesource"
-  | "output";
+  | "output"
+  /** Bus task 027 (HA backend): the Music Assistant client screens (src/lib/use-library.ts). */
+  | "library"
+  | "discover"
+  | "madial";
 /** Node screens by type: the soft keys F2 / F3 (F1 back, F4 on/off). The table grows with the node types. */
 export const NODE_SCREEN_KEYS: Record<string, ("source" | "stream" | "movie" | null)[]> = {
   receiver: ["source", "stream"],
@@ -459,6 +468,22 @@ export function useMediaPanel({
   }, []);
   const close = useCallback(() => setScreenState(null), []);
 
+  // ---- Bus task 027: the Music Assistant client screens (Library, Discover, MA radio dial) ----
+  const library = useLibrary({
+    screen,
+    open,
+    lang,
+    t,
+    notify,
+    data,
+    act,
+    afterPlay: (nowScreen: boolean) => {
+      void queryClient.invalidateQueries({ queryKey: ["media"] });
+      refetchSnapshotSoon();
+      if (nowScreen) open("now");
+    },
+  });
+
   // ---- Media tab nodes and the music output picker (bus task 014) ----
   const [nodeId, setNodeId] = useState<string | null>(null);
   const nodes = data?.nodes ?? [];
@@ -602,6 +627,14 @@ export function useMediaPanel({
   }, [restoreSource, data === null, query.dataUpdatedAt]);
   /** Cancel in the source list: back to the screen it was opened from. */
   const closeSourceList = () => open(sourceOpener.current);
+  // The Jellyfin list screens (music / artist / search) are the app backend's; with music through HA (an output) a
+  // remembered "music" screen opens the Music Assistant library instead (bus task 027).
+  const haLibrary = !!data?.output;
+  useEffect(() => {
+    if (haLibrary && (screen === "music" || screen === "artist" || screen === "search"))
+      library.openLibrary();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [haLibrary, screen]);
   useFullRefresh(`${screen ?? ""}/${screen === "radio" ? radioView : ""}`);
   // Events that leave ghosting behind on e-ink: see fullRefreshKey below the list state.
   useEffect(() => {
@@ -1081,6 +1114,9 @@ export function useMediaPanel({
       artistPage,
       artist?.item.id ?? "",
       queuePage,
+      screen === "library" || screen === "discover" || screen === "madial"
+        ? library.refreshKey
+        : "",
       showPowerOn ? 1 : 0,
       data?.amp.on ? 1 : 0,
       data?.amp.available ? 1 : 0,
@@ -1297,235 +1333,259 @@ export function useMediaPanel({
           ]
         : screen === "output"
           ? outputKeyActions
-          : screen === "now" && output
-            ? [
-                // music played by HA: the MA controller only (bus task 025: no radio key, the dial is the amp's,
-                // on its node screen). No back key: Back / the tab keys leave it.
-                data?.queue
-                  ? { label: t("amp.playlist"), icon: ListOrdered, onClick: () => open("queue") }
-                  : null,
-                { label: t("amp.library"), icon: ListMusic, onClick: () => open("music") },
-                outputKey,
-                // no Power on here: playing / picking an output wakes the output's receiver (task 015)
-                null,
-              ]
-            : screen === "now"
-              ? [
-                  backToTab,
-                  serverScreen
-                    ? { label: t("amp.library"), icon: ListMusic, onClick: () => open("music") }
-                    : null,
-                  sourceKey,
-                  serverScreen && data?.queue
-                    ? {
-                        label: t("amp.playlist"),
-                        icon: ListOrdered,
-                        onClick: () => open("queue"),
-                      }
-                    : powerSlot !== "open"
+          : library.actionsFor(screen)
+            ? library.actionsFor(screen)!
+            : screen === "now" && output
+              ? // music played by HA: the MA controller only (bus task 025: the amp's dial is on its node screen). Bus
+                // task 027: F1 = the playlist while there is a queue, else "Radio" (the MA radio dial) while an MA radio
+                // plays; F2 the MA library; F3 the player; Discover on the free key (panel option discover_key). No back
+                // key: Back / the tab keys leave it; no Power on: playing wakes the output's receiver (task 015).
+                musicScreenKeys({
+                  queue: !!data?.queue,
+                  // MA radio (the projection reads SERVER for MA), not the amp's own NET RADIO
+                  maRadio:
+                    !!data?.amp.on &&
+                    data.amp.source === INPUT_SERVER &&
+                    data.nowPlaying.kind === "radio",
+                  discover: library.view.discoverKey,
+                }).map((k): DeviceAction | null =>
+                  k === "queue"
+                    ? { label: t("amp.playlist"), icon: ListOrdered, onClick: () => open("queue") }
+                    : k === "radio"
                       ? {
-                          label: t("amp.powerOn"),
-                          icon: Power,
-                          pressed: powerSlot === "powering",
-                          onClick: powerOnNow,
+                          label: t("radio.title"),
+                          icon: Gauge,
+                          onClick: () => library.openMaDial("now"),
                         }
-                      : null,
-                ]
-              : screen === "source"
-                ? [
-                    { label: t("source.cancel"), icon: X, onClick: closeSourceList },
-                    null,
-                    null,
-                    {
-                      label: t("source.apply"),
-                      icon: Check,
-                      onClick: () => {
-                        const source = sourceRows[cursor];
-                        if (source) applySource(source);
-                      },
-                    },
-                  ]
-                : screen === "tv"
-                  ? [
-                      { label: t("modal.close"), icon: X, onClick: close },
-                      null,
-                      {
-                        label: t("tv.mute"),
-                        icon: VolumeX,
-                        disabled: tvUnavailable,
-                        onClick: () => void act({ type: "tv", op: "volume_mute" }),
-                      },
-                      {
-                        label: t("tv.power"),
-                        icon: Power,
-                        pressed: tvOn,
-                        disabled: tvUnavailable,
-                        onClick: () => void act({ type: "tv", op: "toggle" }),
-                      },
-                    ]
-                  : screen === "radio"
-                    ? radioView === "dial"
-                      ? [
-                          // No back key on the dial: the tab keys leave the radio, F3 opens the source list.
-                          {
-                            label: bandLabel(lang, dialPos.list, radioLists),
-                            icon: Radio,
-                            onClick: openBands,
-                          },
-                          hasFavouritesBand
+                      : k === "library"
+                        ? { label: t("amp.library"), icon: ListMusic, onClick: library.openLibrary }
+                        : k === "player"
+                          ? outputKey
+                          : k === "discover"
                             ? {
-                                label: t(isFavourite ? "radio.favRemove" : "radio.favAdd"),
-                                icon: Heart,
-                                pressed: isFavourite,
-                                disabled: !canFavourite,
-                                onClick: toggleFavourite,
+                                label: t("discover.title"),
+                                icon: Compass,
+                                onClick: library.openDiscover,
                               }
                             : null,
-                          // the dial is the amp's (bus task 025): no MA player key; the amp's power is on its node
-                          // screen. The app backend keeps its source list here.
-                          output ? null : sourceKey,
-                          {
-                            label: t("radio.stationList"),
-                            icon: ListMusic,
-                            onClick: openStations,
-                          },
-                        ]
-                      : radioView === "bands"
+                )
+              : screen === "now"
+                ? [
+                    backToTab,
+                    serverScreen
+                      ? { label: t("amp.library"), icon: ListMusic, onClick: () => open("music") }
+                      : null,
+                    sourceKey,
+                    serverScreen && data?.queue
+                      ? {
+                          label: t("amp.playlist"),
+                          icon: ListOrdered,
+                          onClick: () => open("queue"),
+                        }
+                      : powerSlot !== "open"
+                        ? {
+                            label: t("amp.powerOn"),
+                            icon: Power,
+                            pressed: powerSlot === "powering",
+                            onClick: powerOnNow,
+                          }
+                        : null,
+                  ]
+                : screen === "source"
+                  ? [
+                      { label: t("source.cancel"), icon: X, onClick: closeSourceList },
+                      null,
+                      null,
+                      {
+                        label: t("source.apply"),
+                        icon: Check,
+                        onClick: () => {
+                          const source = sourceRows[cursor];
+                          if (source) applySource(source);
+                        },
+                      },
+                    ]
+                  : screen === "tv"
+                    ? [
+                        { label: t("modal.close"), icon: X, onClick: close },
+                        null,
+                        {
+                          label: t("tv.mute"),
+                          icon: VolumeX,
+                          disabled: tvUnavailable,
+                          onClick: () => void act({ type: "tv", op: "volume_mute" }),
+                        },
+                        {
+                          label: t("tv.power"),
+                          icon: Power,
+                          pressed: tvOn,
+                          disabled: tvUnavailable,
+                          onClick: () => void act({ type: "tv", op: "toggle" }),
+                        },
+                      ]
+                    : screen === "radio"
+                      ? radioView === "dial"
                         ? [
+                            // No back key on the dial: the tab keys leave the radio, F3 opens the source list.
                             {
-                              label: t("source.cancel"),
-                              icon: X,
-                              onClick: () => setRadioView("dial"),
+                              label: bandLabel(lang, dialPos.list, radioLists),
+                              icon: Radio,
+                              onClick: openBands,
                             },
-                            null,
-                            null,
+                            hasFavouritesBand
+                              ? {
+                                  label: t(isFavourite ? "radio.favRemove" : "radio.favAdd"),
+                                  icon: Heart,
+                                  pressed: isFavourite,
+                                  disabled: !canFavourite,
+                                  onClick: toggleFavourite,
+                                }
+                              : null,
+                            // the dial is the amp's (bus task 025): no MA player key; the amp's power is on its node
+                            // screen. The app backend keeps its source list here.
+                            output ? null : sourceKey,
                             {
-                              label: t("source.apply"),
-                              icon: Check,
-                              onClick: () => {
-                                const band = radioBands(radioLists)[cursor];
-                                if (band) selectBand(band);
-                              },
-                            },
-                          ]
-                        : [
-                            {
-                              label: t("amp.back"),
-                              icon: ArrowLeft,
-                              onClick: () => setRadioView("dial"),
-                            },
-                            {
-                              label: t("radio.prevPage"),
-                              icon: ChevronLeft,
-                              disabled: stationPage === 0,
-                              onClick: () => pageStations(-1),
-                            },
-                            {
-                              label: t("radio.nextPage"),
-                              icon: ChevronRight,
-                              disabled: stationPage >= stationPages - 1,
-                              onClick: () => pageStations(1),
-                            },
-                            {
-                              label: t("source.apply"),
-                              icon: Check,
-                              onClick: () => {
-                                setRadioView("dial");
-                                tuneTo({ list: dialPos.list, index: cursor });
-                              },
+                              label: t("radio.stationList"),
+                              icon: ListMusic,
+                              onClick: openStations,
                             },
                           ]
-                    : screen === "queue"
-                      ? [
-                          backToNow,
-                          {
-                            label: t("radio.prevPage"),
-                            icon: ChevronLeft,
-                            disabled: queuePage === 0,
-                            onClick: () => pageQueue(-1),
-                          },
-                          {
-                            label: t("radio.nextPage"),
-                            icon: ChevronRight,
-                            disabled: queuePage >= queuePages - 1,
-                            onClick: () => pageQueue(1),
-                          },
-                          {
-                            label: t("source.apply"),
-                            icon: Check,
-                            onClick: () => jumpQueueTo(queueCursor),
-                          },
-                        ]
-                      : screen === "music"
+                        : radioView === "bands"
+                          ? [
+                              {
+                                label: t("source.cancel"),
+                                icon: X,
+                                onClick: () => setRadioView("dial"),
+                              },
+                              null,
+                              null,
+                              {
+                                label: t("source.apply"),
+                                icon: Check,
+                                onClick: () => {
+                                  const band = radioBands(radioLists)[cursor];
+                                  if (band) selectBand(band);
+                                },
+                              },
+                            ]
+                          : [
+                              {
+                                label: t("amp.back"),
+                                icon: ArrowLeft,
+                                onClick: () => setRadioView("dial"),
+                              },
+                              {
+                                label: t("radio.prevPage"),
+                                icon: ChevronLeft,
+                                disabled: stationPage === 0,
+                                onClick: () => pageStations(-1),
+                              },
+                              {
+                                label: t("radio.nextPage"),
+                                icon: ChevronRight,
+                                disabled: stationPage >= stationPages - 1,
+                                onClick: () => pageStations(1),
+                              },
+                              {
+                                label: t("source.apply"),
+                                icon: Check,
+                                onClick: () => {
+                                  setRadioView("dial");
+                                  tuneTo({ list: dialPos.list, index: cursor });
+                                },
+                              },
+                            ]
+                      : screen === "queue"
                         ? [
                             backToNow,
                             {
                               label: t("radio.prevPage"),
                               icon: ChevronLeft,
-                              disabled: musicPage === 0,
-                              onClick: () => pageMusic(-1),
+                              disabled: queuePage === 0,
+                              onClick: () => pageQueue(-1),
                             },
                             {
                               label: t("radio.nextPage"),
                               icon: ChevronRight,
-                              disabled: musicPage >= musicPages - 1,
-                              onClick: () => pageMusic(1),
+                              disabled: queuePage >= queuePages - 1,
+                              onClick: () => pageQueue(1),
                             },
                             {
-                              label: t("search.title"),
-                              icon: Search,
-                              onClick: () => open("search"),
+                              label: t("source.apply"),
+                              icon: Check,
+                              onClick: () => jumpQueueTo(queueCursor),
                             },
                           ]
-                        : screen === "artist"
+                        : screen === "music"
                           ? [
-                              { label: t("amp.back"), icon: ArrowLeft, onClick: backFromArtist },
+                              backToNow,
                               {
                                 label: t("radio.prevPage"),
                                 icon: ChevronLeft,
-                                disabled: artistPage === 0,
-                                onClick: () => pageArtist(-1),
+                                disabled: musicPage === 0,
+                                onClick: () => pageMusic(-1),
                               },
                               {
                                 label: t("radio.nextPage"),
                                 icon: ChevronRight,
-                                disabled: artistPage >= artistPages - 1,
-                                onClick: () => pageArtist(1),
+                                disabled: musicPage >= musicPages - 1,
+                                onClick: () => pageMusic(1),
                               },
                               {
-                                label: t("artist.shuffle"),
-                                icon: Shuffle,
-                                disabled: !artist,
-                                onClick: shuffleArtist,
+                                label: t("search.title"),
+                                icon: Search,
+                                onClick: () => open("search"),
                               },
                             ]
-                          : screen === "search"
+                          : screen === "artist"
                             ? [
+                                { label: t("amp.back"), icon: ArrowLeft, onClick: backFromArtist },
                                 {
-                                  label: t("source.cancel"),
-                                  icon: X,
-                                  onClick: () => open("music"),
+                                  label: t("radio.prevPage"),
+                                  icon: ChevronLeft,
+                                  disabled: artistPage === 0,
+                                  onClick: () => pageArtist(-1),
                                 },
                                 {
-                                  label: t("search.backspace"),
-                                  icon: Delete,
-                                  disabled: search.query === "",
-                                  onClick: searchBackspace,
+                                  label: t("radio.nextPage"),
+                                  icon: ChevronRight,
+                                  disabled: artistPage >= artistPages - 1,
+                                  onClick: () => pageArtist(1),
                                 },
                                 {
-                                  label: t("search.space"),
-                                  icon: Space,
-                                  disabled: search.query === "",
-                                  onClick: searchSpace,
-                                },
-                                {
-                                  label: t("search.enter"),
-                                  icon: CornerDownLeft,
-                                  disabled: searchRows.length === 0,
-                                  onClick: searchEnter,
+                                  label: t("artist.shuffle"),
+                                  icon: Shuffle,
+                                  disabled: !artist,
+                                  onClick: shuffleArtist,
                                 },
                               ]
-                            : [];
+                            : screen === "search"
+                              ? [
+                                  {
+                                    label: t("source.cancel"),
+                                    icon: X,
+                                    onClick: () => open("music"),
+                                  },
+                                  {
+                                    label: t("search.backspace"),
+                                    icon: Delete,
+                                    disabled: search.query === "",
+                                    onClick: searchBackspace,
+                                  },
+                                  {
+                                    label: t("search.space"),
+                                    icon: Space,
+                                    disabled: search.query === "",
+                                    onClick: searchSpace,
+                                  },
+                                  {
+                                    label: t("search.enter"),
+                                    icon: CornerDownLeft,
+                                    disabled: searchRows.length === 0,
+                                    onClick: searchEnter,
+                                  },
+                                ]
+                              : [];
 
   /** Keys while a media screen is open (soft keys are handled by the shell first). Returns handled. */
   const onKey = (event: KeyboardEvent): boolean => {
@@ -1582,6 +1642,8 @@ export function useMediaPanel({
       }
       return NAV_KEYS.includes(event.key);
     }
+    if (screen === "library" || screen === "discover" || screen === "madial")
+      return library.onKey(screen, event);
     if (screen === "radio" && radioView === "bands") return onRadioBandsKey(event);
     if (screen === "radio" && radioView === "stations") return onRadioListKey(event);
     if (screen === "music") return onMusicKey(event);
@@ -1923,6 +1985,8 @@ export function useMediaPanel({
     queuePages,
     queueListLoading: queueQuery.isPending,
     jumpQueueTo,
+    // Bus task 027: the Music Assistant client screens
+    library,
   };
 }
 export type MediaPanel = ReturnType<typeof useMediaPanel>;

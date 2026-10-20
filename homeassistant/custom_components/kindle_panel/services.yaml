@@ -101,3 +101,76 @@ sync_output:
       default: true
       selector:
         boolean:
+library_home:
+  fields:
+    limit:
+      default: 20
+      selector:
+        number: { min: 1, max: 50, mode: box }
+library_list:
+  fields:
+    section:
+      selector:
+        select:
+          options: [artists, albums, tracks, playlists, radio, podcasts, audiobooks, genres]
+    parent:
+      selector:
+        text:
+    favorite:
+      selector:
+        boolean:
+    search:
+      selector:
+        text:
+    offset:
+      default: 0
+      selector:
+        number: { min: 0, max: 100000, mode: box }
+    limit:
+      default: 8
+      selector:
+        number: { min: 1, max: 100, mode: box }
+library_search:
+  fields:
+    query:
+      required: true
+      selector:
+        text:
+    media_types:
+      selector:
+        select:
+          multiple: true
+          options: [artist, album, track, playlist, radio, podcast, audiobook]
+    limit:
+      default: 6
+      selector:
+        number: { min: 1, max: 25, mode: box }
+library_play:
+  fields:
+    uri:
+      required: true
+      selector:
+        text:
+    entity_id:
+      selector:
+        entity:
+          integration: music_assistant
+          domain: media_player
+    option:
+      default: replace
+      selector:
+        select:
+          options: [replace, play, next, replace_next, add]
+    start_item:
+      selector:
+        text:
+library_favorite:
+  fields:
+    uri:
+      required: true
+      selector:
+        text:
+    favorite:
+      required: true
+      selector:
+        boolean:

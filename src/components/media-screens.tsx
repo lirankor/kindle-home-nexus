@@ -34,6 +34,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { DeviceRow } from "@/components/device-row";
 import { RadioDial } from "@/components/dial-bar";
+import { DiscoverScreen, LibraryScreen, MaDialScreen } from "@/components/library-screens";
 import { FullModal } from "@/components/light-modals";
 import { tryT } from "@/lib/i18n";
 import type { Key, Lang } from "@/lib/i18n";
@@ -61,7 +62,9 @@ import {
   powerOnStepKey,
   radioSongLine,
   ampElsewhereHint,
+  transportMode,
 } from "@/lib/media-ui";
+import type { TransportMode } from "@/lib/media-ui";
 import { nodeIcon, optionalIcon, pickIcon } from "@/lib/icons";
 import { qualityBadge } from "@/lib/quality";
 import type { QualityBadge } from "@/lib/quality";
@@ -507,15 +510,12 @@ function useTrackPosition(queue: QueueProgress | null): number {
   return queue.durationMs > 0 ? Math.min(queue.durationMs, raw) : raw;
 }
 
-/** What the centre of the transport pad shows. */
-type TransportMode = "playing" | "paused" | "stopped" | "off";
-
 /**
  * The 5-way as a picture: a rounded square (the Kindle's button) with the play state inside and four
  * satellites outside it — volume up above, volume down below, previous / next left / right (physical
  * directions in both languages); source and volume flank it in a single bar. The keys do the work, this only shows it.
  */
-function TransportControl({
+export function TransportControl({
   db,
   label,
   source,
@@ -598,28 +598,12 @@ function QualityBox({ badge, label }: { badge: QualityBadge | null; label: strin
       aria-label={`${label} ${badge.tier} ${badge.detail}`}
       data-tier={badge.tier}
     >
+      {/* bus task 027 addendum 4: letters only (the detail stays in the data and the aria label) */}
       <span className="quality-tier">
         <strong>{badge.tier}</strong>
-        {badge.hiRes && <small>Hi-Res</small>}
       </span>
-      <span className="quality-detail">{badge.detail}</span>
     </div>
   );
-}
-
-/** Centre glyph of the transport pad for the current snapshot. */
-function transportMode(s: MediaSnapshot | null): TransportMode {
-  if (!s || !s.amp.on) return "off";
-  if (s.nowPlaying.kind === "music" && s.queue)
-    return s.queue.status === "playing"
-      ? "playing"
-      : s.queue.status === "paused"
-        ? "paused"
-        : "stopped";
-  // Radio / FM: Enter stops and restarts the stream, so the centre reads like a player too.
-  if (s.nowPlaying.kind === "radio" || s.nowPlaying.kind === "fm")
-    return s.amp.state === "playing" ? "playing" : "paused";
-  return s.amp.state === "playing" ? "playing" : "stopped";
 }
 
 function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
@@ -1429,6 +1413,12 @@ export function MediaModal({ panel, status }: { panel: MediaPanel; status: strin
       return <SearchScreen panel={panel} status={status} />;
     case "artist":
       return <ArtistScreen panel={panel} status={status} />;
+    case "library":
+      return <LibraryScreen panel={panel} status={status} />;
+    case "discover":
+      return <DiscoverScreen panel={panel} status={status} />;
+    case "madial":
+      return <MaDialScreen panel={panel} status={status} />;
     default:
       return null;
   }

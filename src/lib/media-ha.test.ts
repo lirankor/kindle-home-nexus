@@ -17,7 +17,6 @@ import {
   outputFields,
   panelSource,
   performMediaActionHa,
-  playSelectionHa,
   positionOf,
   powerOnFromHa,
   powerOnView,
@@ -477,17 +476,6 @@ describe("HA calls", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("plays a mix as the nightly MA playlist through script.play_music (bus task 018)", async () => {
-    const tracksFor = vi.fn(async () => ({ title: "x", tracks: [] as MusicTrack[] }));
-    const q = await playSelectionHa({ kind: "mix", id: "daily" }, tracksFor);
-    const call = calls.find((c) => c.path.startsWith("/api/services/script/play_music"))!;
-    expect(call.body).toMatchObject({ query: "daily", kind: "mix", fallback: false });
-    expect(q?.title).toBe("Daily mix");
-    expect(tracksFor).not.toHaveBeenCalled();
-    expect(calls.some((c) => c.path.startsWith("/api/services/script/music_play_items"))).toBe(
-      false,
-    );
-  });
   it("names the list after the mix when music_state reports one, not after the player", async () => {
     const { queueListFrom } = await import("./media-ha.server");
     const base = music();
@@ -512,18 +500,6 @@ describe("HA calls", () => {
     };
     expect(queueListFrom(s, full, null)?.title).toBe("Daily mix");
     expect(queueListFrom(base, full, null)?.title).toBe("R-N500 DLNA");
-  });
-  it("hands the panel's chosen tracks to HA in order (a mix MA has no playlist for)", async () => {
-    const tracks = [{ id: "a" }, { id: "b" }] as MusicTrack[];
-    const q = await playSelectionHa({ kind: "mix", id: "s80" }, async () => ({
-      title: "80s",
-      tracks,
-    }));
-    const call = calls.find((c) => c.path.startsWith("/api/services/script/music_play_items"))!;
-    expect(call.path).toContain("return_response");
-    expect(call.body["media_ids"]).toEqual(["jellyfin://track/a", "jellyfin://track/b"]);
-    expect(q?.title).toBe("80s");
-    expect(q?.count).toBe(2);
   });
   it("routes queue keys through script.music_control and volume to the bridge in dB", async () => {
     const legacy = vi.fn(async () => undefined);
