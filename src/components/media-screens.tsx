@@ -637,27 +637,6 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
             </span>
           </header>
         )}
-        {queue && queue.track && (
-          <div className="amp-progress" dir="ltr" data-status={queue.status}>
-            <div className="progress-track">
-              <span
-                style={{
-                  width: `${queue.durationMs ? Math.min(100, (position / queue.durationMs) * 100) : 0}%`,
-                }}
-              />
-            </div>
-            <div className="amp-times">
-              <span className="amp-time-pos">{mmss(position)}</span>
-              <span className="amp-queue-pos">
-                {t("media.queuePos", { index: queue.index + 1, count: queue.count })}
-                {queue.status === "paused"
-                  ? ` · ${queue.stall ? t("queue.stalled") : t("act.pause")}`
-                  : ""}
-              </span>
-              <span>{mmss(queue.durationMs)}</span>
-            </div>
-          </div>
-        )}
         {!panel.showPowerOn && (
           <div className="amp-art" data-on={on} aria-hidden="true">
             {art ? (
@@ -697,6 +676,29 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
             qualityLabel={t("media.quality")}
           />
         </div>
+        {/* the progress bar sits at the bottom, under the pad and above the footer, with the times and the queue
+            position written inside it (the user's layout call, 2026-10-21): frees the room under the title */}
+        {queue && queue.track && (
+          <div className="amp-progress" dir="ltr" data-status={queue.status}>
+            <div className="progress-track">
+              <span
+                style={{
+                  width: `${queue.durationMs ? Math.min(100, (position / queue.durationMs) * 100) : 0}%`,
+                }}
+              />
+              <div className="amp-times">
+                <span className="amp-time-pos">{mmss(position)}</span>
+                <span className="amp-queue-pos">
+                  {t("media.queuePos", { index: queue.index + 1, count: queue.count })}
+                  {queue.status === "paused"
+                    ? ` · ${queue.stall ? t("queue.stalled") : t("act.pause")}`
+                    : ""}
+                </span>
+                <span>{mmss(queue.durationMs)}</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </FullModal>
   );
