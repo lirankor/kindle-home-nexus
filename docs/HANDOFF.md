@@ -168,3 +168,12 @@ User: some Immich favourites dither really well, some badly; wants to judge them
 - Pool: all favourites (Immich search/metadata paged, ≤ 8×250) minus marked; if everything is marked the full pool is used again. `pickAsset` gained an `exclude` set.
 - Bridge: page sets `<html data-eink-busy>` while mark + next photo are in flight; `pressKey` waits for it to clear (BUSY_WAIT_MS=6000) so the F1 redraw already shows the next photo.
 - Next step when a few hundred are marked: switch the pool to the marks (e.g. env `SCREENSAVER_POOL=marked`) — not built. To inspect: `docker compose exec app cat /data/kindle-photo-marks.json`.
+
+## df5e663 — library_play wakes the amp even when its AirPlay player is unavailable (2026-10-21)
+
+Symptom: Enter on a playlist with the amp unpowered did nothing (panel showed no error: status row is sr-only).
+Cause: HA `kindle_panel.library_play` checked the output player's availability before its wake path; the MA AirPlay player is `unavailable` while the amp is off, so it answered `{"ok":false,"reason":"unavailable"}`.
+Fix (homeassistant/custom_components/kindle_panel/__init__.py): unavailable + unpowered receiver → wake path; the wake loop waits for the receiver on AND the player back; queue looked up at play time; timeout logged. Test added (tests/test_library.py).
+Deploy of the integration: `docker cp homeassistant/custom_components/kindle_panel/. homeassistant:/config/custom_components/kindle_panel/ && docker restart homeassistant` (the HA config dir is root-owned; docker cp writes through the bind mount). Tests: throwaway container `ghcr.io/home-assistant/home-assistant:stable` + `pytest-homeassistant-custom-component==0.13.357` (matches HA 2026.8.3) + pytest-asyncio pytest-socket syrupy freezegun requests-mock pytest-unordered respx pytest-xdist pytest-cov pytest-timeout; `test_icon_pack_equals_the_app_json` needs the repo root mounted (reads /src/data/icons.json).
+Verified live: play → plug on at once, amp on after ~24 s, AirPlay playing at ~28 s.
+Also today: desktop debugging on http://192.168.1.15:8791 (1..4 = F1..F4, [ ] = tabs), "Music Assistant" subtitle dropped, all key-hint lines removed.
