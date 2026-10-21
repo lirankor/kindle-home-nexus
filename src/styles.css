@@ -519,8 +519,9 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .amp-transport { margin-top: auto; padding-top: 12px; margin-bottom: 0; }
 .transport { display: flex; flex-direction: column; align-items: center; color: var(--foreground); }
 .transport-grid { display: grid; grid-template-columns: auto auto auto; grid-template-areas: ". up ." "prev pad next" ". down ."; align-items: center; justify-items: center; gap: 6px 18px; direction: ltr; }
-.transport-up { grid-area: up; }
-.transport-down { grid-area: down; }
+/* the volume glyphs sit on the pad border, a knockout in the page colour breaks the line behind them */
+.transport-up { grid-area: up; margin-bottom: -23px; z-index: 2; background-color: var(--background); padding: 1px; }
+.transport-down { grid-area: down; margin-top: -23px; z-index: 2; background-color: var(--background); padding: 1px; }
 .transport-prev { grid-area: prev; }
 .transport-next { grid-area: next; }
 .transport-pad { grid-area: pad; width: 80px; height: 80px; box-sizing: border-box; border: 4px solid var(--foreground); border-radius: 16px; background: var(--background); display: flex; align-items: center; justify-content: center; }
@@ -531,6 +532,8 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 [data-on="false"] .transport { color: var(--muted-foreground); }
 [data-on="false"] .transport-pad { border-color: var(--border); }
 .transport-small .transport-grid { gap: 4px 14px; }
+.transport-small .transport-up { margin-bottom: -17px; }
+.transport-small .transport-down { margin-top: -17px; }
 .transport-small .transport-pad { width: 60px; height: 60px; border-width: 3px; border-radius: 12px; }
 .transport-small .transport-db { margin-top: 4px; font-size: 18px; }
 .transport-small .transport-db small { font-size: 14px; }
