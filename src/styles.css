@@ -491,14 +491,14 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .media-db { font-size: 42px; font-weight: 600; color: var(--foreground); line-height: 1; }
 .media-db small { font-size: 22px; font-weight: 400; }
 .amp-head { display: flex; gap: 20px; align-items: center; min-height: 160px; }
-.amp-art { width: 240px; height: 240px; flex-shrink: 0; border: 1px solid var(--foreground); display: flex; align-items: center; justify-content: center; background: var(--secondary); overflow: hidden; }
-.amp-art img { width: 240px; height: 240px; object-fit: cover; filter: grayscale(1) contrast(1.15); display: block; }
+.amp-art { width: 380px; height: 380px; flex-shrink: 0; border: 1px solid var(--foreground); display: flex; align-items: center; justify-content: center; background: var(--secondary); overflow: hidden; }
+.amp-art img { width: 380px; height: 380px; object-fit: cover; filter: grayscale(1) contrast(1.15); display: block; }
 .amp-head[data-on="false"] .amp-art { color: var(--muted-foreground); }
-.amp-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.amp-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0; }
 .amp-badge { align-self: flex-start; font-size: 18px; font-weight: 700; padding: 2px 10px; background: var(--primary); color: var(--primary-foreground); }
 .amp-head[data-on="false"] .amp-badge { background: var(--secondary); color: var(--muted-foreground); }
 .amp-title { font-size: 32px; line-height: 1.2; font-weight: 700; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.amp-sub { font-size: 23px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.amp-sub { font-size: 23px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.2; }
 .amp-sub2 { font-size: 20px; }
 /* Progress bar at the bottom of the amp view: the elapsed time, the queue position and the length are written inside
    the bar; white text in difference blend reads black over the empty track and white over the filled part. */
@@ -516,7 +516,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
    outside (volume up above, volume down below, previous / next left / right), dB underneath. */
 /* The body content as a column that fills the body, so the control can sit at its bottom (margin-top: auto). */
 .screen-stack { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.amp-transport { margin-top: auto; padding-top: 12px; margin-bottom: 0; }
+.amp-transport { margin-top: auto; padding-top: 0; margin-bottom: 0; }
 .transport { --glyph: 30px; --pad-border: 4px; display: flex; flex-direction: column; align-items: center; color: var(--foreground); }
 /* a single cell: the pad, with the four glyphs sharing it; the padding reserves half a glyph on every side */
 .transport-grid { display: grid; grid-template-columns: auto; grid-template-areas: "pad"; align-items: center; justify-items: center; gap: 0; padding: calc(var(--glyph) / 2); direction: ltr; }
@@ -642,7 +642,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .transport-reading > strong { font-size: 26px; line-height: 1.2; overflow-wrap: anywhere; }
 .transport-reading .transport-db { margin-top: 0; font-size: 30px; white-space: nowrap; }
 .transport-reading .transport-db small { font-size: 18px; }
-.amp-transport .transport-reading { align-self: start; margin-top: 36px; }
+.amp-transport .transport-reading { align-self: start; margin-top: 6px; }
 .amp-transport .transport-reading .transport-db { margin-top: -2px; }
 /* Stream quality badge under the volume (bus task 026): a fixed slot so a new badge only redraws its own box. */
 /* bus task 027 addendum 4: letters only, one fixed box for HQ / SQ / LQ */
