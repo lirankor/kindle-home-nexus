@@ -186,3 +186,14 @@ describe("MA radio dial data", () => {
     expect(playingStationIndex(radios, null)).toBe(-1);
   });
 });
+
+describe("libItemFrom (kindle_panel item → row)", () => {
+  it("drops the provider name as a subtitle but keeps a real one", async () => {
+    const { libItemFrom } = await import("./library-ha.server");
+    const base = { uri: "library://playlist/1", media_type: "playlist" as const, name: "80s" };
+    expect(libItemFrom({ ...base, sub: "Music Assistant" }).sub).toBeNull();
+    expect(libItemFrom({ ...base, sub: "Spotify", provider: "Spotify" }).sub).toBeNull();
+    expect(libItemFrom({ ...base, sub: "12 tracks" }).sub).toBe("12 tracks");
+    expect(libItemFrom({ ...base, sub: "  " }).sub).toBeNull();
+  });
+});

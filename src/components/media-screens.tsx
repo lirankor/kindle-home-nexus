@@ -309,7 +309,6 @@ function NodeScreen({ panel, status }: { panel: MediaPanel; status: string }) {
           "\u00a0"
         )}
       </p>
-      <p className="modal-hint">{t("node.hint")}</p>
     </FullModal>
   );
 }
@@ -354,7 +353,6 @@ function NodeSourceList({ panel, status }: { panel: MediaPanel; status: string }
           );
         })}
       </div>
-      <p className="modal-hint">{t("source.hint")}</p>
     </FullModal>
   );
 }
@@ -446,7 +444,6 @@ function OutputPicker({ panel, status }: { panel: MediaPanel; status: string }) 
         })}
         {outputRows.length === 0 && <p className="modal-hint">{t("output.empty")}</p>}
       </div>
-      <p className="modal-hint">{t("output.hint")}</p>
     </FullModal>
   );
 }
@@ -742,7 +739,6 @@ function SourceList({ panel, status }: { panel: MediaPanel; status: string }) {
           );
         })}
       </div>
-      <p className="modal-hint">{t("source.hint")}</p>
     </FullModal>
   );
 }
@@ -925,12 +921,7 @@ function RadioStationList({ panel, status }: { panel: MediaPanel; status: string
   const pages = Math.max(1, Math.ceil(stations.length / RADIO_PAGE_SIZE));
   const rows = stations.slice(page * RADIO_PAGE_SIZE, (page + 1) * RADIO_PAGE_SIZE);
   return (
-    <FullModal
-      label={t("radio.stationsTitle")}
-      actions={panel.modalActions}
-      status={status}
-      hint={t("radio.listHint")}
-    >
+    <FullModal label={t("radio.stationsTitle")} actions={panel.modalActions} status={status}>
       <header className="modal-heading radio-list-heading">
         <h1>{bandLabel(lang, dialPos.list, radioLists)}</h1>
         <p>
@@ -1085,12 +1076,7 @@ function MusicScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   const on = s?.amp.on ?? false;
   const loading = panel.musicListLoading && !panel.musicListError;
   return (
-    <FullModal
-      label={t("music.title")}
-      actions={panel.modalActions}
-      status={status}
-      hint={on ? t("music.hint") : t("music.offHint")}
-    >
+    <FullModal label={t("music.title")} actions={panel.modalActions} status={status}>
       {panel.showPowerOn ? (
         <PowerOnBlock panel={panel} />
       ) : (
@@ -1172,7 +1158,6 @@ function ArtistScreen({ panel, status }: { panel: MediaPanel; status: string }) 
       label={title || t("music.tab.artists")}
       actions={panel.modalActions}
       status={status}
-      hint={t("artist.hint")}
       compactStatus
     >
       <header className="modal-heading radio-list-heading artist-heading">
@@ -1236,13 +1221,7 @@ function SearchScreen({ panel, status }: { panel: MediaPanel; status: string }) 
     item.kind === "artist" ? t("search.artist") : item.kind === "album" ? t("search.album") : "";
   let keyIndex = 0;
   return (
-    <FullModal
-      label={t("search.title")}
-      actions={panel.modalActions}
-      status={status}
-      hint={t("search.hint")}
-      compactStatus
-    >
+    <FullModal label={t("search.title")} actions={panel.modalActions} status={status} compactStatus>
       <div
         className="search-field"
         dir="ltr"

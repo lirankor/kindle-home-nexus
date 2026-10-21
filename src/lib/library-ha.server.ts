@@ -32,11 +32,19 @@ export type PanelLibItem = {
   album_uri?: string | null;
 };
 
+/** The second line of a row. The provider name ("Music Assistant" under every playlist) says nothing: dropped. */
+const libSub = (i: PanelLibItem): string | null => {
+  const sub = (i.sub ?? "").trim();
+  if (!sub) return null;
+  const generic = sub.toLowerCase() === "music assistant" || sub === (i.provider ?? "").trim();
+  return generic ? null : sub;
+};
+
 export const libItemFrom = (i: PanelLibItem): LibItem => ({
   uri: i.uri,
   mediaType: i.media_type,
   name: i.name ?? "",
-  sub: i.sub ?? null,
+  sub: libSub(i),
   favorite: typeof i.favorite === "boolean" ? i.favorite : null,
   opens: !!i.opens,
   art: artToken([], i.image ?? null),

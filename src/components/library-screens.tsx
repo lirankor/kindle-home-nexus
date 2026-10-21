@@ -274,13 +274,7 @@ export function LibraryScreen({ panel, status }: { panel: MediaPanel; status: st
   const parent = lib.list?.parent ?? lib.opened;
   const loading = lib.listLoading && !lib.listError;
   return (
-    <FullModal
-      label={t("amp.library")}
-      actions={panel.modalActions}
-      status={status}
-      hint={lib.tab === "search" && !lib.opened ? undefined : t("lib.hint")}
-      compactStatus
-    >
+    <FullModal label={t("amp.library")} actions={panel.modalActions} status={status} compactStatus>
       <TabStrip panel={panel} />
       {lib.tab === "search" && !lib.opened ? (
         <SearchTab panel={panel} />
@@ -376,7 +370,6 @@ export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: s
       label={t("discover.title")}
       actions={panel.modalActions}
       status={status}
-      hint={t("discover.hint")}
       compactStatus
     >
       <header className="modal-heading radio-list-heading discover-heading">
@@ -448,7 +441,7 @@ export function MaDialScreen({ panel, status }: { panel: MediaPanel; status: str
       ? radioSongLine(s.nowPlaying)
       : lib.playingStation
         ? `${t("madial.playing")} ${lib.playingStation}`
-        : t("madial.hint");
+        : " ";
   const band = t(lib.dial.band === "favourites" ? "madial.band.favourites" : "madial.band.all");
   return (
     <FullModal label={t("madial.title")} actions={panel.modalActions} status={status} compactStatus>

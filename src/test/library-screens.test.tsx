@@ -173,9 +173,9 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(lib.getLibraryList).toHaveBeenCalledWith({
       data: { section: "playlists", offset: 0, limit: 8 },
     });
-    // the standard footer: the page on the left, the hint in words (no glyphs the Kindle font lacks)
+    // the standard footer: the page on the left, no key-hint line (the user dropped all guidance text)
     expect(libDlg.querySelector(".music-page")?.textContent).toBe("1/1");
-    expect(libDlg.textContent).toContain("Up/Down choose · Right/Left tab · Enter play");
+    expect(libDlg.textContent).not.toContain("Enter play");
     expect(libDlg.textContent).not.toMatch(/[◀▶]/);
     expect(keysOf(libDlg)).toEqual(["Back", "Play next", "Add to queue", "Open"]);
     // play next stays in the library (the owner may queue several)
@@ -303,7 +303,7 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe(
       "פריט 1/1 · שורה 1/2",
     );
-    expect(dlg.textContent).toContain("למעלה/למטה בחירה · ימין/שמאל שורה · Enter נגינה");
+    expect(dlg.textContent).not.toContain("Enter נגינה"); // no key-hint line
     expect(dlg.textContent).not.toMatch(/[◀▶]/);
     expect(keysOf(dlg)).toEqual(["חזרה", "הבא בתור", "הוסף לתור", "פתח"]);
     // Open: the album in the Library (Play all first); Back returns to Discover

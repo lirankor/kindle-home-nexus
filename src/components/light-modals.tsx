@@ -10,15 +10,12 @@ export function FullModal({
   label,
   actions,
   status,
-  hint,
   compactStatus = false,
   children,
 }: {
   label: string;
   actions: (DeviceAction | null)[];
   status: string;
-  /** One short key hint as the last line above the footer buttons (media screens). */
-  hint?: string | undefined;
   /** Keep media feedback accessible without a text row above the hardware footer. */
   compactStatus?: boolean;
   children: ReactNode;
@@ -29,7 +26,6 @@ export function FullModal({
       <div className={compactStatus ? "sr-only" : "demo-status"} role="status">
         {status}
       </div>
-      {hint && <p className="modal-foot-hint">{hint}</p>}
       <DeviceActions actions={actions} />
     </div>
   );
@@ -69,7 +65,6 @@ export function LightModal({
         <span style={{ width: `${light.on ? light.level : 0}%` }} />
       </div>
       <p className="modal-look">{look}</p>
-      <p className="modal-hint">{t("modal.hint")}</p>
     </FullModal>
   );
 }

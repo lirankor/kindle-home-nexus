@@ -528,7 +528,6 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .transport-small .transport-db { margin-top: 4px; font-size: 18px; }
 .transport-small .transport-db small { font-size: 14px; }
 /* One key hint per media screen: the last line above the footer buttons, below the status line. */
-.modal-foot-hint { flex-shrink: 0; margin: 2px 26px 4px; font-size: 15px; line-height: 1.2; text-align: center; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .poweron h2 { font-size: 34px; margin: 0 0 16px; font-weight: 700; }
 .poweron-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .poweron-steps li { display: flex; align-items: center; gap: 14px; font-size: 25px; color: var(--muted-foreground); }

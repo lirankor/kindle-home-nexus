@@ -281,7 +281,8 @@ describe("Music screen", () => {
     expect(rowDetails()[1]).toBe("Tracks never played · 20 tracks");
     press("ArrowRight");
     expect(activeTab()).toBe("Picks");
-    expect(screen.getByRole("dialog").textContent).toContain("Enter play");
+    // no key-hint line anywhere (the user dropped all guidance text)
+    expect(screen.getByRole("dialog").textContent).not.toContain("Enter play");
   });
 
   it("pages the albums tab with F3 / F2 and lets the highlight cross the page edge", async () => {
@@ -538,7 +539,7 @@ describe("Music screen", () => {
     mocks.startAmpPowerOn.mockResolvedValue({ ok: true, status: running });
     mocks.getPowerOnStatus.mockResolvedValue({ ...running, step: "wait", elapsedMs: 3000 });
     await openMusic();
-    expect(screen.getByRole("dialog").textContent).toContain("Enter מדליק את המגבר");
+    expect(screen.getByRole("dialog").textContent).not.toContain("Enter מדליק"); // no hint line
     press("ArrowDown");
     press("ArrowDown");
     press("Enter"); // רגוע
