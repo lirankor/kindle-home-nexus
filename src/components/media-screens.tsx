@@ -643,18 +643,18 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
           <div className="amp-art" data-on={on} aria-hidden="true">
             {art ? (
               <img
-                src={`/media/img?item=${encodeURIComponent(art)}&w=370`}
+                src={`/media/img?item=${encodeURIComponent(art)}&w=360`}
                 alt=""
-                width={370}
-                height={370}
+                width={360}
+                height={360}
               />
             ) : stationArt && artFailed !== stationArt ? (
               <img
                 className="amp-art-station"
-                src={`/media/img?station=${encodeURIComponent(stationArt)}&w=370`}
+                src={`/media/img?station=${encodeURIComponent(stationArt)}&w=360`}
                 alt=""
-                width={370}
-                height={370}
+                width={360}
+                height={360}
                 onError={() => setArtFailed(stationArt)}
               />
             ) : (
