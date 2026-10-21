@@ -626,7 +626,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 /* Source and volume flank the physical controller; RTL mirrors only the readings. */
 .amp-transport, .radio-transport-row { margin-bottom: 12px; }
 .amp-transport { margin-bottom: 4px; }
-.amp-transport .transport, .radio-transport-row .transport { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; width: 100%; direction: inherit; margin-top: 0; padding-top: 12px; border-top: 1px solid var(--border); }
+.amp-transport .transport, .radio-transport-row .transport { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 30px; width: 100%; direction: inherit; margin-top: 0; padding-top: 12px; border-top: 1px solid var(--border); }
 .amp-transport .transport { border-top: 0; padding-top: 0; }
 .amp-head { min-height: 0; justify-content: center; text-align: center; }
 .amp-meta { align-items: center; text-align: center; }
