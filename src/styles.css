@@ -522,7 +522,6 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .transport-next { grid-area: next; }
 .transport-pad { grid-area: pad; width: 80px; height: 80px; box-sizing: border-box; border: 4px solid var(--foreground); border-radius: 16px; background: var(--background); display: flex; align-items: center; justify-content: center; }
 .transport-vol { display: flex; align-items: center; justify-content: center; justify-self: center; gap: 2px; line-height: 1; }
-.transport-vol b { font-size: 22px; font-weight: 700; }
 .transport-db { margin-top: 6px; font-size: 22px; line-height: 1; }
 .transport-db bdi { display: inline-flex; align-items: baseline; gap: 5px; }
 .transport-db small { font-size: 16px; color: var(--muted-foreground); }
@@ -530,7 +529,6 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 [data-on="false"] .transport-pad { border-color: var(--border); }
 .transport-small .transport-grid { gap: 4px 14px; }
 .transport-small .transport-pad { width: 60px; height: 60px; border-width: 3px; border-radius: 12px; }
-.transport-small .transport-vol b { font-size: 18px; }
 .transport-small .transport-db { margin-top: 4px; font-size: 18px; }
 .transport-small .transport-db small { font-size: 14px; }
 /* One key hint per media screen: the last line above the footer buttons, below the status line. */

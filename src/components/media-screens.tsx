@@ -550,10 +550,7 @@ export function TransportControl({
         <strong>{source}</strong>
       </div>
       <div className="transport-grid">
-        {/* the sign before the speaker: the cone sits left and the waves right, so sign + glyph balance on the
-            pad's axis (the user asked for symmetry, 2026-10-21) */}
         <span className="transport-sat transport-vol transport-up" aria-hidden="true">
-          <b>+</b>
           <Volume2 size={icon} />
         </span>
         <SkipBack size={icon} aria-hidden="true" className="transport-sat transport-prev" />
@@ -568,7 +565,6 @@ export function TransportControl({
         </div>
         <SkipForward size={icon} aria-hidden="true" className="transport-sat transport-next" />
         <span className="transport-sat transport-vol transport-down" aria-hidden="true">
-          <b>−</b>
           <Volume1 size={icon} />
         </span>
       </div>
