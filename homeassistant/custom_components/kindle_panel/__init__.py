@@ -37,6 +37,7 @@ The panel only ever talks to Home Assistant.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -77,6 +78,8 @@ from .const import (
     POWER_KEY_NONE,
 )
 from .photos import MarkStore, PhotoLibrary, pick
+
+_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.SENSOR]
 SIGNAL_MARKS = f"{DOMAIN}_marks_updated"
@@ -871,33 +874,48 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
         if held := receiver_held(hass, cfg, player, player_id):
             return {"ok": False, "reason": "held", "error": f"the receiver is held by another owner ({held})"}
         st = hass.states.get(player)
-        if st is None or st.state == "unavailable":
+        available = st is not None and st.state != "unavailable"
+        rx = receiver_of(cfg, player) if option in ("replace", "play") else None
+        rx_state = hass.states.get(rx) if rx else None
+        rx_off = rx is not None and (rx_state is None or rx_state.state not in RECEIVER_ON)
+        # An AirPlay / DLNA player drops out of HA while its receiver is unpowered: that is the wake case, not a
+        # refusal (bus task 029 follow-up: Enter on a playlist with the amp off did nothing). Refuse only when
+        # nothing here can bring the player back.
+        if not available and not rx_off:
             return {"ok": False, "reason": "unavailable", "error": f"{player} is not available"}
-        queue = await mass.player_queues.get_active_queue(player_id)
-        queue_id = getattr(queue, "queue_id", None) or player_id
-        args: dict[str, Any] = {"queue_id": queue_id, "media": d["uri"], "option": option}
+        args: dict[str, Any] = {"media": d["uri"], "option": option}
         if d.get("start_item"):
             args["start_item"] = d["start_item"]
 
         async def play() -> None:
-            await mass.send_command("player_queues/play_media", **args)
+            # looked up at play time: an unavailable player has no queue until its receiver is up
+            queue = await mass.player_queues.get_active_queue(player_id)
+            queue_id = getattr(queue, "queue_id", None) or player_id
+            await mass.send_command("player_queues/play_media", queue_id=queue_id, **args)
 
-        rx = receiver_of(cfg, player) if option in ("replace", "play") else None
-        rx_state = hass.states.get(rx) if rx else None
-        if rx and (rx_state is None or rx_state.state not in RECEIVER_ON):
+        if rx_off:
 
             async def wake_and_play() -> None:
                 await hass.services.async_call("media_player", "turn_on", {ATTR_ENTITY_ID: rx}, blocking=True)
                 waited = 0.0
                 while waited < WAKE_TIMEOUT_S:
                     cur = hass.states.get(rx)
-                    if cur is not None and cur.state in RECEIVER_ON:
+                    pl = hass.states.get(player)
+                    if (
+                        cur is not None
+                        and cur.state in RECEIVER_ON
+                        and pl is not None
+                        and pl.state != "unavailable"
+                    ):
                         if receiver_held(hass, panel_config(entry), player, player_id):
                             return  # movie mode started while the receiver woke up
                         await play()
                         return
                     await asyncio.sleep(WAKE_POLL_S)
                     waited += WAKE_POLL_S
+                _LOGGER.warning(
+                    "library_play: %s did not come back within %.0f s after waking %s", player, WAKE_TIMEOUT_S, rx
+                )
 
             entry.async_create_background_task(hass, wake_and_play(), f"{DOMAIN}_library_play_wake")
             return {"ok": True, "status": "powering_on", "player": player, "receiver": rx}

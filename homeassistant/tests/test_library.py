@@ -492,6 +492,46 @@ async def test_library_play_wakes_the_receiver_then_plays(hass, panel, mass, mon
     ) in mass.sent
 
 
+async def test_library_play_wakes_the_receiver_when_the_player_is_unavailable(hass, panel, mass, monkeypatch) -> None:
+    """The amp unpowered: its AirPlay player is `unavailable` in HA. Play now must still wake the receiver and play
+    once the player is back, instead of refusing with "not available"."""
+    import custom_components.kindle_panel as kp
+
+    monkeypatch.setattr(kp, "WAKE_POLL_S", 0.01)
+    _ma_player(hass, "media_player.ma_amp_airplay", "R-N500 AirPlay", "unavailable")
+    hass.states.async_set("media_player.r_n500", "off")
+    turned_on = []
+
+    async def turn_on(call):
+        turned_on.append(call.data)
+        hass.states.async_set("media_player.r_n500", "on")
+        # the player reappears a little after the receiver reports on
+        await asyncio.sleep(0.05)
+        hass.states.async_set("media_player.ma_amp_airplay", "idle", {"friendly_name": "R-N500 AirPlay"})
+
+    hass.services.async_register("media_player", "turn_on", turn_on)
+    await call(hass, "seed", config={"media": {"music_backend": "ha", "nodes": [RX]}})
+    await call(hass, "set_output", entity_id="media_player.ma_amp_airplay")
+    r = await call(hass, "library_play", uri="library://playlist/20")
+    assert r == {"ok": True, "status": "powering_on", "player": "media_player.ma_amp_airplay", "receiver": "media_player.r_n500"}
+    for _ in range(100):
+        await asyncio.sleep(0.02)
+        await hass.async_block_till_done()
+        if any(c == "player_queues/play_media" for c, _ in mass.sent):
+            break
+    assert turned_on and turned_on[0]["entity_id"] == "media_player.r_n500"
+    assert (
+        "player_queues/play_media",
+        {"queue_id": "q-media_player.ma_amp_airplay", "media": "library://playlist/20", "option": "replace"},
+    ) in mass.sent
+    # no receiver to wake (play next / add) and the player gone: refused, as before
+    r = await call(hass, "library_play", uri="library://track/t4", option="next")
+    assert r["ok"] is True  # the player is back now
+    hass.states.async_set("media_player.ma_amp_airplay", "unavailable")
+    r = await call(hass, "library_play", uri="library://track/t4", option="next")
+    assert r == {"ok": False, "reason": "unavailable", "error": "media_player.ma_amp_airplay is not available"}
+
+
 async def test_library_play_refuses_a_held_receiver(hass, panel, mass) -> None:
     _ma_player(hass, "media_player.ma_amp_dlna", "R-N500 DLNA")
     hass.states.async_set("media_player.r_n500", "on", {"held": True})
