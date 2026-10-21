@@ -81,6 +81,7 @@ import {
 } from "@/lib/home";
 import type { Action, LightState, Snapshot, SnapshotResult } from "@/lib/home";
 import type { SceneButton } from "@/lib/panel-config";
+import { installDesktopKeyAliases } from "@/lib/desktop-keys";
 import { getScreensaver, getSnapshot, markScreensaverPhoto, runAction } from "@/lib/home.functions";
 
 export const Route = createFileRoute("/")({
@@ -345,6 +346,8 @@ function HomeControl() {
     root.lang = lang;
     root.dir = rtl ? "rtl" : "ltr";
   }, [lang, rtl]);
+  // Desktop browser: 1..4 = F1..F4, [ ] = tabs (see desktop-keys.ts). Harmless under the bridge.
+  useEffect(() => installDesktopKeyAliases(), []);
 
   // Owner's rule (2026-10-15): no screensaver only while the amp is ON (power on, any source — the amp
   // cannot tell whether CD / PHONO / TV inputs play, so no playback check) AND the panel is on the amp
