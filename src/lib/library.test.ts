@@ -5,6 +5,7 @@ import {
   DEFAULT_DISCOVER_ROWS,
   LIBRARY_TABS,
   discoverKeys,
+  discoverPageSize,
   leavesLibrary,
   libraryKeys,
   libraryViewFrom,
@@ -196,5 +197,10 @@ describe("libItemFrom (kindle_panel item → row)", () => {
     expect(libItemFrom({ ...base, sub: "Spotify", provider: "Spotify" }).sub).toBeNull();
     expect(libItemFrom({ ...base, sub: "12 tracks" }).sub).toBe("12 tracks");
     expect(libItemFrom({ ...base, sub: "  " }).sub).toBeNull();
+  });
+
+  it("Discover pages: 7 category rows, 8 item rows", () => {
+    expect(discoverPageSize("categories")).toBe(7);
+    expect(discoverPageSize("items")).toBe(8);
   });
 });

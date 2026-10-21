@@ -25,8 +25,12 @@ export const isLibraryTab = (v: unknown): v is LibraryTab =>
 export const STRIP_SLOTS = 4;
 /** List rows per page (the list screens' 8 two-line rows). */
 export const LIBRARY_PAGE_SIZE = 8;
-/** Discover: items shown per page of a row. */
+/** Discover: category rows per page (two-line rows, no item count line under the heading). */
 export const DISCOVER_PAGE_SIZE = 7;
+/** Discover: item rows per page of a row (54px rows, the heading has two lines). */
+export const DISCOVER_ITEMS_PAGE_SIZE = 8;
+export const discoverPageSize = (level: "categories" | "items"): number =>
+  level === "items" ? DISCOVER_ITEMS_PAGE_SIZE : DISCOVER_PAGE_SIZE;
 /** MA radio dial: the band keys. */
 export const MA_DIAL_BANDS = ["favourites", "all"] as const;
 export type MaDialBand = (typeof MA_DIAL_BANDS)[number];

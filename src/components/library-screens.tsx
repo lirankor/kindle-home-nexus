@@ -20,7 +20,7 @@ import { FullModal } from "@/components/light-modals";
 import { TransportControl } from "@/components/media-screens";
 import { tryT } from "@/lib/i18n";
 import type { Key } from "@/lib/i18n";
-import { DISCOVER_PAGE_SIZE, LIBRARY_PAGE_SIZE, isFavourite, maStations } from "@/lib/library";
+import { LIBRARY_PAGE_SIZE, isFavourite, maStations } from "@/lib/library";
 import type { LibItem, LibMediaType, LibraryTab } from "@/lib/library";
 import { SEARCH_MIN_CHARS } from "@/lib/media";
 import {
@@ -353,7 +353,7 @@ const rowName = (panel: MediaPanel, id: string, name: string) =>
 
 /** Discover (the music screen's free key), a plain two-level list (2026-10-21): first the categories of the panel
  *  option media.discover_rows ("Recently played", "Favourite radio stations", …), Enter opens one; then its items
- *  (pages of DISCOVER_PAGE_SIZE, up to 20), Enter plays now and returns to the music screen, F4 the heart, Back climbs a level.
+ *  (pages of 7 categories / 8 items, up to 20), Enter plays now and returns to the music screen, F4 the heart, Back climbs a level.
  *  No play next / add / open here. Footer: the position, as the list screens. */
 export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   const lib = panel.library;
@@ -361,8 +361,7 @@ export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: s
   const row = lib.discRow;
   const n = lib.homeRows.length;
   const items =
-    row?.items.slice(lib.discPage * DISCOVER_PAGE_SIZE, (lib.discPage + 1) * DISCOVER_PAGE_SIZE) ??
-    [];
+    row?.items.slice(lib.discPage * lib.discPageSize, (lib.discPage + 1) * lib.discPageSize) ?? [];
   const count = row?.items.length ?? 0;
   const categories = lib.discLevel === "categories";
   return (
@@ -388,9 +387,9 @@ export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: s
         )}
         {categories &&
           lib.homeRows
-            .slice(lib.discPage * DISCOVER_PAGE_SIZE, (lib.discPage + 1) * DISCOVER_PAGE_SIZE)
+            .slice(lib.discPage * lib.discPageSize, (lib.discPage + 1) * lib.discPageSize)
             .map((r, i) => {
-              const index = lib.discPage * DISCOVER_PAGE_SIZE + i;
+              const index = lib.discPage * lib.discPageSize + i;
               return (
                 <Button
                   key={r.id}
@@ -413,7 +412,7 @@ export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: s
               key={`${row?.id}:${item.uri}`}
               panel={panel}
               item={item}
-              selected={lib.discPage * DISCOVER_PAGE_SIZE + i === lib.discCursor}
+              selected={lib.discPage * lib.discPageSize + i === lib.discCursor}
               detail={item.sub ?? kindLabel(panel, item.mediaType)}
             />
           ))}

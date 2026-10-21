@@ -23,7 +23,7 @@ import { isRtl } from "@/lib/i18n";
 import type { Key, Lang } from "@/lib/i18n";
 import {
   DEFAULT_LIBRARY_VIEW,
-  DISCOVER_PAGE_SIZE,
+  discoverPageSize,
   LIBRARY_PAGE_SIZE,
   MA_DIAL_KEYS,
   MA_DIAL_SETTLE_MS,
@@ -185,9 +185,10 @@ export function useLibrary({
     disc.cursor,
     Math.max(0, (discLevel === "items" ? discItems.length : homeRows.length) - 1),
   );
-  const discPage = Math.floor(discCursor / DISCOVER_PAGE_SIZE);
+  const discPageSize = discoverPageSize(discLevel);
+  const discPage = Math.floor(discCursor / discPageSize);
   const discCount = discLevel === "items" ? discItems.length : homeRows.length;
-  const discPages = Math.max(1, Math.ceil(discCount / DISCOVER_PAGE_SIZE));
+  const discPages = Math.max(1, Math.ceil(discCount / discPageSize));
 
   // ---- MA radio dial ----
   const [dial, setDial] = useState<{ band: MaDialBand; index: number; from: "now" | "library" }>({
@@ -605,8 +606,8 @@ export function useLibrary({
         else if (discItem) void play({ uri: discItem.uri }, "replace", discItem.name);
       } else if (k === "ArrowUp") moveDisc(-1);
       else if (k === "ArrowDown") moveDisc(1);
-      else if (k === "PageUp") moveDisc(-DISCOVER_PAGE_SIZE);
-      else if (k === "PageDown") moveDisc(DISCOVER_PAGE_SIZE);
+      else if (k === "PageUp") moveDisc(-discPageSize);
+      else if (k === "PageDown") moveDisc(discPageSize);
       else return false;
       event.preventDefault();
       return true;
@@ -668,6 +669,7 @@ export function useLibrary({
     discCursor,
     discPage,
     discPages,
+    discPageSize,
     // MA dial
     dial,
     dialItems,
