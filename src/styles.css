@@ -634,6 +634,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .transport-reading .transport-db { margin-top: 0; font-size: 30px; white-space: nowrap; }
 .transport-reading .transport-db small { font-size: 18px; }
 .amp-transport .transport-reading { align-self: start; margin-top: 36px; }
+.amp-transport .transport-reading .transport-db { margin-top: -2px; }
 /* Stream quality badge under the volume (bus task 026): a fixed slot so a new badge only redraws its own box. */
 /* bus task 027 addendum 4: letters only, one fixed box for HQ / SQ / LQ */
 .quality-badge { display: flex; align-items: center; justify-content: center; width: 52px; height: 32px; padding: 0; box-sizing: border-box; border: 2px solid var(--foreground); border-radius: 6px; }
