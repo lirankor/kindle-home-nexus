@@ -29,6 +29,8 @@ services:
       # VOICE_TOKEN). Loopback only: HA runs on the host network. The Kindle keeps using the bridge on :8790.
       - "127.0.0.1:8791:3000"
       # Same app on the LAN for desktop debugging (http://192.168.1.15:8791, keys: arrows/Enter, 1..4, [ ]).
+      # The app has no login: anyone on the home Wi-Fi can then drive lights, plugs and the amp, exactly
+      # like the Kindle on the table. Remove this line (or bind it to the Tailscale IP) to close that.
       - "192.168.1.15:8791:3000"
 
   bridge:

@@ -63,6 +63,20 @@ curl -o screen.png -H "X-Bridge-Token: $BRIDGE_TOKEN" http://127.0.0.1:8790/scre
 - `.env` is the only secret-bearing file. Its encrypted copy and the restore procedure live in the home-server DR repo
   (`homeserver-cloud/stacks/kindle-home-nexus/SOURCE.md`); the server backs this directory up nightly.
 
+## Desktop debugging (drive the panel from a normal browser)
+
+The server also publishes the app on the LAN: <http://192.168.1.15:8791>. It is the same server "brain" the
+Kindle uses (same queue, same amp state), with its own remembered tab. Keys in the browser:
+
+| Browser key | Kindle button |
+|---|---|
+| Arrows, Enter | 5-way pad, centre |
+| `1` `2` `3` `4` | bottom row F1..F4 (the footer buttons) |
+| `[` `]` | side buttons: previous / next tab (PageUp / PageDown) |
+
+The mapping lives in `src/lib/desktop-keys.ts` and works on the Hebrew layout too. Note the app has no login,
+so this port is open to everyone on the home Wi-Fi (see the comment in `docker-compose.yml`).
+
 ## Voice API (Home Assistant Assist)
 
 `/api/voice/{state,search,play,action,radio}` on the app port (`127.0.0.1:8791`), bearer `VOICE_TOKEN`, implemented in
