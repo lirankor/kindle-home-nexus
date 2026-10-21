@@ -361,6 +361,8 @@ describe("Music screen", () => {
     );
     expect(dialog.querySelector(".amp-title")?.textContent).toBe("New Born");
     expect(dialog.querySelector(".amp-queue-pos")?.textContent).toBe("1 מתוך 4");
+    // the bar is dir="ltr"; the phrase picks its own direction so Hebrew keeps "3 מתוך 40" order
+    expect(dialog.querySelector(".amp-queue-pos")?.getAttribute("dir")).toBe("auto");
     expect(dialog.querySelector(".amp-progress")).not.toBeNull();
   });
 
