@@ -2101,8 +2101,8 @@ async function pushTrack(
   userInitiated = false,
 ): Promise<boolean> {
   if (!ampConfigured()) return true;
-  // Both sizes the panel asks for: 380 for the amp view (drawn at once on a skip), 160 for lists.
-  void warmArt([t.artItemId, next?.artItemId], 380)
+  // Both sizes the panel asks for: 370 for the amp view (drawn at once on a skip), 160 for lists.
+  void warmArt([t.artItemId, next?.artItemId], 370)
     .then(() => warmArt([t.artItemId, next?.artItemId], 160))
     .catch(() => undefined);
   await ensureServerSource(userInitiated);

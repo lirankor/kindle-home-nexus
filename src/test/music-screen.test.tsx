@@ -431,7 +431,7 @@ describe("Music screen", () => {
     expect(dialog.querySelector(".amp-title")?.textContent).toBe("100FM Israeli");
     expect(dialog.querySelector(".amp-sub")?.textContent).toBe("קול זיכרון ישן · עידן עמדי");
     const img = dialog.querySelector<HTMLImageElement>(".amp-art img");
-    expect(img?.getAttribute("src")).toBe("/media/img?station=ma%3A100fm-israeli&w=380");
+    expect(img?.getAttribute("src")).toBe("/media/img?station=ma%3A100fm-israeli&w=370");
   });
 
   it("amp view with music: progress bar and track position, right / left / Enter drive the queue, the bar counts on between polls", async () => {
