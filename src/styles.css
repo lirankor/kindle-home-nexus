@@ -517,24 +517,26 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 /* The body content as a column that fills the body, so the control can sit at its bottom (margin-top: auto). */
 .screen-stack { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .amp-transport { margin-top: auto; padding-top: 12px; margin-bottom: 0; }
-.transport { display: flex; flex-direction: column; align-items: center; color: var(--foreground); }
-.transport-grid { display: grid; grid-template-columns: auto auto auto; grid-template-areas: ". up ." "prev pad next" ". down ."; align-items: center; justify-items: center; gap: 6px 18px; direction: ltr; }
-/* the volume glyphs sit on the pad border, a knockout in the page colour breaks the line behind them */
-.transport-up { grid-area: up; margin-bottom: -23px; z-index: 2; background-color: var(--background); padding: 1px; }
-.transport-down { grid-area: down; margin-top: -23px; z-index: 2; background-color: var(--background); padding: 1px; }
+.transport { --glyph: 30px; --pad-border: 4px; display: flex; flex-direction: column; align-items: center; color: var(--foreground); }
+/* position: relative: the volume glyphs are absolutely placed in the pad cell; the outer rows reserve half a glyph each */
+.transport-grid { position: relative; display: grid; grid-template-columns: auto auto auto; grid-template-rows: calc(var(--glyph) / 2) auto calc(var(--glyph) / 2); grid-template-areas: ". up ." "prev pad next" ". down ."; align-items: center; justify-items: center; gap: 0 18px; direction: ltr; }
+/* the volume glyphs sit centred on the pad's top / bottom border line; with grid-area: pad the containing block is the
+   pad cell, so the same rule fits every pad size; the page-colour knockout breaks the border behind the glyph */
+.transport-vol { position: absolute; grid-area: pad; left: 50%; z-index: 2; background-color: var(--background); padding: 1px; }
+.transport-up { top: calc(var(--pad-border) / 2); transform: translate(-50%, -50%); }
+.transport-down { bottom: calc(var(--pad-border) / 2); transform: translate(-50%, 50%); }
 .transport-prev { grid-area: prev; }
 .transport-next { grid-area: next; }
-.transport-pad { grid-area: pad; width: 80px; height: 80px; box-sizing: border-box; border: 4px solid var(--foreground); border-radius: 16px; background: var(--background); display: flex; align-items: center; justify-content: center; }
-.transport-vol { display: flex; align-items: center; justify-content: center; justify-self: center; gap: 2px; line-height: 1; }
+.transport-pad { grid-area: pad; width: 80px; height: 80px; box-sizing: border-box; border: var(--pad-border) solid var(--foreground); border-radius: 16px; background: var(--background); display: flex; align-items: center; justify-content: center; }
+.transport-vol { display: flex; align-items: center; justify-content: center; line-height: 1; }
 .transport-db { margin-top: 6px; font-size: 22px; line-height: 1; }
 .transport-db bdi { display: inline-flex; align-items: baseline; gap: 5px; }
 .transport-db small { font-size: 16px; color: var(--muted-foreground); }
 [data-on="false"] .transport { color: var(--muted-foreground); }
 [data-on="false"] .transport-pad { border-color: var(--border); }
-.transport-small .transport-grid { gap: 4px 14px; }
-.transport-small .transport-up { margin-bottom: -17px; }
-.transport-small .transport-down { margin-top: -17px; }
-.transport-small .transport-pad { width: 60px; height: 60px; border-width: 3px; border-radius: 12px; }
+.transport-small { --glyph: 22px; --pad-border: 3px; }
+.transport-small .transport-grid { gap: 0 14px; }
+.transport-small .transport-pad { width: 60px; height: 60px; border-radius: 12px; }
 .transport-small .transport-db { margin-top: 4px; font-size: 18px; }
 .transport-small .transport-db small { font-size: 14px; }
 /* One key hint per media screen: the last line above the footer buttons, below the status line. */
