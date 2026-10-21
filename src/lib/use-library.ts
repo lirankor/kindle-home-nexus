@@ -100,8 +100,6 @@ export function useLibrary({
   const [stack, setStack] = useState<Opened[]>([]);
   const [cursor, setCursor] = useState(0);
   const [more, setMore] = useState<{ cursor: number } | null>(null);
-  /** Bus task 029: a container opened from Discover (F4 Open) shows in the Library; Back from it returns to Discover. */
-  const [fromDiscover, setFromDiscover] = useState(false);
   const [search, setSearch] = useState<{ query: string; focus: "keys" | "results"; key: number }>({
     query: "",
     focus: "keys",
@@ -172,11 +170,21 @@ export function useLibrary({
     staleTime: HOME_STALE_MS,
   });
   const homeRows = homeQuery.data?.rows ?? [];
-  const [disc, setDisc] = useState({ row: 0, cursor: 0 });
-  const discRowIndex = Math.min(disc.row, Math.max(0, homeRows.length - 1));
-  const discRow = homeRows[discRowIndex] ?? null;
+  // Two levels (2026-10-21, the user's UX call): a plain list of the categories (row === null), then the chosen
+  // category's items. Enter on a category opens it, Enter on an item plays it at once, Back climbs one level.
+  const [disc, setDisc] = useState<{ row: number | null; cursor: number }>({
+    row: null,
+    cursor: 0,
+  });
+  const discLevel: "categories" | "items" = disc.row === null ? "categories" : "items";
+  const discRowIndex =
+    disc.row === null ? -1 : Math.min(disc.row, Math.max(0, homeRows.length - 1));
+  const discRow = disc.row === null ? null : (homeRows[discRowIndex] ?? null);
   const discItems = discRow?.items ?? [];
-  const discCursor = Math.min(disc.cursor, Math.max(0, discItems.length - 1));
+  const discCursor = Math.min(
+    disc.cursor,
+    Math.max(0, (discLevel === "items" ? discItems.length : homeRows.length) - 1),
+  );
   const discPage = Math.floor(discCursor / DISCOVER_PAGE_SIZE);
   const discPages = Math.max(1, Math.ceil(discItems.length / DISCOVER_PAGE_SIZE));
 
@@ -293,11 +301,11 @@ export function useLibrary({
     setMore(null);
     setCursor(0);
     setFavs({});
-    setFromDiscover(false);
     open("library");
   };
   const openDiscover = () => {
     setFavs({});
+    setDisc({ row: null, cursor: 0 });
     open("discover");
   };
   const openMaDial = (from: "now" | "library") => {
@@ -314,7 +322,6 @@ export function useLibrary({
     setStack([]);
     setMore(null);
     setCursor(0);
-    setFromDiscover(false);
   };
   const stepTab = (delta: 1 | -1) => {
     const slot = stepStrip(stripSlotsOf(strip), tab, delta);
@@ -327,10 +334,6 @@ export function useLibrary({
       const top = stack[stack.length - 1]!;
       setStack(stack.slice(0, -1));
       setCursor(top.cursor);
-      if (stack.length === 1 && fromDiscover) {
-        setFromDiscover(false);
-        open("discover");
-      }
       return;
     }
     if (tab === "search" && search.focus === "results")
@@ -388,26 +391,23 @@ export function useLibrary({
     }));
 
   // Discover
-  const discItem = discItems[discCursor] ?? null;
-  const stepDiscRow = (delta: 1 | -1) => {
-    if (!homeRows.length) return;
-    const n = homeRows.length;
-    setDisc({ row: (((discRowIndex + delta) % n) + n) % n, cursor: 0 });
-  };
-  const moveDisc = (delta: number) =>
+  const discItem = discLevel === "items" ? (discItems[discCursor] ?? null) : null;
+  const moveDisc = (delta: number) => {
+    const n = discLevel === "items" ? discItems.length : homeRows.length;
     setDisc((d) => ({
       ...d,
-      cursor: Math.max(0, Math.min(Math.max(0, discItems.length - 1), discCursor + delta)),
+      cursor: Math.max(0, Math.min(Math.max(0, n - 1), discCursor + delta)),
     }));
-
-  /** F4 Open on a Discover container: it opens in the Library (Back returns to Discover). */
-  const openFromDiscover = (item: LibItem) => {
-    if (!item.opens) return;
-    setMore(null);
-    setStack([{ item, cursor: 0 }]);
-    setCursor(0);
-    setFromDiscover(true);
-    open("library");
+  };
+  /** Enter on a category: its items (the highlight starts at the top). */
+  const openDiscCategory = () => {
+    if (!homeRows.length) return;
+    setDisc({ row: discCursor, cursor: 0 });
+  };
+  /** Back on the items: the categories, highlight on the one that was open; on the categories: the music screen. */
+  const discBack = () => {
+    if (disc.row === null) open("now");
+    else setDisc({ row: null, cursor: discRowIndex });
   };
 
   // MA dial
@@ -478,7 +478,7 @@ export function useLibrary({
           label: t("lib.open"),
           icon: FolderOpen,
           disabled: !item?.opens,
-          onClick: () => item && (screen === "discover" ? openFromDiscover(item) : openItem(item)),
+          onClick: () => item && openItem(item),
         };
       case "dial":
         return { label: t("lib.dial"), icon: Gauge, onClick: () => openMaDial("library") };
@@ -542,7 +542,7 @@ export function useLibrary({
       }).map((k) => keyAction(k, item, back));
     }
     if (s === "discover")
-      return discoverKeys(rowOpens(discItem)).map((k) => keyAction(k, discItem, () => open("now")));
+      return discoverKeys(discLevel).map((k) => (k ? keyAction(k, discItem, discBack) : null));
     if (s === "madial") return MA_DIAL_KEYS.map((k) => keyAction(k, dialStation, dialBack));
     return null;
   };
@@ -598,14 +598,14 @@ export function useLibrary({
       return true;
     }
     if (s === "discover") {
-      if (k === "Escape") open("now");
+      if (k === "Escape") discBack();
       else if (k === "Enter") {
-        if (discItem) void play({ uri: discItem.uri }, "replace", discItem.name);
+        if (discLevel === "categories") openDiscCategory();
+        else if (discItem) void play({ uri: discItem.uri }, "replace", discItem.name);
       } else if (k === "ArrowUp") moveDisc(-1);
       else if (k === "ArrowDown") moveDisc(1);
       else if (k === "PageUp") moveDisc(-DISCOVER_PAGE_SIZE);
       else if (k === "PageDown") moveDisc(DISCOVER_PAGE_SIZE);
-      else if (k === "ArrowLeft" || k === "ArrowRight") stepDiscRow(forward(k) ? 1 : -1);
       else return false;
       event.preventDefault();
       return true;
@@ -661,6 +661,7 @@ export function useLibrary({
       : homeQuery.data && !homeQuery.data.ok
         ? (homeQuery.data.error ?? null)
         : null,
+    discLevel,
     discRowIndex,
     discRow,
     discCursor,
@@ -680,7 +681,7 @@ export function useLibrary({
     openMaDial,
     actionsFor,
     onKey,
-    refreshKey: `${tab}|${opened?.uri ?? ""}|${page}|${more ? 1 : 0}|${discRowIndex}|${discPage}|${dial.band}`,
+    refreshKey: `${tab}|${opened?.uri ?? ""}|${page}|${more ? 1 : 0}|${discLevel}|${discRowIndex}|${discPage}|${dial.band}`,
   };
 }
 export type LibraryPanel = ReturnType<typeof useLibrary>;

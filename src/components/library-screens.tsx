@@ -351,20 +351,20 @@ export function LibraryScreen({ panel, status }: { panel: MediaPanel; status: st
 const rowName = (panel: MediaPanel, id: string, name: string) =>
   tryT(panel.lang, `discover.row.${id}`) ?? name;
 
-/** Discover (the music screen's free key): the rows of the panel option media.discover_rows. A row's title, then its
- *  items (pages of 8, up to 20); Right / Left the next / previous row, Enter plays now and returns to the music screen,
- *  F2 play next, F3 add to queue, F4 Open on a container (in the Library) else the heart. Footer: "item i/n · row r/m"
- *  and the hint, as the list screens (bus task 029). */
+/** Discover (the music screen's free key), a plain two-level list (2026-10-21): first the categories of the panel
+ *  option media.discover_rows ("Recently played", "Favourite radio stations", …), Enter opens one; then its items
+ *  (pages of 8, up to 20), Enter plays now and returns to the music screen, F4 the heart, Back climbs a level.
+ *  No play next / add / open here. Footer: the position, as the list screens. */
 export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   const lib = panel.library;
   const { t } = panel;
   const row = lib.discRow;
+  const n = lib.homeRows.length;
   const items =
     row?.items.slice(lib.discPage * DISCOVER_PAGE_SIZE, (lib.discPage + 1) * DISCOVER_PAGE_SIZE) ??
     [];
-  const n = lib.homeRows.length;
-  const next = n > 1 ? lib.homeRows[(lib.discRowIndex + 1) % n] : undefined;
   const count = row?.items.length ?? 0;
+  const categories = lib.discLevel === "categories";
   return (
     <FullModal
       label={t("discover.title")}
@@ -374,49 +374,57 @@ export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: s
     >
       <header className="modal-heading radio-list-heading discover-heading">
         <h1>{row ? rowName(panel, row.id, row.name) : t("discover.title")}</h1>
-        <p>
-          {n > 1 && next
-            ? t("discover.next", { name: rowName(panel, next.id, next.name) })
-            : "\u00a0"}
-        </p>
+        <p>{row ? t("lib.count", { n: String(count) }) : "\u00a0"}</p>
       </header>
       <div
         className="source-rows music-rows discover-rows"
         role="listbox"
-        aria-label={row?.name ?? ""}
+        aria-label={row?.name ?? t("discover.title")}
       >
         {lib.homeLoading && <p className="music-note">{t("music.loading")}</p>}
         {lib.homeError && <p className="radio-error">{lib.homeError}</p>}
         {!lib.homeLoading && !lib.homeError && n === 0 && (
           <p className="music-note">{t("discover.empty")}</p>
         )}
-        {items.map((item, i) => (
-          <LibItemRow
-            key={`${row?.id}:${item.uri}`}
-            panel={panel}
-            item={item}
-            selected={lib.discPage * DISCOVER_PAGE_SIZE + i === lib.discCursor}
-            detail={item.sub ?? kindLabel(panel, item.mediaType)}
-          />
-        ))}
+        {categories &&
+          lib.homeRows
+            .slice(lib.discPage * DISCOVER_PAGE_SIZE, (lib.discPage + 1) * DISCOVER_PAGE_SIZE)
+            .map((r, i) => {
+              const index = lib.discPage * DISCOVER_PAGE_SIZE + i;
+              return (
+                <Button
+                  key={r.id}
+                  variant="eink"
+                  className="source-row discover-category"
+                  role="option"
+                  aria-selected={index === lib.discCursor}
+                  aria-pressed={index === lib.discCursor}
+                >
+                  <span className="source-row-text">
+                    <strong>{rowName(panel, r.id, r.name)}</strong>
+                    <span>{t("lib.count", { n: String(r.items.length) })}</span>
+                  </span>
+                </Button>
+              );
+            })}
+        {!categories &&
+          items.map((item, i) => (
+            <LibItemRow
+              key={`${row?.id}:${item.uri}`}
+              panel={panel}
+              item={item}
+              selected={lib.discPage * DISCOVER_PAGE_SIZE + i === lib.discCursor}
+              detail={item.sub ?? kindLabel(panel, item.mediaType)}
+            />
+          ))}
       </div>
-      {/* bus task 029: the list screens' standard footer: the position on the left, the hint under it (no glyphs) */}
       <div className="music-foot discover-foot">
         <strong className="music-page">
-          {count > 0 && (
+          {(categories ? n : count) > 0 && (
             <>
               {t("discover.item")}{" "}
               <Ltr>
-                {lib.discCursor + 1}/{count}
-              </Ltr>
-              {" · "}
-            </>
-          )}
-          {n > 0 && (
-            <>
-              {t("discover.rowWord")}{" "}
-              <Ltr>
-                {lib.discRowIndex + 1}/{n}
+                {lib.discCursor + 1}/{categories ? n : count}
               </Ltr>
             </>
           )}

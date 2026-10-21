@@ -223,13 +223,10 @@ export function libraryKeys(ctx: {
   if (ctx.tab === "radio" && !ctx.opened) return ["back", "dial", "addQueue", f4];
   return ["back", "playNext", "addQueue", f4];
 }
-/** Discover's footer: F4 = Open on a container (it opens in the Library; Back returns to Discover), else the heart. */
-export const discoverKeys = (opens: boolean): LibKey[] => [
-  "back",
-  "playNext",
-  "addQueue",
-  opens ? "open" : "favourite",
-];
+/** Discover's footer (plain two-level list, 2026-10-21): the categories only have Back; a category's items have Back
+ *  and the heart. No play next / add / open here: Enter plays the item at once. */
+export const discoverKeys = (level: "categories" | "items"): (LibKey | null)[] =>
+  level === "items" ? ["back", null, null, "favourite"] : ["back", null, null, null];
 export const MA_DIAL_KEYS: LibKey[] = ["back", "band", "favourite", "list"];
 
 /** The music screen's footer with the HA backend (bus tasks 025 + 027): F1 = the playlist while the player has a queue,

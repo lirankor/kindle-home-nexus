@@ -292,7 +292,7 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
   });
 
-  it("Discover on F4: the panel's rows, the standard footer, Open on a container, Enter plays now and leaves", async () => {
+  it("Discover on F4: a plain list of the categories, Enter opens one, Enter on an item plays now and leaves, Back climbs", async () => {
     await openMusic(false, "he");
     press("F4");
     let dlg = screen.getByRole("dialog", { name: "גילוי" });
@@ -300,36 +300,32 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(lib.getLibraryHome).toHaveBeenCalledWith({
       data: { sections: ["recently_played", "favorite_radio", "recommendations"] },
     });
-    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe(
-      "פריט 1/1 · שורה 1/2",
-    );
-    expect(dlg.textContent).not.toContain("Enter נגינה"); // no key-hint line
+    // the categories, one per row, with their counts; only Back in the footer
+    expect(
+      Array.from(dlg.querySelectorAll(".discover-category strong")).map((e) => e.textContent),
+    ).toEqual(["הושמעו לאחרונה", "תחנות רדיו מועדפות"]);
+    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe("פריט 1/2");
+    expect(keysOf(dlg)).toEqual(["חזרה", "\u00a0", "\u00a0", "\u00a0"]);
     expect(dlg.textContent).not.toMatch(/[◀▶]/);
-    expect(keysOf(dlg)).toEqual(["חזרה", "הבא בתור", "הוסף לתור", "פתח"]);
-    // Open: the album in the Library (Play all first); Back returns to Discover
-    press("F4");
-    await waitFor(() =>
-      expect(screen.getByRole("dialog", { name: "ספריה" }).textContent).toContain("נגן הכל"),
-    );
+    // Enter on the radio category: its two stations, Back + the heart, no open / add / next
+    press("ArrowDown");
+    press("Enter");
+    dlg = screen.getByRole("dialog", { name: "גילוי" });
+    expect(dlg.querySelector("h1")?.textContent).toBe("תחנות רדיו מועדפות");
+    expect(dlg.querySelectorAll(".lib-row").length).toBe(2);
+    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe("פריט 1/2");
+    expect(keysOf(dlg)).toEqual(["חזרה", "\u00a0", "\u00a0", "הסר ממועדפים"]);
+    // Back: the categories again, highlight kept on the radio category
     press("F1");
     dlg = screen.getByRole("dialog", { name: "גילוי" });
-    expect(dlg.textContent).toContain("הושמעו לאחרונה");
-    press("ArrowLeft"); // Hebrew: left = forward
-    await waitFor(() =>
-      expect(screen.getByRole("dialog", { name: "גילוי" }).textContent).toContain(
-        "תחנות רדיו מועדפות",
-      ),
-    );
-    dlg = screen.getByRole("dialog", { name: "גילוי" });
-    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe(
-      "פריט 1/2 · שורה 2/2",
-    );
-    expect(keysOf(dlg)[3]).toBe("הסר ממועדפים"); // a radio is a leaf: the heart
+    expect(dlg.querySelector("h1")?.textContent).toBe("גילוי");
+    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe("פריט 2/2");
+    press("Enter");
     press("ArrowDown");
     expect(
       screen.getByRole("dialog", { name: "גילוי" }).querySelector(".discover-foot .music-page")
         ?.textContent,
-    ).toBe("פריט 2/2 · שורה 2/2");
+    ).toBe("פריט 2/2");
     press("Enter");
     await waitFor(() =>
       expect(lib.playLibrary).toHaveBeenCalledWith({

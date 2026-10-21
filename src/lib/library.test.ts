@@ -124,8 +124,9 @@ describe("key maps", () => {
     ]);
     expect(libraryKeys({ ...opens, opened: true, opens: false })[3]).toBe("favourite");
     expect(libraryKeys({ ...opens, tab: "search", opens: true })[3]).toBe("open"); // results
-    expect(discoverKeys(true)).toEqual(["back", "playNext", "addQueue", "open"]);
-    expect(discoverKeys(false)).toEqual(["back", "playNext", "addQueue", "favourite"]);
+    // Discover (plain two-level list): categories have Back only, items Back + the heart
+    expect(discoverKeys("categories")).toEqual(["back", null, null, null]);
+    expect(discoverKeys("items")).toEqual(["back", null, null, "favourite"]);
   });
   it("only play now leaves the library for the music screen", () => {
     expect(leavesLibrary("replace")).toBe(true);
