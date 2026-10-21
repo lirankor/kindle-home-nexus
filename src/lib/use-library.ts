@@ -186,7 +186,8 @@ export function useLibrary({
     Math.max(0, (discLevel === "items" ? discItems.length : homeRows.length) - 1),
   );
   const discPage = Math.floor(discCursor / DISCOVER_PAGE_SIZE);
-  const discPages = Math.max(1, Math.ceil(discItems.length / DISCOVER_PAGE_SIZE));
+  const discCount = discLevel === "items" ? discItems.length : homeRows.length;
+  const discPages = Math.max(1, Math.ceil(discCount / DISCOVER_PAGE_SIZE));
 
   // ---- MA radio dial ----
   const [dial, setDial] = useState<{ band: MaDialBand; index: number; from: "now" | "library" }>({

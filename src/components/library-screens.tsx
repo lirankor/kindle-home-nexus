@@ -353,7 +353,7 @@ const rowName = (panel: MediaPanel, id: string, name: string) =>
 
 /** Discover (the music screen's free key), a plain two-level list (2026-10-21): first the categories of the panel
  *  option media.discover_rows ("Recently played", "Favourite radio stations", …), Enter opens one; then its items
- *  (pages of 8, up to 20), Enter plays now and returns to the music screen, F4 the heart, Back climbs a level.
+ *  (pages of DISCOVER_PAGE_SIZE, up to 20), Enter plays now and returns to the music screen, F4 the heart, Back climbs a level.
  *  No play next / add / open here. Footer: the position, as the list screens. */
 export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   const lib = panel.library;
@@ -374,7 +374,7 @@ export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: s
     >
       <header className="modal-heading radio-list-heading discover-heading">
         <h1>{row ? rowName(panel, row.id, row.name) : t("discover.title")}</h1>
-        <p>{row ? t("lib.count", { n: String(count) }) : "\u00a0"}</p>
+        {row && <p>{t("lib.count", { n: String(count) })}</p>}
       </header>
       <div
         className="source-rows music-rows discover-rows"
@@ -420,14 +420,9 @@ export function DiscoverScreen({ panel, status }: { panel: MediaPanel; status: s
       </div>
       <div className="music-foot discover-foot">
         <strong className="music-page">
-          {(categories ? n : count) > 0 && (
-            <>
-              {t("discover.item")}{" "}
-              <Ltr>
-                {lib.discCursor + 1}/{categories ? n : count}
-              </Ltr>
-            </>
-          )}
+          <Ltr>
+            {Math.min(lib.discPage, lib.discPages - 1) + 1}/{lib.discPages}
+          </Ltr>
         </strong>
       </div>
     </FullModal>

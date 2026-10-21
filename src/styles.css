@@ -502,11 +502,13 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .amp-sub2 { font-size: 20px; }
 /* Progress bar at the bottom of the amp view: the elapsed time, the queue position and the length are written inside
    the bar; white text in difference blend reads black over the empty track and white over the filled part. */
-.amp-progress { margin: 6px 0 10px; }
+.amp-progress { margin: 6px -16px 0; }
 .amp-progress .progress-track { position: relative; height: 28px; margin-top: 0; border: 1px solid var(--foreground); }
 .amp-progress .progress-track > span { position: absolute; inset: 0 auto 0 0; }
 .amp-times { position: absolute; inset: 0; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 18px; font-weight: 600; color: #fff; mix-blend-mode: difference; }
 .amp-times span { white-space: nowrap; }
+/* amp view only: no separator above the footer; the bar sits 8px above the buttons and spans them (body padding 28 - button inset 12) */
+.amp-modal .device-actions { border-top: 0; padding-top: 8px; }
 /* Transport control: the 5-way as a rounded square with the play state inside and four satellites
    outside (volume up above, volume down below, previous / next left / right), dB underneath. */
 /* The body content as a column that fills the body, so the control can sit at its bottom (margin-top: auto). */
@@ -654,4 +656,4 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .lib-heading h2 { margin: 0; font-size: 24px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lib-heading p { margin: 0; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lib-search-field { margin-top: 10px; }
-.discover-rows { min-height: 0; margin-top: 10px; }
+.discover-rows { min-height: 0; margin: 10px -16px 0; }

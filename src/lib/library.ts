@@ -26,7 +26,7 @@ export const STRIP_SLOTS = 4;
 /** List rows per page (the list screens' 8 two-line rows). */
 export const LIBRARY_PAGE_SIZE = 8;
 /** Discover: items shown per page of a row. */
-export const DISCOVER_PAGE_SIZE = 8;
+export const DISCOVER_PAGE_SIZE = 7;
 /** MA radio dial: the band keys. */
 export const MA_DIAL_BANDS = ["favourites", "all"] as const;
 export type MaDialBand = (typeof MA_DIAL_BANDS)[number];

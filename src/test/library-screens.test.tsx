@@ -304,7 +304,7 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(
       Array.from(dlg.querySelectorAll(".discover-category strong")).map((e) => e.textContent),
     ).toEqual(["הושמעו לאחרונה", "תחנות רדיו מועדפות"]);
-    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe("פריט 1/2");
+    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe("1/1");
     expect(keysOf(dlg)).toEqual(["חזרה", "\u00a0", "\u00a0", "\u00a0"]);
     expect(dlg.textContent).not.toMatch(/[◀▶]/);
     // Enter on the radio category: its two stations, Back + the heart, no open / add / next
@@ -313,19 +313,19 @@ describe("the Music Assistant library (bus task 027)", () => {
     dlg = screen.getByRole("dialog", { name: "גילוי" });
     expect(dlg.querySelector("h1")?.textContent).toBe("תחנות רדיו מועדפות");
     expect(dlg.querySelectorAll(".lib-row").length).toBe(2);
-    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe("פריט 1/2");
+    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe("1/1");
     expect(keysOf(dlg)).toEqual(["חזרה", "\u00a0", "\u00a0", "הסר ממועדפים"]);
     // Back: the categories again, highlight kept on the radio category
     press("F1");
     dlg = screen.getByRole("dialog", { name: "גילוי" });
     expect(dlg.querySelector("h1")?.textContent).toBe("גילוי");
-    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe("פריט 2/2");
+    expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe("1/1");
     press("Enter");
     press("ArrowDown");
     expect(
       screen.getByRole("dialog", { name: "גילוי" }).querySelector(".discover-foot .music-page")
         ?.textContent,
-    ).toBe("פריט 2/2");
+    ).toBe("1/1");
     press("Enter");
     await waitFor(() =>
       expect(lib.playLibrary).toHaveBeenCalledWith({

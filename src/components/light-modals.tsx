@@ -11,6 +11,7 @@ export function FullModal({
   actions,
   status,
   compactStatus = false,
+  className,
   children,
 }: {
   label: string;
@@ -18,10 +19,11 @@ export function FullModal({
   status: string;
   /** Keep media feedback accessible without a text row above the hardware footer. */
   compactStatus?: boolean;
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <div className="full-modal" role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
+    <div className={className ? `full-modal ${className}` : "full-modal"} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
       <div className="full-modal-body">{children}</div>
       <div className={compactStatus ? "sr-only" : "demo-status"} role="status">
         {status}
