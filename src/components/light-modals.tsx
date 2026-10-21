@@ -23,7 +23,13 @@ export function FullModal({
   children: ReactNode;
 }) {
   return (
-    <div className={className ? `full-modal ${className}` : "full-modal"} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
+    <div
+      className={className ? `full-modal ${className}` : "full-modal"}
+      role="dialog"
+      aria-modal="true"
+      aria-label={label}
+      tabIndex={-1}
+    >
       <div className="full-modal-body">{children}</div>
       <div className={compactStatus ? "sr-only" : "demo-status"} role="status">
         {status}

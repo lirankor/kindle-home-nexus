@@ -622,7 +622,13 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
   const position = useTrackPosition(queue);
   const db = on && s ? displayDb(s.amp) : null;
   return (
-    <FullModal label={t("amp.label")} actions={panel.modalActions} status={status} compactStatus>
+    <FullModal
+      label={t("amp.label")}
+      actions={panel.modalActions}
+      status={status}
+      compactStatus
+      className="amp-modal"
+    >
       <div className="screen-stack">
         {panel.showPowerOn ? (
           <PowerOnBlock panel={panel} />
