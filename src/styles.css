@@ -505,8 +505,11 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .amp-progress { margin: 6px -16px 0; }
 .amp-progress .progress-track { position: relative; height: 28px; margin-top: 0; border: 1px solid var(--foreground); }
 .amp-progress .progress-track > span { position: absolute; inset: 0 auto 0 0; }
-.amp-times { position: absolute; inset: 0; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 18px; font-weight: 600; color: #fff; mix-blend-mode: difference; }
+.amp-times { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 10px; font-size: 18px; font-weight: 600; color: #fff; mix-blend-mode: difference; }
 .amp-times span { white-space: nowrap; }
+/* equal side columns keep the middle text centred and still while the times tick */
+.amp-times .amp-time-pos, .amp-times > span:last-child { font-variant-numeric: tabular-nums; }
+.amp-times > span:last-child { justify-self: end; }
 /* amp view only: no separator above the footer; the bar sits 8px above the buttons and spans them (body padding 28 - button inset 12) */
 .amp-modal .device-actions { border-top: 0; padding-top: 8px; }
 /* Transport control: the 5-way as a rounded square with the play state inside and four satellites
