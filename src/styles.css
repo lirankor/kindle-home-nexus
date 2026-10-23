@@ -655,7 +655,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 
 /* Bus task 027: the Music Assistant library (2026-10-23: a plain list of sections, Discover's rows), Discover, the MA radio dial */
 .lib-row .lib-fav { flex-shrink: 0; margin-inline-start: auto; }
-.lib-rows { min-height: 467px; }
+.lib-rows { min-height: 467px; margin-inline: -16px; } /* footer-button width (24.5-600.5), as .discover-rows */
 .lib-rows[data-opened="true"] { min-height: 405px; margin-top: 8px; }
 .lib-heading { display: flex; align-items: center; gap: 12px; margin-top: 10px; min-height: 54px; }
 .lib-heading > div { min-width: 0; }
