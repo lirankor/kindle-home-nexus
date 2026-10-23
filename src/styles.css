@@ -606,7 +606,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 /* Search screen: typed text, the 10-column key grid, one screen of results below it. */
 .search-field { height: 56px; border: 2px solid var(--foreground); display: flex; align-items: center; padding: 0 14px; font-size: 30px; font-weight: 700; line-height: 1; overflow: hidden; white-space: pre; }
 .search-field[data-empty="true"] { color: var(--muted-foreground); font-weight: 400; font-size: 24px; }
-.search-caret { display: inline-block; width: 3px; height: 34px; background: var(--foreground); margin-left: 3px; flex-shrink: 0; }
+.search-caret { display: inline-block; width: 3px; height: 34px; background: var(--foreground); margin-inline-start: 3px; flex-shrink: 0; }
 .search-keys { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .search-keys [role="row"] { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; }
 .search-keys .eink-button.search-key { height: 46px; padding: 0; font-size: 26px; font-weight: 700; }

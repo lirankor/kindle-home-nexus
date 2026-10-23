@@ -455,4 +455,73 @@ describe("the Music Assistant library (bus task 027)", () => {
     press("Escape");
     expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
   });
+  it("Search keyboard: English on open, the globe toggles to Hebrew and back keeping the query; Down from the globe = results", async () => {
+    lib.searchLibraryItems.mockResolvedValue({ ok: true, items: [ALBUM] });
+    await openMusic(false, "he");
+    press("F2");
+    for (let i = 0; i < 7; i++) press("ArrowDown");
+    press("Enter");
+    let dlg = screen.getByRole("dialog", { name: "ספריה" });
+    const grid = () => dlg.querySelector(".search-keys")!;
+    const field = () => dlg.querySelector(".search-field")!;
+    const selectedKey = () => dlg.querySelector('.search-key[aria-selected="true"]');
+    const globe = () => screen.getByRole("gridcell", { name: "שפת המקלדת" });
+    // English by default even with the Hebrew UI; five rows, the globe alone in the last one
+    expect(grid().getAttribute("data-layout")).toBe("en");
+    expect(Array.from(grid().querySelectorAll("[role=row]")).map((r) => r.children.length)).toEqual(
+      [10, 10, 10, 10, 1],
+    );
+    expect(selectedKey()?.textContent).toBe("A");
+    // down four rows from A: the globe; Enter toggles, types nothing, keeps the cursor there
+    for (let i = 0; i < 4; i++) press("ArrowDown");
+    expect(selectedKey()).toBe(globe());
+    expect(globe().querySelector("svg.mdi-web")).not.toBeNull();
+    press("Enter");
+    expect(grid().getAttribute("data-layout")).toBe("he");
+    expect(selectedKey()).toBe(globe());
+    expect(field().getAttribute("data-empty")).toBe("true");
+    // Up from the globe: the key above it (bottom left, "0"); the top row's left end is Yod, its right end Alef
+    press("ArrowUp");
+    expect(selectedKey()?.textContent).toBe("0");
+    for (let i = 0; i < 3; i++) press("ArrowUp");
+    expect(selectedKey()?.textContent).toBe("י");
+    for (let i = 0; i < 9; i++) press("ArrowRight");
+    expect(selectedKey()?.textContent).toBe("א");
+    press("Enter");
+    press("ArrowLeft"); // physical left: Bet
+    expect(selectedKey()?.textContent).toBe("ב");
+    press("Enter");
+    expect(field().textContent).toBe("אב");
+    expect(field().getAttribute("dir")).toBe("auto");
+    // back to English through the globe (Down x4 from the top row), the query stays; type a Latin letter
+    for (let i = 0; i < 4; i++) press("ArrowDown");
+    expect(selectedKey()).toBe(globe());
+    press("Enter");
+    expect(grid().getAttribute("data-layout")).toBe("en");
+    expect(field().textContent).toBe("אב");
+    press("ArrowUp");
+    for (let i = 0; i < 3; i++) press("ArrowUp");
+    expect(selectedKey()?.textContent).toBe("A");
+    press("Enter");
+    expect(field().textContent).toBe("אבA");
+    await waitFor(() =>
+      expect(lib.searchLibraryItems).toHaveBeenLastCalledWith({ data: { query: "אבA" } }),
+    );
+    await waitFor(() => expect(dlg.textContent).toContain("Sheer Heart Attack"));
+    // Down from the globe row moves onto the results
+    for (let i = 0; i < 4; i++) press("ArrowDown");
+    expect(selectedKey()).toBe(globe());
+    press("Enter"); // Hebrew again
+    press("ArrowDown");
+    expect(dlg.querySelector('.search-rows [aria-selected="true"]')?.textContent).toContain(
+      "Sheer Heart Attack",
+    );
+    // leaving Search and coming back: English again, the query kept
+    press("F1"); // results -> keys
+    press("F1"); // keys -> sections list
+    press("Enter");
+    dlg = screen.getByRole("dialog", { name: "ספריה" });
+    expect(grid().getAttribute("data-layout")).toBe("en");
+    expect(field().textContent).toBe("אבA");
+  });
 });

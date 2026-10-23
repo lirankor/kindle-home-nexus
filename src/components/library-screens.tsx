@@ -23,9 +23,11 @@ import type { Key } from "@/lib/i18n";
 import { LIBRARY_PAGE_SIZE, isFavourite, maStations } from "@/lib/library";
 import type { LibItem, LibMediaType, LibraryTab } from "@/lib/library";
 import { SEARCH_MIN_CHARS } from "@/lib/media";
+import { mdiWeb } from "@mdi/js";
+import { mdiIcon } from "@/lib/icons";
 import {
-  SEARCH_KEYS,
-  SEARCH_KEY_ROWS,
+  LIB_SEARCH_ROWS,
+  SEARCH_GLOBE,
   displayDb,
   radioSongLine,
   transportMode,
@@ -47,6 +49,7 @@ const KIND_ICONS: Record<LibMediaType, typeof Music2> = {
 };
 /** Search results shown under the keyboard (a window that follows the cursor). */
 const SEARCH_ROWS_SHOWN = 5;
+const GlobeIcon = mdiIcon({ name: "web", path: mdiWeb });
 
 /** MA's cover through /media/img ("ma:" token, fetched via HA); the kind's glyph when there is none. */
 function LibArt({ item, size }: { item: LibItem; size: number }) {
@@ -170,7 +173,12 @@ function SearchTab({ panel }: { panel: MediaPanel }) {
   let keyIndex = 0;
   return (
     <>
-      <div className="search-field lib-search-field" dir="ltr" data-empty={lib.search.query === ""}>
+      <div
+        className="search-field lib-search-field"
+        // Hebrew, Latin and mixed queries each read in their own direction; the placeholder keeps its old box
+        dir={lib.search.query === "" ? "ltr" : "auto"}
+        data-empty={lib.search.query === ""}
+      >
         {lib.search.query === "" ? (
           <span className="search-placeholder">{t("lib.searchPlaceholder")}</span>
         ) : (
@@ -186,27 +194,28 @@ function SearchTab({ panel }: { panel: MediaPanel }) {
         role="grid"
         aria-label={t("search.keyboard")}
         data-focus={lib.search.focus}
+        data-layout={lib.search.layout}
+        lang={lib.search.layout}
       >
-        {SEARCH_KEY_ROWS.en.map((row, r) => (
+        {LIB_SEARCH_ROWS[lib.search.layout].map((row, r) => (
           <div key={r} role="row">
             {row.map((ch) => {
               const index = keyIndex++;
               const active = index === lib.search.key;
+              const globe = ch === SEARCH_GLOBE;
               return (
                 <Button
                   key={ch}
                   variant="eink"
-                  className="search-key"
+                  className={globe ? "search-key search-globe" : "search-key"}
                   role="gridcell"
+                  aria-label={globe ? t("search.layout") : undefined}
                   aria-selected={lib.search.focus === "keys" && active}
                   aria-pressed={active}
                   tabIndex={-1}
-                  onClick={() => {
-                    lib.setSearchKey(index);
-                    lib.typeChar(SEARCH_KEYS[index] ?? ch);
-                  }}
+                  onClick={() => lib.pressSearchKey(index)}
                 >
-                  {ch}
+                  {globe ? <GlobeIcon size={30} /> : ch}
                 </Button>
               );
             })}

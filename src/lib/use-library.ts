@@ -55,7 +55,14 @@ import {
 } from "@/lib/library.functions";
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS } from "@/lib/media";
 import type { MediaAction, MediaSnapshot } from "@/lib/media";
-import { SEARCH_KEYS, SEARCH_KEY_COLS, appendSearchChar } from "@/lib/media-ui";
+import {
+  LIB_SEARCH_KEYS,
+  SEARCH_GLOBE,
+  SEARCH_GLOBE_INDEX,
+  appendSearchChar,
+  moveLibSearchKey,
+} from "@/lib/media-ui";
+import type { SearchLayout } from "@/lib/media-ui";
 
 export type LibScreen = "library" | "discover" | "madial";
 /** A row of the Library's list: the "Play all" row of an opened album / playlist / artist / genre, or an item. */
@@ -65,6 +72,16 @@ const NAV = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageD
 const HOME_STALE_MS = 2 * 60_000;
 const LIST_STALE_MS = 60_000;
 const SEARCH_DEBOUNCE_MS = 250;
+const arrowDir = (k: string) =>
+  k === "ArrowLeft"
+    ? "left"
+    : k === "ArrowRight"
+      ? "right"
+      : k === "ArrowUp"
+        ? "up"
+        : k === "ArrowDown"
+          ? "down"
+          : null;
 const DIAL_LIST_LIMIT = 100;
 
 export function useLibrary({
@@ -110,10 +127,16 @@ export function useLibrary({
   const tab: LibraryTab = section ?? "playlists";
   const [stack, setStack] = useState<Opened[]>([]);
   const [cursor, setCursor] = useState(0);
-  const [search, setSearch] = useState<{ query: string; focus: "keys" | "results"; key: number }>({
+  const [search, setSearch] = useState<{
+    query: string;
+    focus: "keys" | "results";
+    key: number;
+    layout: SearchLayout;
+  }>({
     query: "",
     focus: "keys",
     key: 0,
+    layout: "en",
   });
   /** The panel's own heart presses, shown until the lists are read again. */
   const [favs, setFavs] = useState<Record<string, boolean>>({});
@@ -341,7 +364,8 @@ export function useLibrary({
     if (i >= 0) setSectionsCursor(i);
     setStack([]);
     setCursor(0);
-    setSearch((s) => ({ ...s, focus: "keys" }));
+    // the keyboard opens on the English layout every time, whatever the UI language
+    setSearch((s) => ({ ...s, focus: "keys", layout: "en" }));
   };
   const moveSections = (delta: number) =>
     setSectionsCursor(Math.max(0, Math.min(Math.max(0, tabs.length - 1), sectionsCursor + delta)));
@@ -406,8 +430,25 @@ export function useLibrary({
     setSearch((s) => ({
       ...s,
       focus: "keys",
-      key: Math.max(0, Math.min(SEARCH_KEYS.length - 1, key)),
+      key: Math.max(0, Math.min(SEARCH_GLOBE_INDEX, key)),
     }));
+  /** The globe cell: the other layout, the cursor stays on the globe and the query as typed. */
+  const toggleSearchLayout = () =>
+    setSearch((s) => ({
+      ...s,
+      focus: "keys",
+      key: SEARCH_GLOBE_INDEX,
+      layout: s.layout === "en" ? "he" : "en",
+    }));
+  /** Enter (or a tap) on a key: the globe switches layouts, any other key types its character. */
+  const pressSearchKey = (key: number) => {
+    const ch = LIB_SEARCH_KEYS[search.layout][key];
+    if (ch === SEARCH_GLOBE) toggleSearchLayout();
+    else if (ch) {
+      setSearchKey(key);
+      typeChar(ch);
+    }
+  };
 
   // Discover
   const discItem = discLevel === "items" ? (discItems[discCursor] ?? null) : null;
@@ -575,15 +616,13 @@ export function useLibrary({
         return true;
       }
       if (searchKeysFocus) {
-        if (k === "Enter") {
-          const ch = SEARCH_KEYS[search.key];
-          if (ch) typeChar(ch);
-        } else if (k === "ArrowLeft") setSearchKey(search.key - 1);
-        else if (k === "ArrowRight") setSearchKey(search.key + 1);
-        else if (k === "ArrowUp") setSearchKey(search.key - SEARCH_KEY_COLS);
-        else if (k === "ArrowDown") {
-          if (search.key + SEARCH_KEY_COLS > SEARCH_KEYS.length - 1) toResults();
-          else setSearchKey(search.key + SEARCH_KEY_COLS);
+        const dir = arrowDir(k);
+        if (k === "Enter") pressSearchKey(search.key);
+        else if (dir) {
+          // physical: both layouts are stored in on-screen order, so Left is always the key to the left
+          const next = moveLibSearchKey(search.key, dir);
+          if (next === "results") toResults();
+          else setSearchKey(next);
         } else if (k === "PageDown") toResults();
         else if (k !== "PageUp") return false;
         event.preventDefault();
@@ -656,6 +695,8 @@ export function useLibrary({
     searchError: searchQuery.data && !searchQuery.data.ok ? (searchQuery.data.error ?? null) : null,
     typeChar,
     setSearchKey,
+    toggleSearchLayout,
+    pressSearchKey,
     selectTab,
     favs,
     // Discover

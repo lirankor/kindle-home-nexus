@@ -120,6 +120,40 @@ export const SEARCH_KEY_ROWS: Record<"en", readonly (readonly string[])[]> = {
 };
 export const SEARCH_KEY_COLS = 10;
 export const SEARCH_KEYS: readonly string[] = SEARCH_KEY_ROWS.en.flat();
+/** The Library search keyboard: an English and a Hebrew layout behind a globe cell. Rows are stored in on-screen order,
+ *  left to right (the Hebrew letter rows reversed, so they read right to left as the pickers do), so the arrow keys are
+ *  plain geometry in both layouts. The globe is the fifth row's only cell, bottom left, at the same index in both. */
+export type SearchLayout = "en" | "he";
+export const SEARCH_GLOBE = "globe";
+const HE_KEY_ROWS_READING: readonly (readonly string[])[] = [
+  ["א", "ב", "ג", "ד", "ה", "ו", "ז", "ח", "ט", "י"],
+  ["כ", "ל", "מ", "נ", "ס", "ע", "פ", "צ", "ק", "ר"],
+  ["ש", "ת", "ך", "ם", "ן", "ף", "ץ", "'", "-", "."],
+];
+export const LIB_SEARCH_ROWS: Record<SearchLayout, readonly (readonly string[])[]> = {
+  en: [...SEARCH_KEY_ROWS.en, [SEARCH_GLOBE]],
+  he: [...HE_KEY_ROWS_READING.map((r) => [...r].reverse()), SEARCH_KEY_ROWS.en[3]!, [SEARCH_GLOBE]],
+};
+export const LIB_SEARCH_KEYS: Record<SearchLayout, readonly string[]> = {
+  en: LIB_SEARCH_ROWS.en.flat(),
+  he: LIB_SEARCH_ROWS.he.flat(),
+};
+export const SEARCH_GLOBE_INDEX = 4 * SEARCH_KEY_COLS;
+/** Where an arrow key takes the Library search cursor (an index into either layout's keys); "results" = Down off the
+ *  globe row. Left / Right walk the flat order (row ends wrap), Up / Down jump a row; Down from any key of the last
+ *  full row lands on the globe and Up from the globe on the key above it. */
+export function moveLibSearchKey(
+  key: number,
+  dir: "left" | "right" | "up" | "down",
+): number | "results" {
+  const last = SEARCH_GLOBE_INDEX;
+  if (dir === "left") return Math.max(0, key - 1);
+  if (dir === "right") return Math.min(last, key + 1);
+  if (dir === "up")
+    return key === last ? last - SEARCH_KEY_COLS : Math.max(0, key - SEARCH_KEY_COLS);
+  if (key === last) return "results";
+  return Math.min(last, key + SEARCH_KEY_COLS);
+}
 /** Adds a typed character: letters are kept as shown, a second space in a row is ignored. */
 export function appendSearchChar(query: string, ch: string, max: number): string {
   if (ch === " " && (query === "" || query.endsWith(" "))) return query;
