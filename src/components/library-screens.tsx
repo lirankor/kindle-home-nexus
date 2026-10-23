@@ -1,4 +1,4 @@
-// Bus task 027: the Music Assistant client screens (MUSIC_BACKEND=ha): the Library (MA's sections as tabs: four + More),
+// Bus task 027: the Music Assistant client screens (MUSIC_BACKEND=ha): the Library (a plain list of MA's sections),
 // Discover (MA's Home rows) and the MA radio dial (MA's radios on the amp dial's slider component). State and keys:
 // src/lib/use-library.ts through useMediaPanel.
 import { useState } from "react";
@@ -111,64 +111,32 @@ function LibItemRow({
 const kindLabel = (panel: MediaPanel, t: LibMediaType) => panel.t(`lib.kind.${t}` as Key);
 const tabLabel = (panel: MediaPanel, tab: LibraryTab) => panel.t(`lib.tab.${tab}` as Key);
 
-/** The tab strip: four tabs + More (addendum 3); the active tab inverted, More inverted while its list is open. */
-function TabStrip({ panel }: { panel: MediaPanel }) {
+/** The sections list (2026-10-23, the owner's call): one row per MA section in the owner's order, Discover's category
+ *  rows (footer-button width), no heading; Enter opens a section. The page text only when it paginates. */
+function SectionsList({ panel, status }: { panel: MediaPanel; status: string }) {
   const lib = panel.library;
-  return (
-    <div className="music-tabs lib-tabs" role="tablist" aria-label={panel.t("amp.library")}>
-      {lib.strip.visible.map((tab) => (
-        <button
-          key={tab}
-          type="button"
-          role="tab"
-          className="music-tab"
-          aria-selected={tab === lib.tab}
-          data-tab={tab}
-          tabIndex={-1}
-          onClick={() => lib.selectTab(tab)}
-        >
-          {tabLabel(panel, tab)}
-        </button>
-      ))}
-      {lib.strip.more.length > 0 && (
-        <button
-          type="button"
-          role="tab"
-          className="music-tab lib-more"
-          aria-selected={!!lib.more}
-          data-tab="more"
-          tabIndex={-1}
-        >
-          {panel.t("lib.more")}
-        </button>
-      )}
-    </div>
-  );
-}
-
-/** More: the tabs the strip does not show, in the owner's order (the dialog pattern of the list screens). */
-function MoreList({ panel, status }: { panel: MediaPanel; status: string }) {
-  const lib = panel.library;
+  const first = lib.sectionsPage * lib.sectionsPageSize;
   return (
     <FullModal
-      label={panel.t("lib.more")}
+      label={panel.t("amp.library")}
       actions={panel.modalActions}
       status={status}
       compactStatus
     >
-      <header className="modal-heading radio-list-heading">
-        <h1>{panel.t("lib.more")}</h1>
-        <p>{panel.t("lib.moreSub")}</p>
-      </header>
-      <div className="source-rows" role="listbox" aria-label={panel.t("lib.more")}>
-        {lib.strip.more.map((tab, i) => (
+      <div
+        className="source-rows music-rows discover-rows lib-sections"
+        role="listbox"
+        aria-label={panel.t("amp.library")}
+      >
+        {lib.sections.slice(first, first + lib.sectionsPageSize).map((tab, i) => (
           <Button
             key={tab}
             variant="eink"
-            className="source-row"
+            className="source-row discover-category"
             role="option"
-            aria-selected={i === lib.more?.cursor}
-            aria-pressed={i === lib.more?.cursor}
+            data-tab={tab}
+            aria-selected={first + i === lib.sectionsCursor}
+            aria-pressed={first + i === lib.sectionsCursor}
             onClick={() => lib.selectTab(tab)}
           >
             <span className="source-row-text">
@@ -177,6 +145,15 @@ function MoreList({ panel, status }: { panel: MediaPanel; status: string }) {
           </Button>
         ))}
       </div>
+      {lib.sectionsPages > 1 && (
+        <div className="music-foot discover-foot">
+          <strong className="music-page">
+            <Ltr>
+              {lib.sectionsPage + 1}/{lib.sectionsPages}
+            </Ltr>
+          </strong>
+        </div>
+      )}
     </FullModal>
   );
 }
@@ -264,18 +241,26 @@ function rowKey(r: LibRow) {
   return r.kind === "playAll" ? `all:${r.parent.uri}` : r.item.uri;
 }
 
-/** The Library (F2 on the music screen): MA's sections as tabs (Right / Left), Up / Down through the list (pages of 8),
+/** The Library (F2 on the music screen): the sections list, Enter opens one; Up / Down through its list (pages of 8),
  *  Enter plays now (any row) and returns to the music screen, F2 play next, F3 add to queue, F4 Open on an artist /
  *  album / playlist / podcast / genre (its "Play all" row then carries the heart), else the heart (bus task 029). */
 export function LibraryScreen({ panel, status }: { panel: MediaPanel; status: string }) {
   const lib = panel.library;
   const { t } = panel;
-  if (lib.more) return <MoreList panel={panel} status={status} />;
+  if (lib.section === null) return <SectionsList panel={panel} status={status} />;
   const parent = lib.list?.parent ?? lib.opened;
   const loading = lib.listLoading && !lib.listError;
   return (
     <FullModal label={t("amp.library")} actions={panel.modalActions} status={status} compactStatus>
-      <TabStrip panel={panel} />
+      {!lib.opened && (
+        // the section's name above its top list, as Discover's items level (search: the name only)
+        <header className="modal-heading radio-list-heading discover-heading lib-section-heading">
+          <h1>{tabLabel(panel, lib.tab)}</h1>
+          {lib.tab !== "search" && (
+            <p>{lib.list ? t("lib.count", { n: String(lib.list.total) }) : "\u00a0"}</p>
+          )}
+        </header>
+      )}
       {lib.tab === "search" && !lib.opened ? (
         <SearchTab panel={panel} />
       ) : (

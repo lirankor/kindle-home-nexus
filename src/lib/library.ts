@@ -1,6 +1,6 @@
 // Bus task 027: the Kindle's library is a Music Assistant client (MUSIC_BACKEND=ha). Pure model shared by the server
-// functions, the panel hook and the screens: the tabs (Music Assistant's sidebar sections in the owner's order, the
-// strip = four tabs + More), the rows (MA items through kindle_panel's library_* services), the soft-key maps of the
+// functions, the panel hook and the screens: the sections (Music Assistant's sidebar sections in the owner's order,
+// listed as plain rows since 2026-10-23), the rows (MA items through kindle_panel's library_* services), the soft-key maps of the
 // Library, Discover and MA radio dial screens, and the music screen's keys (Discover on the free key).
 import type { RadioStationView } from "./media";
 
@@ -20,9 +20,6 @@ export type LibraryTab = (typeof LIBRARY_TABS)[number];
 export const DEFAULT_LIBRARY_TAB: LibraryTab = "playlists";
 export const isLibraryTab = (v: unknown): v is LibraryTab =>
   (LIBRARY_TABS as readonly unknown[]).includes(v);
-/** Tabs on the strip before More. Measured on the Kindle width (600 px, 22 px Alef bold): four tabs + More fit in Hebrew
- *  and English (report 027); if a translation ever overflows, the strip drops to three + More (`stripSlots`). */
-export const STRIP_SLOTS = 4;
 /** List rows per page (the list screens' 8 two-line rows). */
 export const LIBRARY_PAGE_SIZE = 8;
 /** Discover: category rows per page (two-line rows, no item count line under the heading). */
@@ -31,6 +28,11 @@ export const DISCOVER_PAGE_SIZE = 7;
 export const DISCOVER_ITEMS_PAGE_SIZE = 8;
 export const discoverPageSize = (level: "categories" | "items"): number =>
   level === "items" ? DISCOVER_ITEMS_PAGE_SIZE : DISCOVER_PAGE_SIZE;
+/** The Library's sections list (2026-10-23, no heading): eight 74px rows fit one page without the page text; with more
+ *  sections it paginates at Discover's category size so the page text fits above the footer. */
+export const LIBRARY_SECTIONS_ONE_PAGE = 8;
+export const librarySectionsPageSize = (count: number): number =>
+  count <= LIBRARY_SECTIONS_ONE_PAGE ? LIBRARY_SECTIONS_ONE_PAGE : DISCOVER_PAGE_SIZE;
 /** MA radio dial: the band keys. */
 export const MA_DIAL_BANDS = ["favourites", "all"] as const;
 export type MaDialBand = (typeof MA_DIAL_BANDS)[number];
@@ -60,6 +62,7 @@ export const DEFAULT_DISCOVER_ROWS: DiscoverRow[] = DISCOVER_ROWS.filter(
 /** The panel's library, as kindle_panel's get_config answers it (`library`). */
 export type LibraryView = {
   tabs: LibraryTab[];
+  /** The section the sections list's cursor starts on. */
   tab: LibraryTab | null;
   discoverKey: boolean;
   /** Discover's rows, handed back to library_home as `sections`. */
@@ -135,31 +138,6 @@ export type LibPlayResult = {
   status?: "playing" | "queued" | "powering_on";
 };
 
-// ---- the tab strip ----
-
-/** The strip (addendum 3): the first `slots` tabs in the owner's order, the active tab taking the last slot when it is
- *  further down, then More with every tab the strip does not show. Five tabs or fewer: no More. */
-export function tabStrip(
-  tabs: LibraryTab[],
-  active: LibraryTab | null,
-  slots = STRIP_SLOTS,
-): { visible: LibraryTab[]; more: LibraryTab[] } {
-  if (tabs.length <= slots + 1) return { visible: [...tabs], more: [] };
-  const visible = tabs.slice(0, slots);
-  if (active && !visible.includes(active)) visible[slots - 1] = active;
-  return { visible, more: tabs.filter((t) => !visible.includes(t)) };
-}
-/** The strip's slots including More ("more"). */
-export type StripSlot = LibraryTab | "more";
-export const stripSlotsOf = (strip: { visible: LibraryTab[]; more: LibraryTab[] }): StripSlot[] =>
-  strip.more.length ? [...strip.visible, "more"] : [...strip.visible];
-/** Right / Left on the strip, in reading order, wrapping: the next slot; "more" opens the drop-down. */
-export function stepStrip(slots: StripSlot[], active: LibraryTab, delta: 1 | -1): StripSlot {
-  const i = slots.indexOf(active);
-  const n = slots.length;
-  return slots[((((i < 0 ? 0 : i) + delta) % n) + n) % n] ?? active;
-}
-
 // ---- rows ----
 
 /** The opened list has a "Play all" row first (album, playlist, artist, genre: MA plays the whole thing). */
@@ -209,18 +187,17 @@ export type LibKey =
   | "backspace"
   | "space"
   | "results"
-  | "choose"
   | null;
-/** The Library's footer by context (documented in the report and KINDLE-APP.md). `opens`: the highlighted row is a
- *  container (F4 = Open instead of the heart; the heart of a container is on its opened view's "Play all" row). */
+/** The Library's footer by context (documented in the report and KINDLE-APP.md). `tab` null = the sections list (Back
+ *  only, like Discover's categories). `opens`: the highlighted row is a container (F4 = Open instead of the heart; the
+ *  heart of a container is on its opened view's "Play all" row). */
 export function libraryKeys(ctx: {
-  tab: LibraryTab;
+  tab: LibraryTab | null;
   opened: boolean;
-  more: boolean;
   searchKeys: boolean;
   opens?: boolean;
 }): LibKey[] {
-  if (ctx.more) return ["back", null, null, "choose"];
+  if (ctx.tab === null) return ["back", null, null, null];
   if (ctx.tab === "search" && ctx.searchKeys && !ctx.opened)
     return ["back", "backspace", "space", "results"];
   const f4: LibKey = ctx.opens ? "open" : "favourite";

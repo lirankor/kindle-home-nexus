@@ -1,4 +1,4 @@
-// Bus task 027: the library's section model, the tab strip (four + More), the key maps and the config flags.
+// Bus task 027: the library's section model, the key maps and the config flags (2026-10-23: sections as a plain list).
 // Bus task 029: Discover's rows option, F4 Open on a container, play now leaves the library (play next / add do not).
 import { describe, expect, it } from "vitest";
 import {
@@ -8,6 +8,7 @@ import {
   discoverPageSize,
   leavesLibrary,
   libraryKeys,
+  librarySectionsPageSize,
   libraryViewFrom,
   maStations,
   musicScreenKeys,
@@ -15,9 +16,6 @@ import {
   playNowTarget,
   playingStationIndex,
   rowOpens,
-  stepStrip,
-  stripSlotsOf,
-  tabStrip,
 } from "./library";
 import type { LibItem } from "./library";
 
@@ -35,27 +33,11 @@ const item = (uri: string, mediaType: LibItem["mediaType"], name = uri): LibItem
 });
 const TODAY = LIBRARY_TABS.filter((t) => t !== "audiobooks"); // no audiobook provider
 
-describe("library tab strip (addendum 3)", () => {
-  it("shows Playlists, Radio, Genres, Albums + More with the rest in the owner's order", () => {
-    const s = tabStrip(TODAY, "playlists");
-    expect(s.visible).toEqual(["playlists", "radio", "genres", "albums"]);
-    expect(s.more).toEqual(["artists", "tracks", "podcasts", "search"]);
-    expect(stripSlotsOf(s)).toEqual(["playlists", "radio", "genres", "albums", "more"]);
-  });
-  it("a tab chosen from More takes the fourth slot; the displaced tab goes into More", () => {
-    const s = tabStrip(TODAY, "tracks");
-    expect(s.visible).toEqual(["playlists", "radio", "genres", "tracks"]);
-    expect(s.more).toEqual(["albums", "artists", "podcasts", "search"]);
-  });
-  it("five tabs or fewer: no More; three slots when four do not fit", () => {
-    expect(tabStrip(["playlists", "radio", "albums", "search"], "radio").more).toEqual([]);
-    expect(tabStrip(TODAY, "playlists", 3).visible).toEqual(["playlists", "radio", "genres"]);
-  });
-  it("Right / Left cycle through the visible tabs and More, wrapping", () => {
-    const slots = stripSlotsOf(tabStrip(TODAY, "albums"));
-    expect(stepStrip(slots, "albums", 1)).toBe("more");
-    expect(stepStrip(slots, "playlists", -1)).toBe("more");
-    expect(stepStrip(slots, "radio", 1)).toBe("genres");
+describe("library sections list (2026-10-23)", () => {
+  it("all of today's sections fit one page; more paginate at Discover's category size", () => {
+    expect(TODAY.length).toBe(8);
+    expect(librarySectionsPageSize(TODAY.length)).toBe(8);
+    expect(librarySectionsPageSize(LIBRARY_TABS.length)).toBe(discoverPageSize("categories"));
   });
 });
 
@@ -116,7 +98,7 @@ describe("key maps", () => {
     expect(rowOpens(album, true)).toBe(false); // the Play all row: the parent's heart
     expect(rowOpens(track)).toBe(false);
     expect(rowOpens(null)).toBe(false);
-    const opens = { tab: "albums" as const, opened: false, more: false, searchKeys: false };
+    const opens = { tab: "albums" as const, opened: false, searchKeys: false };
     expect(libraryKeys({ ...opens, opens: true })).toEqual([
       "back",
       "playNext",
@@ -135,29 +117,40 @@ describe("key maps", () => {
     expect(leavesLibrary("add")).toBe(false);
   });
   it("library footer by context", () => {
-    expect(libraryKeys({ tab: "albums", opened: false, more: false, searchKeys: false })).toEqual([
+    expect(libraryKeys({ tab: "albums", opened: false, searchKeys: false })).toEqual([
       "back",
       "playNext",
       "addQueue",
       "favourite",
     ]);
-    expect(libraryKeys({ tab: "radio", opened: false, more: false, searchKeys: false })).toEqual([
+    expect(libraryKeys({ tab: "radio", opened: false, searchKeys: false })).toEqual([
       "back",
       "dial",
       "addQueue",
       "favourite",
     ]);
-    expect(libraryKeys({ tab: "search", opened: false, more: false, searchKeys: true })).toEqual([
+    expect(libraryKeys({ tab: "search", opened: false, searchKeys: true })).toEqual([
       "back",
       "backspace",
       "space",
       "results",
     ]);
-    expect(libraryKeys({ tab: "albums", opened: false, more: true, searchKeys: false })).toEqual([
+    // the sections list: Back only, like Discover's categories
+    expect(libraryKeys({ tab: null, opened: false, searchKeys: false })).toEqual(
+      discoverKeys("categories"),
+    );
+    // search results and an opened container keep the list keys
+    expect(libraryKeys({ tab: "search", opened: false, searchKeys: false })).toEqual([
       "back",
-      null,
-      null,
-      "choose",
+      "playNext",
+      "addQueue",
+      "favourite",
+    ]);
+    expect(libraryKeys({ tab: "radio", opened: true, searchKeys: false, opens: true })).toEqual([
+      "back",
+      "playNext",
+      "addQueue",
+      "open",
     ]);
   });
   it("music screen: Discover on the free key, Radio on F1 only while an MA radio plays without a queue", () => {

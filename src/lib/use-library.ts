@@ -1,12 +1,11 @@
 // Bus task 027 (+ 029: Enter plays now everywhere and returns to the music screen, F4 Open browses a container, Discover
-// rows from the panel option): state and keys of the Music Assistant client screens (MUSIC_BACKEND=ha): the Library (MA's sections as
-// tabs, four + More), Discover (MA's Home rows) and the MA radio dial (MA's radios on the amp dial's slider). Data comes
+// rows from the panel option): state and keys of the Music Assistant client screens (MUSIC_BACKEND=ha): the Library (a
+// plain list of MA's sections, then a section's list, 2026-10-23), Discover (MA's Home rows) and the MA radio dial (MA's radios on the amp dial's slider). Data comes
 // from kindle_panel's library_* services through library.functions.ts. useMediaPanel owns the screen and the footer.
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
-  Check,
   CornerDownLeft,
   Delete,
   FolderOpen,
@@ -19,7 +18,6 @@ import {
   Space,
 } from "lucide-react";
 import type { DeviceAction } from "@/components/device-actions";
-import { isRtl } from "@/lib/i18n";
 import type { Key, Lang } from "@/lib/i18n";
 import {
   DEFAULT_LIBRARY_VIEW,
@@ -32,13 +30,11 @@ import {
   isFavourite,
   leavesLibrary,
   libraryKeys,
+  librarySectionsPageSize,
   pageWindow,
   playNowTarget,
   playingStationIndex,
   rowOpens,
-  stepStrip,
-  stripSlotsOf,
-  tabStrip,
 } from "@/lib/library";
 import type {
   LibHomeResult,
@@ -74,7 +70,6 @@ const DIAL_LIST_LIMIT = 100;
 export function useLibrary({
   screen,
   open,
-  lang,
   t,
   notify,
   data,
@@ -83,6 +78,7 @@ export function useLibrary({
 }: {
   screen: string | null;
   open: (s: "now" | LibScreen) => void;
+  /** The panel's language (kept in the call; Left / Right no longer depend on the reading direction). */
   lang: Lang;
   t: (key: Key, vars?: Record<string, string | number>) => string;
   notify: (n: { text: string; error?: boolean }) => void;
@@ -94,12 +90,26 @@ export function useLibrary({
   const queryClient = useQueryClient();
   const view = data?.output?.library ?? DEFAULT_LIBRARY_VIEW;
   const tabs = view.tabs;
-  const [tabState, setTab] = useState<LibraryTab | null>(null);
-  const tab: LibraryTab =
-    (tabState && tabs.includes(tabState) ? tabState : view.tab) ?? "playlists";
+  // 2026-10-23 (owner): the Library is a plain list of the sections (section === null), Enter opens one; Back climbs.
+  const [sectionState, setSection] = useState<LibraryTab | null>(null);
+  const section: LibraryTab | null =
+    sectionState && tabs.includes(sectionState) ? sectionState : null;
+  /** The sections list's cursor, kept while the hook lives; null = start on the panel's configured tab. */
+  const [sectionsCursorState, setSectionsCursor] = useState<number | null>(null);
+  const sectionsCursor = Math.max(
+    0,
+    Math.min(
+      sectionsCursorState ?? (view.tab ? tabs.indexOf(view.tab) : 0),
+      Math.max(0, tabs.length - 1),
+    ),
+  );
+  const sectionsPageSize = librarySectionsPageSize(tabs.length);
+  const sectionsPage = Math.floor(sectionsCursor / sectionsPageSize);
+  const sectionsPages = Math.max(1, Math.ceil(tabs.length / sectionsPageSize));
+  /** The section whose list queries run ("playlists" only as a placeholder key while the sections list shows). */
+  const tab: LibraryTab = section ?? "playlists";
   const [stack, setStack] = useState<Opened[]>([]);
   const [cursor, setCursor] = useState(0);
-  const [more, setMore] = useState<{ cursor: number } | null>(null);
   const [search, setSearch] = useState<{ query: string; focus: "keys" | "results"; key: number }>({
     query: "",
     focus: "keys",
@@ -108,13 +118,13 @@ export function useLibrary({
   /** The panel's own heart presses, shown until the lists are read again. */
   const [favs, setFavs] = useState<Record<string, boolean>>({});
   const opened = stack.length ? stack[stack.length - 1]!.item : null;
-  const strip = tabStrip(tabs, tab);
 
   // ---- Library list ----
   const shift: 0 | 1 = hasPlayAll(opened) ? 1 : 0;
   const page = Math.floor(cursor / LIBRARY_PAGE_SIZE);
   const win = pageWindow(page, LIBRARY_PAGE_SIZE, shift);
-  const listMode = screen === "library" && (opened !== null || tab !== "search");
+  const listMode =
+    screen === "library" && section !== null && (opened !== null || tab !== "search");
   const listQuery = useQuery<LibListResult>({
     queryKey: ["lib", "list", opened?.uri ?? tab, win.offset, win.limit],
     queryFn: () =>
@@ -152,14 +162,15 @@ export function useLibrary({
   const searchQuery = useQuery<LibSearchResult>({
     queryKey: ["lib", "search", term],
     queryFn: () => searchLibraryItems({ data: { query: term } }),
-    enabled: screen === "library" && tab === "search" && !opened && term.length >= SEARCH_MIN_CHARS,
+    enabled:
+      screen === "library" && section === "search" && !opened && term.length >= SEARCH_MIN_CHARS,
     staleTime: LIST_STALE_MS,
     placeholderData: keepPreviousData,
   });
   const searchActive = search.query.trim().length >= SEARCH_MIN_CHARS;
   const searchRows: LibItem[] = searchActive ? (searchQuery.data?.items ?? []) : [];
   const searchCursor = Math.min(cursor, Math.max(0, searchRows.length - 1));
-  const searchKeysFocus = tab === "search" && !opened && search.focus === "keys";
+  const searchKeysFocus = section === "search" && !opened && search.focus === "keys";
 
   // ---- Discover ----
   const discoverRows = view.discoverRows;
@@ -299,8 +310,8 @@ export function useLibrary({
 
   // ---- navigation ----
   const openLibrary = () => {
+    setSection(null);
     setStack([]);
-    setMore(null);
     setCursor(0);
     setFavs({});
     open("library");
@@ -319,19 +330,19 @@ export function useLibrary({
     setDial((d) => ({ ...d, band: inFav ? "favourites" : "all", from }));
     open("madial");
   };
+  /** Enter on the sections list (or the MA dial's way back): that section's list from the top. */
   const selectTab = (next: LibraryTab) => {
-    setTab(next);
+    setSection(next);
+    const i = tabs.indexOf(next);
+    if (i >= 0) setSectionsCursor(i);
     setStack([]);
-    setMore(null);
     setCursor(0);
+    setSearch((s) => ({ ...s, focus: "keys" }));
   };
-  const stepTab = (delta: 1 | -1) => {
-    const slot = stepStrip(stripSlotsOf(strip), tab, delta);
-    if (slot === "more") setMore({ cursor: 0 });
-    else selectTab(slot);
-  };
+  const moveSections = (delta: number) =>
+    setSectionsCursor(Math.max(0, Math.min(Math.max(0, tabs.length - 1), sectionsCursor + delta)));
   const back = () => {
-    if (more) return setMore(null);
+    if (section === null) return open("now");
     if (stack.length) {
       const top = stack[stack.length - 1]!;
       setStack(stack.slice(0, -1));
@@ -340,9 +351,11 @@ export function useLibrary({
     }
     if (tab === "search" && search.focus === "results")
       return setSearch((s) => ({ ...s, focus: "keys" }));
-    open("now");
+    setSection(null);
+    setCursor(0);
   };
   const highlightedRow = (): LibRow | null => {
+    if (section === null) return null;
     if (tab === "search" && !opened) {
       const item = search.focus === "results" ? searchRows[searchCursor] : undefined;
       return item ? { kind: "item", item } : null;
@@ -433,16 +446,13 @@ export function useLibrary({
   const dialBack = () => {
     if (dialSettle.current) clearTimeout(dialSettle.current);
     if (dial.from === "library") {
-      setTab("radio");
+      setSection("radio");
       open("library");
     } else open("now");
   };
   const dialToList = () => {
     if (dialSettle.current) clearTimeout(dialSettle.current);
-    setTab("radio");
-    setStack([]);
-    setMore(null);
-    setCursor(0);
+    selectTab("radio");
     open("library");
   };
 
@@ -518,15 +528,6 @@ export function useLibrary({
           disabled: !searchRows.length,
           onClick: toResults,
         };
-      case "choose":
-        return {
-          label: t("source.apply"),
-          icon: Check,
-          onClick: () => {
-            const next = strip.more[more?.cursor ?? 0];
-            if (next) selectTab(next);
-          },
-        };
       default:
         return null;
     }
@@ -536,9 +537,8 @@ export function useLibrary({
       const row = highlightedRow();
       const item = row ? (row.kind === "playAll" ? row.parent : row.item) : null;
       return libraryKeys({
-        tab,
+        tab: section,
         opened: !!opened,
-        more: !!more,
         searchKeys: searchKeysFocus,
         opens: rowOpens(item, row?.kind === "playAll"),
       }).map((k) => keyAction(k, item, back));
@@ -550,7 +550,6 @@ export function useLibrary({
   };
 
   // ---- keys ----
-  const forward = (key: string) => (key === "ArrowRight" ? !isRtl(lang) : isRtl(lang));
   const onKey = (s: string | null, event: KeyboardEvent): boolean => {
     const k = event.key;
     if (s === "library") {
@@ -559,14 +558,14 @@ export function useLibrary({
         back();
         return true;
       }
-      if (more) {
+      if (section === null) {
         if (k === "Enter") {
-          const next = strip.more[more.cursor];
+          const next = tabs[sectionsCursor];
           if (next) selectTab(next);
-        } else if (k === "ArrowUp" || k === "PageUp")
-          setMore({ cursor: Math.max(0, more.cursor - 1) });
-        else if (k === "ArrowDown" || k === "PageDown")
-          setMore({ cursor: Math.min(strip.more.length - 1, more.cursor + 1) });
+        } else if (k === "ArrowUp") moveSections(-1);
+        else if (k === "ArrowDown") moveSections(1);
+        else if (k === "PageUp") moveSections(-sectionsPageSize);
+        else if (k === "PageDown") moveSections(sectionsPageSize);
         else if (!NAV.includes(k)) return false;
         event.preventDefault();
         return true;
@@ -577,15 +576,12 @@ export function useLibrary({
           if (ch) typeChar(ch);
         } else if (k === "ArrowLeft") setSearchKey(search.key - 1);
         else if (k === "ArrowRight") setSearchKey(search.key + 1);
-        else if (k === "ArrowUp") {
-          // the top key row: up goes to the tab strip's neighbour is not wanted (the 5-way walks the keys)
-          setSearchKey(search.key - SEARCH_KEY_COLS);
-        } else if (k === "ArrowDown") {
+        else if (k === "ArrowUp") setSearchKey(search.key - SEARCH_KEY_COLS);
+        else if (k === "ArrowDown") {
           if (search.key + SEARCH_KEY_COLS > SEARCH_KEYS.length - 1) toResults();
           else setSearchKey(search.key + SEARCH_KEY_COLS);
         } else if (k === "PageDown") toResults();
-        else if (k === "PageUp") stepTab(-1);
-        else return false;
+        else if (k !== "PageUp") return false;
         event.preventDefault();
         return true;
       }
@@ -594,8 +590,7 @@ export function useLibrary({
       else if (k === "ArrowDown") moveCursor(1);
       else if (k === "PageUp") moveCursor(-LIBRARY_PAGE_SIZE);
       else if (k === "PageDown") moveCursor(LIBRARY_PAGE_SIZE);
-      else if (k === "ArrowLeft" || k === "ArrowRight") stepTab(forward(k) ? 1 : -1);
-      else return false;
+      else if (!NAV.includes(k)) return false; // Left / Right: no section cycling (2026-10-23)
       event.preventDefault();
       return true;
     }
@@ -629,8 +624,12 @@ export function useLibrary({
   return {
     view,
     tab,
-    strip,
-    more,
+    section,
+    sections: tabs,
+    sectionsCursor,
+    sectionsPage,
+    sectionsPages,
+    sectionsPageSize,
     opened,
     stack,
     cursor,
@@ -684,7 +683,7 @@ export function useLibrary({
     openMaDial,
     actionsFor,
     onKey,
-    refreshKey: `${tab}|${opened?.uri ?? ""}|${page}|${more ? 1 : 0}|${discLevel}|${discRowIndex}|${discPage}|${dial.band}`,
+    refreshKey: `${section ?? "sections"}|${sectionsPage}|${opened?.uri ?? ""}|${page}|${discLevel}|${discRowIndex}|${discPage}|${dial.band}`,
   };
 }
 export type LibraryPanel = ReturnType<typeof useLibrary>;
