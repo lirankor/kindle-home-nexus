@@ -653,10 +653,7 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .quality-tier small { font-size: 11px; font-weight: 700; margin-top: 2px; }
 .quality-detail { font-size: 15px; line-height: 1.1; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
-/* Bus task 027: the Music Assistant library (tabs: four + More), Discover, the MA radio dial */
-/* four tabs + More on 600 px (measured, report 027): 21 px and a narrow More let "פלייליסטים" fit */
-.lib-tabs .music-tab { font-size: 21px; padding: 0 2px; }
-.lib-tabs .music-tab.lib-more { flex: 0.6; }
+/* Bus task 027: the Music Assistant library (2026-10-23: a plain list of sections, Discover's rows), Discover, the MA radio dial */
 .lib-row .lib-fav { flex-shrink: 0; margin-inline-start: auto; }
 .lib-rows { min-height: 467px; }
 .lib-rows[data-opened="true"] { min-height: 405px; margin-top: 8px; }
