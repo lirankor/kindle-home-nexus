@@ -662,4 +662,5 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .lib-heading h2 { margin: 0; font-size: 24px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lib-heading p { margin: 0; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lib-search-field { margin-top: 10px; }
+.music-rows.search-rows.lib-search-rows { min-height: 234px; } /* four rows under the five-row keyboard */
 .discover-rows { min-height: 0; margin: 10px -16px 0; }

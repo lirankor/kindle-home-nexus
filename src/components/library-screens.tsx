@@ -48,7 +48,8 @@ const KIND_ICONS: Record<LibMediaType, typeof Music2> = {
   genre: Tags,
 };
 /** Search results shown under the keyboard (a window that follows the cursor). */
-const SEARCH_ROWS_SHOWN = 5;
+/** Results under the keyboard: four 54 px rows fit between its globe row and the footer separator. */
+const SEARCH_ROWS_SHOWN = 4;
 const GlobeIcon = mdiIcon({ name: "web", path: mdiWeb });
 
 /** MA's cover through /media/img ("ma:" token, fetched via HA); the kind's glyph when there is none. */
@@ -223,7 +224,7 @@ function SearchTab({ panel }: { panel: MediaPanel }) {
         ))}
       </div>
       <div
-        className="source-rows music-rows search-rows"
+        className="source-rows music-rows search-rows lib-search-rows"
         role="listbox"
         aria-label={t("search.results")}
       >
