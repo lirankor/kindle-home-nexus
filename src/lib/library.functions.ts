@@ -19,12 +19,20 @@ import {
   searchLibrary,
 } from "./library-ha.server";
 
+/**
+ * A Music Assistant uri (provider://type/id). Podcast episode ids contain a space (an RSS url, a space, a guid), so the
+ * id may hold spaces, but not at its ends and never control characters or line breaks. The uri is only ever sent as a
+ * JSON field of an HA service call, so spaces open no injection surface.
+ */
+export const LIB_URI_RE =
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what this rejects
+  /^[a-z0-9_-]+:\/\/[a-z_]+\/[^\s\u0000-\u001f\u007f-\u009f](?:[^\u0000-\u001f\u007f-\u009f\u2028\u2029]{0,398}[^\s\u0000-\u001f\u007f-\u009f])?$/i;
+
 // The zod schemas are built on first use, not at import: the UI tests import the panel (and with it this module) under
 // vitest-jsdom, where zod is not available at module load (the voice route does the same).
 let built: ReturnType<typeof buildSchemas> | null = null;
 function buildSchemas() {
-  /** A Music Assistant uri (provider://type/id); no whitespace. */
-  const uri = z.string().regex(/^[a-z0-9_-]+:\/\/[a-z_]+\/\S{1,400}$/i);
+  const uri = z.string().regex(LIB_URI_RE);
   return {
     list: z.object({
       section: z

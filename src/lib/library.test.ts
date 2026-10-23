@@ -197,3 +197,31 @@ describe("libItemFrom (kindle_panel item → row)", () => {
     expect(discoverPageSize("items")).toBe(8);
   });
 });
+
+describe("library uri validator", () => {
+  it("accepts a podcast episode uri with a space and ordinary uris", async () => {
+    const { LIB_URI_RE } = await import("./library.functions");
+    const episode =
+      "itunes_podcasts://podcast_episode/https://anchor.fm/s/96515a90/podcast/rss ac5df1da-83c8-4e5a-b900-642ab3aa1dab";
+    expect(LIB_URI_RE.test(episode)).toBe(true);
+    expect(LIB_URI_RE.test("library://podcast/1")).toBe(true);
+    expect(LIB_URI_RE.test("spotify://track/4uLU6hMCjMI75M1A2tKUQC")).toBe(true);
+  });
+
+  it("rejects control characters, newlines, edge spaces, empty and oversize ids", async () => {
+    const { LIB_URI_RE } = await import("./library.functions");
+    for (const bad of [
+      "library://podcast/a\nb",
+      "library://podcast/a\tb",
+      "library://podcast/a\u0000b",
+      "library://podcast/a b",
+      "library://podcast/ a",
+      "library://podcast/a ",
+      "library://podcast/",
+      "library://podcast/" + "a".repeat(401),
+      "no-scheme",
+    ])
+      expect(LIB_URI_RE.test(bad), JSON.stringify(bad)).toBe(false);
+    expect(LIB_URI_RE.test("library://podcast/" + "a b".repeat(133) + "c")).toBe(true);
+  });
+});
