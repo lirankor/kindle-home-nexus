@@ -266,9 +266,13 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(screen.getByRole("dialog", { name: "Library" }).querySelector("h1")?.textContent).toBe(
       "Radio",
     );
+    const calls = lib.getLibraryList.mock.calls.length;
     press("F1");
     dlg = screen.getByRole("dialog", { name: "Library" });
     expect(selectedSection(dlg)).toBe("Radio");
+    // Back to the sections list fetches nothing
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(lib.getLibraryList.mock.calls.length).toBe(calls);
     press("ArrowDown");
     press("ArrowDown");
     press("F1"); // close
@@ -288,6 +292,43 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(dlg.querySelector("h1")?.textContent).toBe("Search");
     expect(dlg.querySelector(".lib-section-heading p")).toBeNull();
     expect(keysOf(dlg)).toEqual(["Back", "Delete", "Space", "Enter"]);
+  });
+
+  it("lazy sections: nothing loads before Enter; another section shows the busy state, not the last one's rows", async () => {
+    await openMusic();
+    press("F2");
+    press("ArrowDown");
+    press("ArrowDown");
+    press("ArrowDown"); // moving the cursor loads nothing
+    await act(() => new Promise((r) => setTimeout(r, 50)));
+    expect(lib.getLibraryList).not.toHaveBeenCalled();
+    press("ArrowUp");
+    press("ArrowUp"); // Radio
+    press("Enter");
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Library" }).textContent).toContain("WDR 5"),
+    );
+    expect(lib.getLibraryList).toHaveBeenCalledTimes(1);
+    press("F1");
+    // Genres: its list is still on the way
+    let resolve: (v: unknown) => void = () => {};
+    lib.getLibraryList.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+    press("ArrowDown");
+    press("Enter");
+    const dlg = screen.getByRole("dialog", { name: "Library" });
+    expect(dlg.querySelector("h1")?.textContent).toBe("Genres");
+    expect(dlg.textContent).not.toContain("WDR 5");
+    expect(dlg.textContent).toContain("Loading…");
+    expect(dlg.querySelector(".lib-rows")?.getAttribute("aria-busy")).toBe("true");
+    expect(lib.getLibraryList).toHaveBeenLastCalledWith({
+      data: { section: "genres", offset: 0, limit: 8 },
+    });
+    await act(async () =>
+      resolve({ ok: true, total: 1, offset: 0, favorites: 0, parent: null, items: [ALBUM] }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Library" }).textContent).toContain("Sheer"),
+    );
   });
 
   it("Enter plays a container at once and returns to the music screen", async () => {

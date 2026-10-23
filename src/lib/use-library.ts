@@ -123,10 +123,13 @@ export function useLibrary({
   const shift: 0 | 1 = hasPlayAll(opened) ? 1 : 0;
   const page = Math.floor(cursor / LIBRARY_PAGE_SIZE);
   const win = pageWindow(page, LIBRARY_PAGE_SIZE, shift);
+  // Lazy (owner, 2026-10-23): nothing is fetched while the sections list shows; a section's list loads only after Enter
+  // on its row, and Back to the sections list just disables the query (the cache stays, no refetch).
   const listMode =
     screen === "library" && section !== null && (opened !== null || tab !== "search");
+  const listKey = opened?.uri ?? tab;
   const listQuery = useQuery<LibListResult>({
-    queryKey: ["lib", "list", opened?.uri ?? tab, win.offset, win.limit],
+    queryKey: ["lib", "list", listKey, win.offset, win.limit],
     queryFn: () =>
       getLibraryList({
         data: opened
@@ -135,7 +138,8 @@ export function useLibrary({
       }),
     enabled: listMode,
     staleTime: LIST_STALE_MS,
-    placeholderData: keepPreviousData,
+    // keep the previous page only while paging the same list; another section / container shows the busy state
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === listKey ? prev : undefined),
   });
   const list = listQuery.data ?? null;
   const listTotal = (list?.total ?? 0) + shift;
