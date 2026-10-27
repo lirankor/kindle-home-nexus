@@ -2,8 +2,10 @@
 // in the homeserver-cloud repo). Bearer VOICE_TOKEN (env; unset = 503). Thin and additive: validate, call the
 // same media.server functions the Kindle screens use (queue, power-on job, radio tuning), answer compact JSON.
 //   GET  /api/voice/state                       now playing, amp, queue summary (polled by HA every 20 s)
-//   GET  /api/voice/search?q=&kind=&limit=      artists (+ their albums), albums, tracks, playlists
-//   GET  /api/voice/list?kind=artist|album|radio&sort=name|random&limit=&offset=[&artist=<id>]   plain lists for pickers
+//   GET  /api/voice/search?q=&kind=&limit=      artists (+ their albums), albums, tracks, playlists (+ the mix a query names)
+//   GET  /api/voice/list?kind=artist|album|mix|radio&sort=name|random&limit=&offset=[&artist=<id>]   plain lists for pickers
+// Music source (bus task 031): MUSIC_BACKEND=ha reads Music Assistant through kindle_panel's library_list / library_search
+// (ids = MA uris such as library://album/143, `art` = MA image proxy URLs); the legacy app backend reads Jellyfin.
 //   POST /api/voice/play   {query|id, kind?, shuffle?, wait?}   power the amp on if needed, then play
 //   POST /api/voice/action {op}                 pause|resume|next|previous|stop|volume_up|volume_down|mute|unmute|amp_off|amp_on
 //   POST /api/voice/radio  {station, wait?}     fuzzy-match a catalog station and tune NET RADIO
@@ -15,10 +17,12 @@ import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { haConfigured, service } from "@/lib/home.server";
 import { haBackend } from "@/lib/media-ha.server";
+import { maArtistAlbums, maCandidates, maListData, maMixPlaylists } from "@/lib/voice-ma.server";
 import { ensurePanelConfig } from "@/lib/panel-config.server";
 import { AMP, MIX_IDS, RADIO_LISTS, findStation } from "@/lib/media";
 import type { AmpSource, MediaAction, MediaSnapshot, QueueProgress } from "@/lib/media";
 import {
+  maMixFor,
   matchScore,
   matchStation,
   mixFor,
@@ -161,6 +165,7 @@ const searchSchema = () =>
 const term = (q: string) => norm(q) || q.trim();
 async function candidates(rawQuery: string, kind: VoiceKind | "auto", limit: number) {
   const query = stripFiller(rawQuery) || rawQuery;
+  if (haBackend()) return maCandidates(query, kind, limit);
   const t = term(query);
   const want = (k: VoiceKind) => kind === "auto" || kind === k;
   const [artists, albums, tracks, playlists] = await Promise.all([
@@ -203,9 +208,15 @@ async function candidates(rawQuery: string, kind: VoiceKind | "auto", limit: num
 async function search(params: URLSearchParams) {
   const parsed = searchSchema().safeParse(Object.fromEntries(params));
   if (!parsed.success) return fail("bad query: q, kind?, limit?");
-  if (!jellyfinConfigured()) return fail("Jellyfin not configured", 503);
+  const ma = haBackend();
+  if (!ma && !jellyfinConfigured()) return fail("Jellyfin not configured", 503);
   const { q, kind, limit } = parsed.data;
-  const cands = await candidates(q, kind === "any" ? "auto" : kind, limit);
+  let cands: Candidate[];
+  try {
+    cands = await candidates(q, kind === "any" ? "auto" : kind, limit);
+  } catch (e) {
+    return fail(mediaErrorMessage(e), 502);
+  }
   const by = (k: VoiceKind) =>
     cands
       .filter((c) => c.kind === k)
@@ -215,13 +226,21 @@ async function search(params: URLSearchParams) {
   // An artist that clearly matches gets their discography (year + track count) so "play the second one" works.
   const albumsOf =
     top && top.score >= 60
-      ? (await jellyfin.artistAlbums(top.id)).map((a) => ({
-          id: a.id,
-          title: a.title,
-          year: a.year ?? null,
-          tracks: a.trackCount ?? null,
-        }))
+      ? ma
+        ? await maArtistAlbums(top.id).catch(() => [])
+        : (await jellyfin.artistAlbums(top.id)).map((a) => ({
+            id: a.id,
+            title: a.title,
+            year: a.year ?? null,
+            tracks: a.trackCount ?? null,
+          }))
       : [];
+  // MA only: `art` (MA image proxy URL, HA fetches it) and the nightly mix a query names ("80s", "jazz mix")
+  const art = (c: Candidate) => (ma ? { art: c.art ?? null } : {});
+  const mixName = ma && (kind === "any" || kind === "playlist") ? maMixFor(q) : null;
+  const mix = mixName
+    ? ((await maMixPlaylists().catch(() => [])).find((m) => m.mix === mixName.id) ?? null)
+    : null;
   return json({
     ok: true,
     query: q,
@@ -229,37 +248,52 @@ async function search(params: URLSearchParams) {
     artists: artists.map((a) => ({
       id: a.id,
       name: a.title,
+      ...art(a),
       ...(a.id === top?.id && albumsOf.length ? { albums: albumsOf } : {}),
     })),
     albums: by("album")
       .slice(0, limit)
-      .map((a) => ({ id: a.id, title: a.title, artist: a.artist ?? null })),
+      .map((a) => ({
+        id: a.id,
+        title: a.title,
+        artist: a.artist ?? null,
+        ...(ma ? { year: a.year ?? null } : {}),
+        ...art(a),
+      })),
     tracks: by("track")
       .slice(0, kind === "any" ? 5 : limit)
-      .map((t) => ({ id: t.id, title: t.title, artist: t.artist ?? null, album: t.album ?? null })),
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        artist: t.artist ?? null,
+        album: t.album ?? null,
+        ...art(t),
+      })),
     playlists: by("playlist")
       .slice(0, limit)
-      .map((p) => ({ id: p.id, title: p.title })),
+      .map((p) => ({ id: p.id, title: p.title, ...art(p) })),
+    ...(ma ? { mix } : {}),
   });
 }
 
 // ---- List (the HA Music dashboard's dropdown pickers need plain lists, not a search) ----
 const listSchema = () =>
   z.object({
-    kind: z.enum(["artist", "album", "radio"]),
+    kind: z.enum(["artist", "album", "mix", "radio"]),
     sort: z.enum(["name", "random"]).default("name"),
     limit: z.coerce.number().int().min(1).max(200).default(50),
     offset: z.coerce.number().int().min(0).default(0),
-    /** kind=album only: the discography of this album artist (Jellyfin id) instead of the whole library. */
+    /** kind=album only: the discography of this album artist (an MA artist uri such as library://artist/998; a
+     *  Jellyfin id on the legacy app backend) instead of the whole library. */
     artist: z
       .string()
-      .regex(/^[A-Za-z0-9_-]{1,64}$/)
+      .regex(/^([A-Za-z0-9_-]{1,64}|[a-z0-9_-]{1,64}:\/\/artist\/[A-Za-z0-9_.%-]{1,200})$/)
       .optional(),
   });
 async function list(params: URLSearchParams) {
   const parsed = listSchema().safeParse(Object.fromEntries(params));
   if (!parsed.success)
-    return fail("bad query: kind=artist|album|radio, sort?, limit?, offset?, artist?");
+    return fail("bad query: kind=artist|album|mix|radio, sort?, limit?, offset?, artist?");
   const { kind, sort, limit, offset, artist } = parsed.data;
   if (kind === "radio") {
     // The Kindle's bands in its order: favourites (YTuner bookmarks, runtime) then the catalog lists.
@@ -274,6 +308,14 @@ async function list(params: URLSearchParams) {
       })),
     });
   }
+  if (haBackend()) {
+    try {
+      return await maList(kind, sort, limit, offset, artist);
+    } catch (e) {
+      return fail(mediaErrorMessage(e), 502);
+    }
+  }
+  if (kind === "mix") return fail("kind=mix needs Music Assistant (MUSIC_BACKEND=ha)", 409);
   if (!jellyfinConfigured()) return fail("Jellyfin not configured", 503);
   if (kind === "album" && artist) {
     const albums = await jellyfin.artistAlbums(artist); // oldest first, with year + track count
@@ -296,6 +338,18 @@ async function list(params: URLSearchParams) {
       ? await jellyfin.listAlbumArtists(limit, offset, sort === "random")
       : await jellyfin.listAlbums(limit, offset, sort === "random");
   return json({ ok: true, kind, sort, offset, total: page.total, items: page.items });
+}
+
+/** The pickers' lists from Music Assistant (bus task 031), see voice-ma.server.ts. */
+async function maList(
+  kind: "artist" | "album" | "mix",
+  sort: "name" | "random",
+  limit: number,
+  offset: number,
+  artist: string | undefined,
+) {
+  const r = await maListData(kind, sort, limit, offset, artist);
+  return "error" in r ? fail(r.error, 400) : json(r);
 }
 
 // ---- Amp power (idempotent: an amp that is on is never plug-cycled; a running job is joined) ----

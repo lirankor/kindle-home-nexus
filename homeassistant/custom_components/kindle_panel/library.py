@@ -49,6 +49,8 @@ PLAYABLE_TYPES = {"artist", "album", "track", "playlist", "radio", "podcast", "p
 CONTAINER_TYPES = {"artist", "album", "playlist", "podcast", "genre"}
 SEARCH_TYPES = ["artist", "album", "track", "playlist", "radio", "podcast", "audiobook"]
 QUEUE_OPTIONS = {"play", "replace", "next", "replace_next", "add"}
+# bus task 031: plain orders for the voice API's pickers (MA's order_by values; default = favourites first + sort_name)
+LIST_ORDERS = ["random", "sort_name", "sort_name_desc", "timestamp_added_desc", "year", "random_play_count"]
 IMAGE_SIZE = 256
 CHILD_CACHE_S = 120.0
 GENRE_CACHE_S = 300.0
@@ -178,6 +180,11 @@ def item_view(item: dict[str, Any], base_url: str | None = None, schema: int | N
         "duration": duration if isinstance(duration, int | float) and duration > 0 else None,
         "image": proxy_image_url(base_url, schema, item),
         "opens": mt in CONTAINER_TYPES,
+        # bus task 031: plain fields for the app's voice API (pickers, Assist): an album's year, the artist names of an
+        # album / track and a track's album name
+        "year": item.get("year") if mt == "album" and isinstance(item.get("year"), int) else None,
+        "artist": _names(item.get("artists")) if mt in ("album", "track") else None,
+        "album": _names(item.get("album")) if mt == "track" else None,
         # a track's album (MA plays a track within its album when it is opened from there)
         "album_uri": (item.get("album") or {}).get("uri")
         if mt == "track" and isinstance(item.get("album"), dict)
@@ -407,9 +414,13 @@ async def library_list(
     search: str | None = None,
     offset: int = 0,
     limit: int = 8,
+    order_by: str | None = None,
+    album_artists_only: bool = False,
 ) -> dict[str, Any]:
     """One page of a library tab (favourites first, MA's default sort) or of what a parent opens (an artist's albums,
-    an album's / playlist's tracks, a podcast's episodes, a genre's albums)."""
+    an album's / playlist's tracks, a podcast's episodes, a genre's albums). `order_by` (bus task 031, the voice API's
+    pickers) = one plain MA order (e.g. random) over the whole tab instead of favourites first; `album_artists_only`
+    = the Artists tab without track-only artists (MA's own filter)."""
     base, schema = _server(mass)
     if parent:
         items = await _children(mass, parent, cache)
@@ -439,6 +450,27 @@ async def library_list(
         }
     api = API_BASE[TAB_MEDIA_TYPE[section]]
     q: dict[str, Any] = {"search": search} if search else {}
+    if album_artists_only and section == "artists":
+        q["album_artists_only"] = True
+    if order_by:
+        if order_by not in LIST_ORDERS:
+            raise ValueError(f"unknown order {order_by!r}")
+        items, total = await asyncio.gather(
+            _items(mass, api, favorite=favorite, limit=limit, offset=offset, order_by=order_by, **q),
+            mass.send_command(
+                f"music/{api}/count",
+                favorite_only=bool(favorite),
+                **({"album_artists_only": True} if q.get("album_artists_only") else {}),
+            ),
+        )
+        return {
+            "section": section,
+            "parent": None,
+            "total": int(total or 0) if not search else offset + len(items) + (1 if len(items) == limit else 0),
+            "offset": offset,
+            "favorites": 0,
+            "items": _views(items, base, schema),
+        }
     if favorite is not None or search:
         # only favourites (or only the rest), or a filter: MA's own paging
         items = await _items(mass, api, favorite=favorite, limit=limit, offset=offset, **q)

@@ -377,11 +377,11 @@ export function positionOf(name: string | null | undefined): RadioPosition | nul
 /** Jellyfin item ids are 32 hex characters; MA's own library ids (library://track/123) are not. */
 export const isJellyfinId = (v: string | null | undefined): v is string =>
   typeof v === "string" && /^[0-9a-f]{32}$/i.test(v);
-/** Art for /media/img?item=…: a Jellyfin id when there is one, else MA's image proxy URL as an "ma:" token. */
+/** Art for /media/img?item=…: MA's image proxy URL as an "ma:" token; a Jellyfin id only when MA has no image (bus
+ *  task 031: art comes from Music Assistant, the MA Jellyfin provider is gone). */
 export function artToken(ids: (string | null | undefined)[], image: string | null | undefined) {
-  const jf = ids.find(isJellyfinId);
-  if (jf) return jf;
-  return image ? `ma:${Buffer.from(image, "utf8").toString("base64url")}` : null;
+  if (image) return `ma:${Buffer.from(image, "utf8").toString("base64url")}`;
+  return ids.find(isJellyfinId) ?? null;
 }
 
 export const toMusicTrack = (t: HaTrack): MusicTrack => ({

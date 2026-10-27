@@ -50,6 +50,8 @@ export type Candidate = {
   artist?: string | null;
   album?: string | null;
   year?: number | null;
+  /** Music Assistant image URL (MUSIC_BACKEND=ha, bus task 031). */
+  art?: string | null;
   score: number;
 };
 /** Kind preference on equal scores: an artist beats an album beats a playlist beats a track. */
@@ -104,6 +106,46 @@ export function mixFor(query: string): (typeof MIX_IDS)[number] | null {
   const direct = MIX_IDS.find((id) => id === q);
   if (direct) return direct;
   return MIX_ALIASES[q] ?? null;
+}
+/** Bus task 031: the nightly Music Assistant mix playlists, as homeserver-cloud `stacks/music-assistant/mixes.json`
+ *  names them (id = the Kindle's MIX_IDS plus kids / hebrew, name = the playlist name in MA, he = the Hebrew label).
+ *  Keep in step with that file (bin/ma-mixes.py builds the playlists from it). */
+export const MA_MIXES: readonly { id: string; name: string; he: string }[] = [
+  { id: "daily", name: "Daily mix", he: "מיקס יומי" },
+  { id: "discover", name: "Discover", he: "גילוי" },
+  { id: "party", name: "Party", he: "מסיבה" },
+  { id: "dancing", name: "Dancing", he: "ריקודים" },
+  { id: "rock", name: "Rock", he: "רוק" },
+  { id: "pop", name: "Pop hits", he: "להיטי פופ" },
+  { id: "s60", name: "60s", he: "שנות ה-60" },
+  { id: "s70", name: "70s", he: "שנות ה-70" },
+  { id: "s80", name: "80s", he: "שנות ה-80" },
+  { id: "s90", name: "90s", he: "שנות ה-90" },
+  { id: "s2000", name: "2000s", he: "שנות ה-2000" },
+  { id: "relaxed", name: "Relaxed", he: "רגוע" },
+  { id: "evening", name: "Evening", he: "ערב" },
+  { id: "jazz", name: "Jazz", he: "ג׳אז" },
+  { id: "blues", name: "Blues", he: "בלוז" },
+  { id: "punk", name: "Punk", he: "פאנק" },
+  { id: "metal", name: "Metal", he: "מטאל" },
+  { id: "electronic", name: "Electronic", he: "אלקטרוני" },
+  { id: "classical", name: "Classical", he: "קלאסי" },
+  { id: "kids", name: "Kids", he: "ילדים" },
+  { id: "hebrew", name: "Hebrew", he: "עברית" },
+];
+const MA_MIX_ALIASES: Record<string, string> = {
+  children: "kids",
+  "children s": "kids",
+  israeli: "hebrew",
+};
+/** A spoken mix name -> one of MA_MIXES (the Kindle's mixes, their MA playlist names and Hebrew labels, kids / hebrew). */
+export function maMixFor(query: string): (typeof MA_MIXES)[number] | null {
+  const q = norm(query).replace(/ ?(mix|music|playlist)$/, "");
+  const id =
+    mixFor(query) ??
+    MA_MIX_ALIASES[q] ??
+    MA_MIXES.find((m) => m.id === q || norm(m.name) === q || m.he === query.trim())?.id;
+  return MA_MIXES.find((m) => m.id === id) ?? null;
 }
 /** Hebrew / spoken aliases for catalog stations (matched next to the English catalog names). */
 const STATION_ALIASES: Record<string, string[]> = {
@@ -186,6 +228,12 @@ export function matchStation(query: string, min = 50): StationHit | null {
 }
 
 // ---- Shapes ----
+/** The Music Assistant image URL inside an "ma:" art token (media-ha.server artToken), else null. */
+export const maImageUrl = (token: string | null | undefined): string | null => {
+  if (!token?.startsWith("ma:")) return null;
+  const url = Buffer.from(token.slice(3), "base64url").toString("utf8");
+  return /^https?:\/\//.test(url) ? url : null;
+};
 export const trackView = (t: MusicTrack | null | undefined) =>
   t
     ? {
@@ -194,9 +242,11 @@ export const trackView = (t: MusicTrack | null | undefined) =>
         artist: t.artist,
         album: t.album,
         durationMs: t.durationMs,
-        // Jellyfin ids for colour art (HA's Music dashboard: /Items/<albumId ?? artItemId>/Images/Primary)
         albumId: t.albumId ?? null,
+        // opaque art id for /media/img?item= (MUSIC_BACKEND=ha: an "ma:" token of MA's image proxy URL)
         artItemId: t.artItemId ?? null,
+        // bus task 031: MA's image proxy URL itself (colour art for HA; null on the legacy Jellyfin backend)
+        artUrl: maImageUrl(t.artItemId),
       }
     : null;
 export const queueSummary = (q: QueueProgress | null | undefined) =>

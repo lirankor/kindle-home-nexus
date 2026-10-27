@@ -416,6 +416,31 @@ async def test_library_list_parents_and_genres(hass, panel, mass) -> None:
         await call(hass, "library_list", parent="library://track/3")
 
 
+async def test_library_list_plain_order_for_the_voice_pickers(hass, panel, mass) -> None:
+    """Bus task 031: order_by = one MA order over the whole tab (no favourites gluing), album artists filter, year."""
+    mass.sent.clear()
+    r = await call(hass, "library_list", section="albums", order_by="random", offset=0, limit=40)
+    assert r["total"] == 20 and r["favorites"] == 0 and len(r["items"]) == 20
+    assert r["items"][0]["year"] == 1974 and r["items"][0]["uri"] == "library://album/1"
+    assert r["items"][0]["artist"] == "Queen" and r["items"][0]["album"] is None
+    assert (
+        "music/albums/library_items",
+        {"favorite": None, "limit": 40, "offset": 0, "order_by": "random"},
+    ) in mass.sent
+    assert not [kw for c, kw in mass.sent if c.endswith("/library_items") and kw.get("favorite") is True]
+    mass.sent.clear()
+    await call(hass, "library_list", section="artists", order_by="sort_name", album_artists_only=True, limit=5)
+    sent = dict(mass.sent)
+    assert sent["music/artists/library_items"]["album_artists_only"] is True
+    assert sent["music/artists/count"] == {"favorite_only": False, "album_artists_only": True}
+    # without order_by the default stays favourites first (the panel's tabs)
+    p1 = await call(hass, "library_list", section="albums", offset=0, limit=8)
+    assert p1["favorites"] == 2
+    with pytest.raises(vol.Invalid):
+        await call(hass, "library_list", section="albums", order_by="bogus")
+    assert lib.item_view(_radio(1), BASE, 30)["year"] is None
+
+
 async def test_library_search_all_types(hass, panel, mass) -> None:
     r = await call(hass, "library_search", query="queen")
     assert [(i["media_type"], i["name"]) for i in r["items"]] == [

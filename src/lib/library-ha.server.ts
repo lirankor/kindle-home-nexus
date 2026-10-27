@@ -30,6 +30,10 @@ export type PanelLibItem = {
   image?: string | null;
   opens?: boolean;
   album_uri?: string | null;
+  /** kindle_panel >= 0.12.0: an album's year, an album's / track's artists, a track's album. */
+  year?: number | null;
+  artist?: string | null;
+  album?: string | null;
 };
 
 /** The second line of a row. The provider name ("Music Assistant" under every playlist) says nothing: dropped. */
@@ -68,10 +72,10 @@ async function panelService<T>(
   return r.service_response;
 }
 
-/** HA answers 400 for an unknown service or field (kindle_panel < 0.11.0) or a refused call. */
+/** HA answers 400 for an unknown service or field (kindle_panel < 0.12.0) or a refused call. */
 const errorText = (e: unknown) =>
   e instanceof HomeError && e.status === 400
-    ? "kindle_panel 0.11.0 needed (or Music Assistant refused)"
+    ? "kindle_panel 0.12.0 needed (or Music Assistant refused)"
     : e instanceof Error
       ? e.message
       : String(e);
@@ -135,6 +139,40 @@ export async function readLibraryList(q: {
       items: [],
     };
   }
+}
+
+// ---- Bus task 031: the voice API (/api/voice/search|list) reads Music Assistant through the same services ----
+/** One page of MA items as kindle_panel answers them (raw: the voice API keeps uri, year and MA's image URL). */
+export async function panelLibraryList(q: {
+  section?: Exclude<LibraryTab, "search"> | undefined;
+  parent?: string | undefined;
+  offset?: number | undefined;
+  limit: number;
+  orderBy?: "random" | "sort_name" | undefined;
+  albumArtistsOnly?: boolean | undefined;
+  search?: string | undefined;
+}): Promise<{ total: number; items: PanelLibItem[] }> {
+  const r = await panelService<{ total: number; items: PanelLibItem[] }>("library_list", {
+    ...(q.parent ? { parent: q.parent } : { section: q.section }),
+    offset: q.offset ?? 0,
+    limit: q.limit,
+    ...(q.orderBy ? { order_by: q.orderBy } : {}),
+    ...(q.albumArtistsOnly ? { album_artists_only: true } : {}),
+    ...(q.search ? { search: q.search } : {}),
+  });
+  return { total: r.total ?? 0, items: r.items ?? [] };
+}
+export async function panelLibrarySearch(
+  query: string,
+  mediaTypes: LibMediaType[],
+  limit: number,
+): Promise<PanelLibItem[]> {
+  const r = await panelService<{ items: PanelLibItem[] }>("library_search", {
+    query,
+    media_types: mediaTypes,
+    limit,
+  });
+  return r.items ?? [];
 }
 
 export async function searchLibrary(query: string): Promise<LibSearchResult> {

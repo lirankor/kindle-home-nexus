@@ -437,6 +437,14 @@
         "limit": {
           "name": "Limit",
           "description": "Items on the page."
+        },
+        "order_by": {
+          "name": "Order",
+          "description": "One plain Music Assistant order over the whole tab (e.g. random) instead of favourites first."
+        },
+        "album_artists_only": {
+          "name": "Album artists only",
+          "description": "Artists tab: leave out artists that only appear on tracks."
         }
       }
     },

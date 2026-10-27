@@ -994,7 +994,8 @@ export function stationArtPng(
     );
   });
 }
-/** Resolves what the /media/img route accepts: a catalog station id or a Jellyfin item id (no free-form URLs). */
+/** Resolves what the /media/img route accepts: a catalog station id, an MA image (an "ma:" token or MA's own
+ *  /imageproxy URL on the LAN, nothing else) or, on the legacy app backend, a Jellyfin item id. */
 export async function imageFor(q: {
   station?: string | null;
   item?: string | null;
@@ -1002,11 +1003,15 @@ export async function imageFor(q: {
 }): Promise<Buffer | null> {
   const width = Math.max(16, Math.min(400, Math.round(q.width)));
   if (q.station) return stationArtPng(q.station, width, "grayscale");
-  if (q.item?.startsWith("ma:")) {
-    // "ma:" + base64url(MA image proxy URL), set by media-ha.server.ts; only MA's /imageproxy on the LAN is fetched
+  const item = q.item ?? "";
+  if (item.startsWith("ma:") || /^https?:\/\//.test(item)) {
+    // "ma:" + base64url(MA image proxy URL), set by media-ha.server.ts, or (bus task 031) the MA image proxy URL itself
+    // as the voice API hands it out; either way only MA's /imageproxy on the LAN is fetched
     let url: URL;
     try {
-      url = new URL(Buffer.from(q.item.slice(3), "base64url").toString("utf8"));
+      url = new URL(
+        item.startsWith("ma:") ? Buffer.from(item.slice(3), "base64url").toString("utf8") : item,
+      );
     } catch {
       return null;
     }

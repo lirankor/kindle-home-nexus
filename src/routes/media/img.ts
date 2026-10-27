@@ -1,4 +1,5 @@
-// GET /media/img?station=<catalog id>|item=<jellyfin id>&w=<px>  (no free-form URLs: SSRF)
+// GET /media/img?station=<catalog id>|item=<ma:token | MA /imageproxy URL | legacy Jellyfin id>&w=<px>
+// (no free-form URLs: an item URL must be Music Assistant's /imageproxy on the LAN, see maImageAllowed; SSRF)
 // Returns a square grayscale PNG for <img src> on the e-ink panel (resized server-side, cached on disk).
 import { createFileRoute } from "@tanstack/react-router";
 import { imageFor } from "@/lib/media.server";

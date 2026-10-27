@@ -136,7 +136,10 @@ LIBRARY_LIST_SCHEMA = vol.Schema(
         vol.Optional("favorite"): vol.Any(None, cv.boolean),
         vol.Optional("search"): vol.Any(None, vol.All(cv.string, vol.Length(max=80))),
         vol.Optional("offset", default=0): vol.All(vol.Coerce(int), vol.Range(min=0)),
-        vol.Optional("limit", default=8): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
+        vol.Optional("limit", default=8): vol.All(vol.Coerce(int), vol.Range(min=1, max=200)),
+        # bus task 031 (the app's voice API pickers): one plain MA order over the tab, album artists only
+        vol.Optional("order_by"): vol.In(lib.LIST_ORDERS),
+        vol.Optional("album_artists_only", default=False): cv.boolean,
     }
 )
 LIBRARY_HOME_SCHEMA = vol.Schema(
@@ -840,6 +843,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: KindlePanelConfigEntry) 
                 search=d.get("search"),
                 offset=d["offset"],
                 limit=d["limit"],
+                order_by=d.get("order_by"),
+                album_artists_only=d["album_artists_only"],
             )
         except ValueError as err:
             raise ServiceValidationError(str(err)) from err

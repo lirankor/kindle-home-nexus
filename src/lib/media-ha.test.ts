@@ -630,10 +630,12 @@ describe("full playlist (kindle_panel) with fallback to the list the panel sent"
 });
 
 describe("art for items without a Jellyfin id", () => {
-  it("prefers Jellyfin ids, else an ma: token the image route accepts only for MA's LAN image proxy", async () => {
+  it("prefers MA's image as an ma: token (only MA's LAN image proxy is fetched), a Jellyfin id only without one", async () => {
     const { artToken } = await import("./media-ha.server");
     const { maImageAllowed } = await import("./media.server");
-    expect(artToken(["123", "c".repeat(32)], "http://x/imageproxy")).toBe("c".repeat(32));
+    expect(artToken(["123", "c".repeat(32)], null)).toBe("c".repeat(32));
+    expect(artToken(["123", "c".repeat(32)], "http://x/imageproxy")?.startsWith("ma:")).toBe(true);
+    expect(artToken(["123"], null)).toBeNull();
     const t = artToken(["123"], "http://192.168.1.15:8095/imageproxy?path=abc")!;
     expect(t.startsWith("ma:")).toBe(true);
     const url = new URL(Buffer.from(t.slice(3), "base64url").toString("utf8"));

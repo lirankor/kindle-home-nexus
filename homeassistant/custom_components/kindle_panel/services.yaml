@@ -145,7 +145,15 @@ library_list:
     limit:
       default: 8
       selector:
-        number: { min: 1, max: 100, mode: box }
+        number: { min: 1, max: 200, mode: box }
+    order_by:
+      selector:
+        select:
+          options: [random, sort_name, sort_name_desc, timestamp_added_desc, year, random_play_count]
+    album_artists_only:
+      default: false
+      selector:
+        boolean:
 library_search:
   fields:
     query:
