@@ -2,8 +2,8 @@
 #
 # * hacs: the official hacs/action for category `integration` (hacs.json, manifest.json keys, README, repository
 #   settings). `brands` is ignored: the integration is not in home-assistant/brands.
-# * pytest: homeassistant/tests inside the Home Assistant `stable` container, with pytest-homeassistant-custom-component
-#   in the release pinning that very HA version (.github/scripts/pytest-in-ha.sh, the same script for a local run).
+# * pytest: homeassistant/tests inside the Home Assistant container of the newest version the test harness supports
+#   (pytest-homeassistant-custom-component trails HA releases; .github/scripts/pytest-in-ha.sh, same script for a local run).
 name: Validate
 
 on:
