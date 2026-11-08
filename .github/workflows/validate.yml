@@ -1,0 +1,38 @@
+# Marketplace / HACS validation of the kindle_panel integration and its pytest suite.
+#
+# * hacs: the official hacs/action for category `integration` (hacs.json, manifest.json keys, README, repository
+#   settings). `brands` is ignored: the integration is not in home-assistant/brands.
+# * pytest: homeassistant/tests inside the Home Assistant `stable` container, with pytest-homeassistant-custom-component
+#   in the release pinning that very HA version (.github/scripts/pytest-in-ha.sh, the same script for a local run).
+name: Validate
+
+on:
+  push:
+    branches: [main, media-platform]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hacs:
+    name: HACS validation (integration)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: hacs/action
+        uses: hacs/action@main
+        with:
+          category: integration
+          ignore: brands
+
+  pytest:
+    name: pytest in the Home Assistant container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the suite
+        run: .github/scripts/pytest-in-ha.sh -q

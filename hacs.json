@@ -1,0 +1,7 @@
+{
+  "name": "Kindle Panel",
+  "zip_release": true,
+  "filename": "kindle_panel.zip",
+  "render_readme": true,
+  "homeassistant": "2026.8.0"
+}

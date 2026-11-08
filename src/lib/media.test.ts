@@ -60,7 +60,7 @@ const POSITION_INFO = `<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/enve
 			<Track>1</Track>
 			<TrackDuration>0:05:32</TrackDuration>
 			<TrackMetaData></TrackMetaData>
-			<TrackURI>http://192.168.1.15:8096/Audio/b8f0216f21724320298e0ed0b607676b/stream.mp3?static=true&amp;api_key=x</TrackURI>
+			<TrackURI>http://192.0.2.10:8096/Audio/b8f0216f21724320298e0ed0b607676b/stream.mp3?static=true&amp;api_key=x</TrackURI>
 			<RelTime>0:01:02</RelTime>
 			<AbsTime>0:01:02</AbsTime>
 			<RelCount>0</RelCount>

@@ -112,15 +112,15 @@ def test_item_view_prefers_ma_proxy_id_also_for_remote_covers() -> None:
     nothing = SimpleNamespace(path="https://cdn/y.jpg", provider="url", remotely_accessible=True, proxy_id=None)
     qi = SimpleNamespace(queue_item_id="q1", name="War Pigs", duration=1, media_item=SimpleNamespace(name="War Pigs", uri="library://track/1"))
 
-    def mass_with(img, base="http://192.168.1.15:8095/"):
+    def mass_with(img, base="http://192.0.2.10:8095/"):
         return SimpleNamespace(
             music=SimpleNamespace(get_media_item_image=lambda item, *a: img),
             server_info=SimpleNamespace(base_url=base, schema_version=31),
             get_media_item_image_url=lambda q: img.path,
         )
 
-    assert _item_view(mass_with(remote), 0, qi)["image"] == "http://192.168.1.15:8095/imageproxy/ab12?size=0"
-    assert _item_view(mass_with(local), 0, qi)["image"] == "http://192.168.1.15:8095/imageproxy/cd34?size=0"
+    assert _item_view(mass_with(remote), 0, qi)["image"] == "http://192.0.2.10:8095/imageproxy/ab12?size=0"
+    assert _item_view(mass_with(local), 0, qi)["image"] == "http://192.0.2.10:8095/imageproxy/cd34?size=0"
     # no proxy id (older server): the client's own URL as before
     assert _item_view(mass_with(nothing), 0, qi)["image"] == "https://cdn/y.jpg"
     # a client without the music api (the other tests' fakes): unchanged behaviour

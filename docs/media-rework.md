@@ -12,13 +12,13 @@ Everything the app talks to lives on pop-os. Hard facts below were verified on t
 | Home Assistant | `HA_BASE_URL` + `HA_TOKEN` (existing `src/lib/home.server.ts`) | REST only |
 | Amp (Yamaha R-N500) in HA | `media_player.r_n500_main` (custom `yamaha_ynca` 9.7.0) | attrs: `state` on/off/playing/idle, `source`, `volume_level` 0..1, `media_title`, `media_artist`, `media_album_name`, `media_channel`, `media_content_type`; `number.r_n500_main_volume_db` (-80.5..16.5 step 0.5); `switch.r_n500_main_all_zones_power`; `remote.r_n500_main_remote` |
 | Amp as DLNA renderer in HA | `media_player.yamaha_r_n500` (`dlna_dmr`, manual URL) | state/position only; **its volume is wrong (0.0)**, use YNCA for volume |
-| Amp XML API | `POST http://192.168.1.25/YamahaRemoteControl/ctrl` (env `AMP_HOST`) | body `<YAMAHA_AV cmd="GET|PUT">…</YAMAHA_AV>`, `Content-Type: text/xml`, reply `<YAMAHA_AV rsp=… RC="0">` |
-| Amp UPnP AVTransport | `http://192.168.1.25:8080/AVTransport/ctrl` (SOAP, service `urn:schemas-upnp-org:service:AVTransport:1`) | desc `http://192.168.1.25:8080/MediaRenderer/desc.xml` |
-| Amp YNCA (HA uses it) | tcp 192.168.1.25:50000 | do NOT open a second connection from the app |
+| Amp XML API | `POST http://<AMP_IP>/YamahaRemoteControl/ctrl` (env `AMP_HOST`) | body `<YAMAHA_AV cmd="GET|PUT">…</YAMAHA_AV>`, `Content-Type: text/xml`, reply `<YAMAHA_AV rsp=… RC="0">` |
+| Amp UPnP AVTransport | `http://<AMP_IP>:8080/AVTransport/ctrl` (SOAP, service `urn:schemas-upnp-org:service:AVTransport:1`) | desc `http://<AMP_IP>:8080/MediaRenderer/desc.xml` |
+| Amp YNCA (HA uses it) | tcp <AMP_IP>:50000 | do NOT open a second connection from the app |
 | TV | `media_player.bravia_xr_65x90k` (braviatv) | existing |
 | Media plug (TV + amp strip) | `switch.smart_switch_23081678814571510d0548e1e9d69992_outlet` | power sensor `sensor.…_power` |
 | Movie mode | `script.movie_mode`, `script.movie_mode_off`, `input_boolean.movie_mode_active` | existing |
-| Jellyfin | `JELLYFIN_URL=http://192.168.1.15:8096`, `JELLYFIN_API_KEY`, `JELLYFIN_USER_ID` (user "Music") | header `Authorization: MediaBrowser Token="…"`; 17k tracks, 2.3k albums, 881 album artists, ~90% MP3 / 6% FLAC |
+| Jellyfin | `JELLYFIN_URL=http://<LAN_IP>:8096`, `JELLYFIN_API_KEY`, `JELLYFIN_USER_ID` (user "Music") | header `Authorization: MediaBrowser Token="…"`; 17k tracks, 2.3k albums, 881 album artists, ~90% MP3 / 6% FLAC |
 | YTuner (NET RADIO backend) | from the app container: `http://ytuner/` (compose service, port 80); from the amp: `http://radioyamaha.vtuner.com` | our station catalog `src/data/radio-stations.json` is the source of truth; `scripts/radio-stations.py` regenerates it and `ytuner/config/stations.yaml` |
 | HA yamaha_ynca config entry | `01M0ZMQXMTWAAW7BXTBCXD1YZR` | `POST /api/config/config_entries/entry/<id>/reload` reconnects instantly after the amp was powered |
 

@@ -17,7 +17,7 @@ from homeassistant.setup import async_setup_component
 from custom_components.kindle_panel import library as lib
 
 DOMAIN = "kindle_panel"
-BASE = "http://192.168.1.15:8095"
+BASE = "http://192.0.2.10:8095"
 
 
 async def call(hass, svc, **data):

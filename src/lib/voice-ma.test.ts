@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { maArtistAlbums, maCandidates, maListData, maMixPlaylists } from "./voice-ma.server";
 import { maImageUrl, maMixFor, trackView } from "./voice-match";
 
-const IMG = (n: string) => `http://192.168.1.15:8095/imageproxy/${n}?size=256`;
+const IMG = (n: string) => `http://192.0.2.10:8095/imageproxy/${n}?size=256`;
 const lib = (mt: string, id: number, name: string, extra: Record<string, unknown> = {}) => ({
   uri: `library://${mt}/${id}`,
   media_type: mt,
@@ -150,7 +150,7 @@ describe("voice API from Music Assistant (bus task 031)", () => {
     expect(maMixFor("children's music")?.id).toBe("kids");
     expect(maMixFor("עברית")?.id).toBe("hebrew");
     expect(maMixFor("queen")).toBeNull();
-    const url = "http://192.168.1.15:8095/imageproxy/ab?size=256";
+    const url = "http://192.0.2.10:8095/imageproxy/ab?size=256";
     const token = `ma:${Buffer.from(url).toString("base64url")}`;
     expect(maImageUrl(token)).toBe(url);
     expect(maImageUrl("c".repeat(32))).toBeNull();

@@ -1,5 +1,5 @@
 // Read-only smoke checks against the real devices. Skipped unless MEDIA_LIVE=1 (and the matching env vars) is set:
-//   MEDIA_LIVE=1 AMP_HOST=192.168.1.25 JELLYFIN_URL=… JELLYFIN_API_KEY=… JELLYFIN_USER_ID=… npx vitest run src/lib/media.live.test.ts
+//   MEDIA_LIVE=1 AMP_HOST=192.0.2.25 JELLYFIN_URL=… JELLYFIN_API_KEY=… JELLYFIN_USER_ID=… npx vitest run src/lib/media.live.test.ts
 // Nothing here changes amp state (GET-only XML, GetPositionInfo/GetTransportInfo, Jellyfin reads, YTuner reads).
 import { describe, expect, it } from "vitest";
 import {

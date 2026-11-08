@@ -8,6 +8,7 @@
   "documentation": "https://github.com/lirankor/kindle-home-nexus",
   "integration_type": "device",
   "iot_class": "local_push",
+  "issue_tracker": "https://github.com/lirankor/kindle-home-nexus/issues",
   "requirements": [],
   "single_config_entry": true,
   "version": "0.12.1",

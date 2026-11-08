@@ -1404,29 +1404,29 @@ def test_ma_image_only_from_the_ma_server() -> None:
 
     from custom_components.kindle_panel import ma_image_allowed
 
-    ma = ["http://192.168.1.15:8095"]
-    assert ma_image_allowed(URL("http://192.168.1.15:8095/imageproxy/abc?size=0"), ma)
-    assert not ma_image_allowed(URL("http://192.168.1.15:8095/api/players"), ma)
-    assert not ma_image_allowed(URL("http://192.168.1.15:8123/imageproxy/abc"), ma)
+    ma = ["http://192.0.2.10:8095"]
+    assert ma_image_allowed(URL("http://192.0.2.10:8095/imageproxy/abc?size=0"), ma)
+    assert not ma_image_allowed(URL("http://192.0.2.10:8095/api/players"), ma)
+    assert not ma_image_allowed(URL("http://192.0.2.10:8123/imageproxy/abc"), ma)
     assert not ma_image_allowed(URL("http://evil.example/imageproxy/abc"), ma)
     assert not ma_image_allowed(URL("file:///etc/passwd"), ma)
-    assert not ma_image_allowed(URL("http://192.168.1.15:8095/imageproxy/x"), [])
+    assert not ma_image_allowed(URL("http://192.0.2.10:8095/imageproxy/x"), [])
 
 
 async def test_ma_image_view_needs_auth_and_proxies(
     hass, panel, hass_client, hass_client_no_auth, aioclient_mock
 ) -> None:
-    entry = MockConfigEntry(domain="music_assistant", data={"url": "http://192.168.1.15:8095"})
+    entry = MockConfigEntry(domain="music_assistant", data={"url": "http://192.0.2.10:8095"})
     entry.add_to_hass(hass)
     entry.mock_state(hass, ConfigEntryState.LOADED)
-    img = "http://192.168.1.15:8095/imageproxy/abc?size=0"
+    img = "http://192.0.2.10:8095/imageproxy/abc?size=0"
     aioclient_mock.get(img, content=b"\xff\xd8\xffjpeg", headers={"Content-Type": "image/jpeg"})
     anon = await hass_client_no_auth()
     assert (await anon.get("/api/kindle_panel/ma_image", params={"url": img})).status == 401
     client = await hass_client()
     r = await client.get("/api/kindle_panel/ma_image", params={"url": img})
     assert r.status == 200 and r.content_type == "image/jpeg" and await r.read() == b"\xff\xd8\xffjpeg"
-    bad = await client.get("/api/kindle_panel/ma_image", params={"url": "http://192.168.1.15:8123/api/states"})
+    bad = await client.get("/api/kindle_panel/ma_image", params={"url": "http://192.0.2.10:8123/api/states"})
     assert bad.status == 403
     entry.mock_state(hass, ConfigEntryState.NOT_LOADED)  # no real music_assistant unload at teardown
 

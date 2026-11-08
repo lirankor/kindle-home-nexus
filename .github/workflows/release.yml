@@ -1,0 +1,39 @@
+# On a published GitHub release: build kindle_panel.zip from the integration folder (its files at the zip root, the
+# layout HACS / the Home Assistant Marketplace expects for a `zip_release` repository, see hacs.json) and attach it to
+# the release. Nothing here changes the integration itself.
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  zip:
+    name: Build and upload kindle_panel.zip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare the manifest version with the release tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(python3 -c 'import json; print(json.load(open("homeassistant/custom_components/kindle_panel/manifest.json"))["version"])')"
+          echo "release tag: $GITHUB_REF_NAME, manifest version: $version"
+          if [ "$tag" != "$version" ]; then
+            echo "::warning::manifest.json version ($version) differs from the release tag ($GITHUB_REF_NAME)"
+          fi
+
+      - name: Build kindle_panel.zip
+        run: |
+          cd homeassistant/custom_components/kindle_panel
+          zip -r "$GITHUB_WORKSPACE/kindle_panel.zip" . -x '__pycache__/*' '*.pyc'
+          cd "$GITHUB_WORKSPACE"
+          unzip -l kindle_panel.zip
+
+      - name: Upload the zip as a release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" kindle_panel.zip --clobber --repo "$GITHUB_REPOSITORY"

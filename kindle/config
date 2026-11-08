@@ -1,5 +1,5 @@
 # Kindle Home Nexus client config (POSIX sh, UNIX line endings)
-BRIDGE_URL="http://192.168.1.15:8790"   # pop-os bridge (docker)
+BRIDGE_URL="http://192.0.2.10:8790"      # the server (LAN_IP in the server's .env): the bridge container on :8790
 POLL_SECONDS=20                            # how often to re-fetch the screen when idle (the bridge shortens/lengthens it: 5 s music, 60 s screensaver)
 STOP_FRAMEWORK=1                           # 1 = stop the Kindle reader UI while running (frees RAM, frees buttons)
 BRIDGE_TOKEN=CHANGE_ME                    # set on the device only (the app's BRIDGE_TOKEN from .env); never copy this template over /mnt/us/nexus/config

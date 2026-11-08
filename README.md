@@ -46,15 +46,17 @@ docker run --rm -v "$PWD":/app -v khn-node-modules:/app/node_modules -v khn-brid
 
 ## Running it (Docker Compose — this is how it runs on the server)
 
+Setting it up on your own server and Home Assistant (compose, the Marketplace integration, the Kindle): `docs/INSTALL.md`.
+
 ```sh
 docker compose up -d --build            # app + bridge + ytuner + relay (bun + node images, ~3 min)
 curl -s http://127.0.0.1:8790/healthz   # {"ok":true,...}
 curl -o screen.png -H "X-Bridge-Token: $BRIDGE_TOKEN" http://127.0.0.1:8790/screen.png
 ```
 
-- Ports (see `docker-compose.yml`): bridge `192.168.1.15:8790` + `127.0.0.1:8790` (the Kindle polls
-  `http://192.168.1.15:8790/<BRIDGE_TOKEN>/screen.png`), the app itself `127.0.0.1:8791` (voice API for Home Assistant),
-  ytuner `127.0.0.1:8098`, relay `192.168.1.15:8792`.
+- Ports (see `docker-compose.yml`; `LAN_IP` in `.env` is this host's LAN address): bridge `${LAN_IP}:8790` + `127.0.0.1:8790`
+  (the Kindle polls `http://<LAN_IP>:8790/<BRIDGE_TOKEN>/screen.png`), the app itself `127.0.0.1:8791` (voice API for
+  Home Assistant), ytuner `127.0.0.1:8098`, relay `${LAN_IP}:8792`.
 - The compose network has a fixed subnet (`10.90.90.0/24`) so the host firewall can let it reach Home Assistant:
   `sudo ufw allow from 10.90.90.0/24 to any port 8123 proto tcp`.
 - **Rebuilding only the app:** `docker compose up -d --build app` **then** `docker compose up -d --force-recreate --no-deps bridge`.
@@ -65,7 +67,7 @@ curl -o screen.png -H "X-Bridge-Token: $BRIDGE_TOKEN" http://127.0.0.1:8790/scre
 
 ## Desktop debugging (drive the panel from a normal browser)
 
-The server also publishes the app on the LAN: <http://192.168.1.15:8791>. It is the same server "brain" the
+The server also publishes the app on the LAN: `http://<LAN_IP>:8791`. It is the same server "brain" the
 Kindle uses (same queue, same amp state), with its own remembered tab. Keys in the browser:
 
 | Browser key | Kindle button |

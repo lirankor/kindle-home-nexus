@@ -390,7 +390,7 @@ describe("the screen follows the chosen output strictly (bus task 021)", () => {
       ...s.queue!.track!,
       id: "8969",
       albumId: "1963",
-      artUrl: "http://192.168.1.15:8095/imageproxy/b018?size=0",
+      artUrl: "http://10.0.0.10:8095/imageproxy/b018?size=0",
     };
     expect(queueFromHa(s)?.track?.artItemId).toMatch(/^ma:/);
   });
@@ -605,7 +605,7 @@ describe("full playlist (kindle_panel) with fallback to the list the panel sent"
         artist: "Eagles",
         album: null,
         album_id: `alb${i}`,
-        image: `http://192.168.1.15:8095/imageproxy?path=${i}`,
+        image: `http://10.0.0.10:8095/imageproxy?path=${i}`,
         duration: 200,
       })),
     };
@@ -636,11 +636,11 @@ describe("art for items without a Jellyfin id", () => {
     expect(artToken(["123", "c".repeat(32)], null)).toBe("c".repeat(32));
     expect(artToken(["123", "c".repeat(32)], "http://x/imageproxy")?.startsWith("ma:")).toBe(true);
     expect(artToken(["123"], null)).toBeNull();
-    const t = artToken(["123"], "http://192.168.1.15:8095/imageproxy?path=abc")!;
+    const t = artToken(["123"], "http://10.0.0.10:8095/imageproxy?path=abc")!;
     expect(t.startsWith("ma:")).toBe(true);
     const url = new URL(Buffer.from(t.slice(3), "base64url").toString("utf8"));
     expect(maImageAllowed(url)).toBe(true);
     expect(maImageAllowed(new URL("http://evil.example.com/imageproxy?path=x"))).toBe(false);
-    expect(maImageAllowed(new URL("http://192.168.1.15:8095/api/other"))).toBe(false);
+    expect(maImageAllowed(new URL("http://10.0.0.10:8095/api/other"))).toBe(false);
   });
 });
