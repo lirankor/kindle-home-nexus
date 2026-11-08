@@ -181,6 +181,12 @@ lists); fall back to the client's URL. Test `test_item_view_prefers_ma_proxy_id_
 Tests: HA image `ghcr.io/home-assistant/home-assistant:stable` (= 2026.10.4) + `pytest-homeassistant-custom-component==0.13.375`
 (the release pinning 2026.10.4, `--no-deps`), 95 passed. Note: MA 2.10's `/imageproxy?path=..&provider=..` form answers 400
 for every image now, only the proxy-id form works. Deploy as before (docker cp + HA restart, only while the players are idle).
+Tests on HA 2026.11.0 (checked 2026-11-08, 95 passed): no `pytest-homeassistant-custom-component` release pins 2026.11
+yet; 0.13.375 (pins 2026.10.4) crashes at import on 2026.11 because HA now aliases `httpx` -> `httpx2` (the respx plugin
+imports httpx first) and `_clear_logger_overwrites` moved to `homeassistant.components.logger.helpers`. Workaround until a
+matching release exists: a `sitecustomize.py` on the test container's path that imports `homeassistant` first and aliases
+that one helper, plus pytest==9.0.3 / pytest-asyncio==1.4.0 as 0.13.375 requires. All six custom integrations of the
+house import cleanly on 2026.11 / Python 3.14.
 
 ## df5e663 — library_play wakes the amp even when its AirPlay player is unavailable (2026-10-21)
 
