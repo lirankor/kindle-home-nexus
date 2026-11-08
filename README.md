@@ -86,3 +86,7 @@ so this port is open to everyone on the home Wi-Fi (see the comment in `docker-c
 en/he sentences call it so "play some Beatles" / "תנגן משהו של queen" / "what's playing" work from the phone.
 The endpoint table, match rule, amp power semantics, HA package and measured latencies are documented in the DR repo:
 **`homeserver-cloud/docs/KINDLE-APP.md`** (voice pipeline itself: `docs/VOICE.md`).
+
+## License
+
+Apache License 2.0, Copyright 2026 Liran Koren. See `LICENSE` and keep `NOTICE` with any copy or fork.
