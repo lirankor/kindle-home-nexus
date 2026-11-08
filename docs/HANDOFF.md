@@ -169,6 +169,19 @@ User: some Immich favourites dither really well, some badly; wants to judge them
 - Bridge: page sets `<html data-eink-busy>` while mark + next photo are in flight; `pressKey` waits for it to clear (BUSY_WAIT_MS=6000) so the F1 redraw already shows the next photo.
 - Next step when a few hundred are marked: switch the pool to the marks (e.g. env `SCREENSAVER_POOL=marked`) — not built. To inspect: `docker compose exec app cat /data/kindle-photo-marks.json`.
 
+## kindle_panel 0.12.1 — queue covers through MA's proxy id, also for remote covers (2026-11-08)
+
+Symptom: broken-image icon on the Kindle's now-playing screen for Black Sabbath "We Sold Our Soul For Rock 'N' Roll".
+Cause: the album has no cover file; MA's metadata providers (fanart.tv here; theaudiodb / coverartarchive for others,
+51 albums in this library) give covers marked `remotely_accessible`, and `mass.get_media_item_image_url()` returns the
+raw CDN URL for those. The panel only fetches MA's `/imageproxy` through HA (`maImageAllowed`, bus task 021) -> 404.
+Fix (`_image_url` in custom_components/kindle_panel/__init__.py): take the image object (`mass.music.get_media_item_image`)
+and prefer its server-side `proxy_id` (`<base>/imageproxy/<id>?size=0`, schema >= 31, as library.py already does for
+lists); fall back to the client's URL. Test `test_item_view_prefers_ma_proxy_id_also_for_remote_covers`.
+Tests: HA image `ghcr.io/home-assistant/home-assistant:stable` (= 2026.10.4) + `pytest-homeassistant-custom-component==0.13.375`
+(the release pinning 2026.10.4, `--no-deps`), 95 passed. Note: MA 2.10's `/imageproxy?path=..&provider=..` form answers 400
+for every image now, only the proxy-id form works. Deploy as before (docker cp + HA restart, only while the players are idle).
+
 ## df5e663 — library_play wakes the amp even when its AirPlay player is unavailable (2026-10-21)
 
 Symptom: Enter on a playlist with the amp unpowered did nothing (panel showed no error: status row is sr-only).

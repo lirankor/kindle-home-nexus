@@ -470,15 +470,35 @@ def player_quality(mass: Any, p: Any) -> dict[str, Any] | None:
         return None
 
 
+def _image_url(mass: Any, qi: Any) -> str | None:
+    """MA's image proxy URL for a queue item's thumb, ALSO for covers MA marks remotely accessible (fanart.tv,
+    theaudiodb, coverartarchive). The MA client hands those out as the raw CDN URL, but the panel only fetches MA's
+    /imageproxy through HA (bus task 021) and showed a broken image for such albums (2026-11-08, 51 albums here).
+    The server-side proxy_id (schema >= 31) is set on every image it serialises, so prefer it; else the client's URL."""
+    m = getattr(qi, "media_item", None)
+    img = None
+    try:
+        music = getattr(mass, "music", None)
+        if music is not None:
+            img = (music.get_media_item_image(m) if m is not None else None) or music.get_media_item_image(qi)
+    except Exception:  # noqa: BLE001 - an image is optional
+        img = None
+    proxy_id = getattr(img, "proxy_id", None)
+    base = getattr(getattr(mass, "server_info", None), "base_url", None)
+    if proxy_id and base:
+        return f"{str(base).rstrip('/')}/imageproxy/{proxy_id}?size=0"
+    try:
+        return mass.get_media_item_image_url(qi)
+    except Exception:  # noqa: BLE001 - an image is optional
+        return None
+
+
 def _item_view(mass: Any, index: int, qi: Any) -> dict[str, Any]:
     m = getattr(qi, "media_item", None)
     artists = getattr(m, "artists", None) or []
     album = getattr(m, "album", None)
     uri = getattr(m, "uri", None)
-    try:
-        image = mass.get_media_item_image_url(qi)
-    except Exception:  # noqa: BLE001 - an image is optional
-        image = None
+    image = _image_url(mass, qi)
     return {
         "index": index,
         "queue_item_id": qi.queue_item_id,
