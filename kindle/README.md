@@ -64,7 +64,7 @@ The watchdog knows about the windows: `nexus.sh` writes `/tmp/nexus.window` = `"
 radio off, and `cron.sh` widens its stale threshold to `max(180, window + 120)` while that window runs (otherwise every
 10-minute day window — and certainly every 2-hour night one — would look like a stuck client and get restarted). Without the
 stamp the threshold is `max(180, POLL_SECONDS + 120)`, and an absurd value in the stamp is capped at 7800 s so a corrupt file
-can never switch the watchdog off. Decision table: `dash kindle/tests/cron-test.sh` (23 cases).
+can never switch the watchdog off. Decision table: `dash kindle/tests/cron-test.sh` (23 cases). **Last resort (2026-11-09):** when the bridge is unreachable AND wifid is not CONNECTED for `WIFI_DEAD_REBOOT` s (default 1800, 0 = off) past the stale threshold, and at least that long after the last radio-off window ended, `cron.sh` reboots the device (once per 6 h, logged in nexus.log). A stuck client can be restarted, a Wi-Fi driver that never comes back after `wirelessEnable 0` cannot; the panel sat offline for 6 h that way on 2026-11-09 (last fetch 15:40, radio off for a screensaver window, never re-associated).
 
 **Kill switches:** `RADIO_DUTY=0` in `config` (+ restart), `touch /mnt/us/nexus/NORADIO` (live, checked before every
 window; the older `NOSLEEP` name still works), `DISABLED` (no client at all), or `RADIO_DUTY_ENABLED=0` in the server `.env`

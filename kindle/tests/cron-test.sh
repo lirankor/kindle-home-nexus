@@ -19,10 +19,12 @@ printf '#!/bin/sh\necho "$1" >> %s/calls\n' $W > $W/dir/nexus.sh
 # PATH shims: busybox 1.7.2 syntax "timeout -t N cmd" (newer busybox/coreutils differ) and a bridge that is up or down.
 printf '#!/bin/sh\n[ "$1" = -t ] && shift 2\nexec "$@"\n' > $W/bin/timeout
 printf '#!/bin/sh\n[ -f %s/bridge_down ] && exit 1\nexit 0\n' $W > $W/bin/wget
+printf '#!/bin/sh\n[ -f %s/wifi_down ] && { echo NOT_CONNECTED; exit 0; }\necho CONNECTED\n' $W > $W/bin/lipc-get-prop
+printf '#!/bin/sh\necho reboot >> %s/calls\n' $W > $W/bin/reboot
 chmod +x $W/bin/* $W/dir/nexus.sh
-export PATH=$W/bin:$PATH NEXUS_DIR=$W/dir NEXUS_TMP=$W/tmp NEXUS_GRACE_WAIT=0
+export PATH=$W/bin:$PATH NEXUS_DIR=$W/dir NEXUS_TMP=$W/tmp NEXUS_GRACE_WAIT=0 NEXUS_REBOOT=$W/bin/reboot
 now() { date +%s; }
-reset() { rm -f $W/calls $W/tmp/* $W/dir/DISABLED $W/bridge_down; echo $SLEEPER > $W/dir/nexus.pid
+reset() { rm -f $W/calls $W/tmp/* $W/dir/DISABLED $W/bridge_down $W/wifi_down; echo $SLEEPER > $W/dir/nexus.pid
   printf 'BRIDGE_URL="http://bridge.test"\nBRIDGE_TOKEN="x"\nPOLL_SECONDS=20\n' > $W/dir/config; }
 stamp() { echo $(( $(now) - $1 )) > $W/tmp/nexus.last_ok; }          # stamp <age in s>
 window() { echo "$(( $(now) + $1 )) $2" > $W/tmp/nexus.window; }     # window <ends in s (negative = ended)> <length>
@@ -92,6 +94,31 @@ check "half-written window stamp (end but no length) -> config threshold -> rest
 
 reset; stamp 400; echo "notanumber 600" > $W/tmp/nexus.window; run
 check "non-numeric end epoch -> config threshold -> restart" "restart"
+
+# --- Wi-Fi dead for long: the bridge is unreachable because our own radio never came back -> reboot (2026-11-09) ---
+reset; stamp 2100; touch $W/bridge_down $W/wifi_down; run
+check "bridge unreachable, wifid not CONNECTED, age 2100 > 180+1800 -> reboot" "reboot"
+
+reset; stamp 1900; touch $W/bridge_down $W/wifi_down; run
+check "same but age 1900 < 1980 -> nothing yet" ""
+
+reset; stamp 2100; touch $W/bridge_down; run
+check "bridge unreachable but wifid CONNECTED -> the bridge really is down -> nothing" ""
+
+reset; stamp 9000; window -400 7200; touch $W/bridge_down $W/wifi_down; run
+check "night window ended 400s ago (< 1800) -> the client is still allowed to reconnect -> nothing" ""
+
+reset; stamp 9100; window -1900 7200; touch $W/bridge_down $W/wifi_down; run
+check "night window ended 1900s ago (> 1800) and still no Wi-Fi -> reboot" "reboot"
+
+reset; stamp 2100; touch $W/bridge_down $W/wifi_down; echo $(( $(now) - 3600 )) > $W/tmp/nexus.wd_reboot; run
+check "a watchdog reboot 1 h ago (guard 6 h) -> nothing" ""
+
+reset; stamp 2100; touch $W/bridge_down $W/wifi_down; printf 'BRIDGE_URL="http://bridge.test"\nPOLL_SECONDS=20\nWIFI_DEAD_REBOOT=0\n' > $W/dir/config; run
+check "WIFI_DEAD_REBOOT=0 disables the reboot -> nothing" ""
+
+reset; stamp 2100; touch $W/wifi_down; run
+check "wifid not CONNECTED but the bridge answers (stale client) -> plain restart" "restart"
 
 # --- guards that predate the radio duty cycle ---
 reset; stamp 400; echo $(( $(now) - 100 )) > $W/tmp/nexus.wd_restart; run

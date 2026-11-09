@@ -5,16 +5,22 @@
 # length of that window, so the threshold is widened to "window + WAKE_GRACE" for as long as the window lasts
 # (/tmp/nexus.window = "<end epoch> <window s>", written by nexus.sh before it switches the radio off). Without
 # that file the threshold comes from the config's POLL_SECONDS, and it is never below STALE_MIN.
-# NEXUS_DIR / NEXUS_TMP / NEXUS_GRACE_WAIT exist for the test harness (kindle/tests/cron-test.sh).
+# Last resort (2026-11-09, the panel sat offline 6 h after a radio-off window): when the bridge cannot be reached AND
+# wifid is not CONNECTED for WIFI_DEAD_REBOOT s beyond the stale threshold, the device is rebooted (0 = never; a reboot
+# is logged and never repeated within REBOOT_GUARD s). A stuck client can be restarted by this script, a stuck Wi-Fi
+# driver (ar6003 unload/reload) cannot: only a reboot brings wlan0 back, and cron starts nexus again afterwards.
+# NEXUS_DIR / NEXUS_TMP / NEXUS_GRACE_WAIT / NEXUS_REBOOT exist for the test harness (kindle/tests/cron-test.sh).
 DIR=${NEXUS_DIR:-/mnt/us/nexus}
 TMP=${NEXUS_TMP:-/tmp}
 STAMP=$TMP/nexus.last_ok     # written by nexus.sh on every successful fetch
 WINDOW=$TMP/nexus.window     # "<end epoch> <window s>" of the current radio-off window
 GUARD=$TMP/nexus.wd_restart  # epoch of the last watchdog restart: never more than one per GUARD_SECS
 STALE_MIN=180; GUARD_SECS=180; WAKE_GRACE=120; MAX_WINDOW=7800   # MAX_WINDOW = the longest window nexus.sh will ever open (MAX_DOZE)
+REBOOT_GUARD=21600; REBOOT_STAMP=$TMP/nexus.wd_reboot   # at most one watchdog reboot per 6 h
 [ -f $DIR/DISABLED ] && exit 0
 up=$(cut -d. -f1 /proc/uptime); [ "$up" -lt 90 ] && exit 0
 . $DIR/config 2>/dev/null
+dead=${WIFI_DEAD_REBOOT:-1800}; case "$dead" in ''|*[!0-9]*) dead=1800;; esac
 stale_after() { # how long without a successful fetch is still normal: max(STALE_MIN, interval + WAKE_GRACE)
   now=$(date +%s)
   iv=$POLL_SECONDS; case "$iv" in ''|*[!0-9]*) iv=20;; esac
@@ -30,13 +36,28 @@ stale_after() { # how long without a successful fetch is still normal: max(STALE
   [ $th -lt $STALE_MIN ] && th=$STALE_MIN
   echo $th
 }
+window_end() { # the end epoch of the last radio-off window stamp, empty when there is none or it is garbage
+  set -- $(cat $WINDOW 2>/dev/null) ""
+  case "$1" in ''|*[!0-9]*) ;; *) echo $1;; esac
+}
 if [ -f $DIR/nexus.pid ] && kill -0 $(cat $DIR/nexus.pid) 2>/dev/null; then
   now=$(date +%s)
   st=$(cat $STAMP 2>/dev/null); [ -n "$st" ] || st=$now
   age=$(( now - st )); th=$(stale_after)
   [ $age -lt $th ] && exit 0
   [ $(( now - $(cat $GUARD 2>/dev/null || echo 0) )) -lt $GUARD_SECS ] && exit 0
-  ( timeout -t 5 wget -q -O - "$BRIDGE_URL/healthz"; r=$?; exit $r ) >/dev/null 2>&1 || exit 0   # bridge down: restarting would not help (-O /dev/null fails on this wget)
+  if ! ( timeout -t 5 wget -q -O - "$BRIDGE_URL/healthz"; r=$?; exit $r ) >/dev/null 2>&1; then   # bridge unreachable (-O /dev/null fails on this wget)
+    # Restarting the client would not help. But if our own radio is the reason and it has been dead for long, reboot.
+    [ "$dead" -gt 0 ] || exit 0
+    [ $age -lt $(( th + dead )) ] && exit 0
+    wend=$(window_end); [ -n "$wend" ] && [ $now -lt $(( wend + dead )) ] && exit 0   # give the client its own reconnect time after a window
+    [ "$(lipc-get-prop com.lab126.wifid cmState 2>/dev/null)" = "CONNECTED" ] && exit 0   # Wi-Fi is fine: the bridge really is down
+    [ $(( now - $(cat $REBOOT_STAMP 2>/dev/null || echo 0) )) -lt $REBOOT_GUARD ] && exit 0
+    echo "$now" > $REBOOT_STAMP
+    echo "$(date '+%H:%M:%S') watchdog: no fetch for ${age}s, bridge unreachable and wifid not CONNECTED for over ${dead}s past the threshold -> reboot" >> $DIR/nexus.log
+    sync; ${NEXUS_REBOOT:-/sbin/reboot}
+    exit 0
+  fi
   sleep ${NEXUS_GRACE_WAIT:-25}; [ "$(cat $STAMP 2>/dev/null)" != "$st" ] && exit 0            # bridge just came back and the client caught up
   [ $(( $(date +%s) - st )) -lt $(stale_after) ] && exit 0                                     # it opened a new radio-off window meanwhile
   echo "$now" > $GUARD
