@@ -168,6 +168,20 @@ radio_up() { # radio_up <why> : bring the radio back and wait (bounded) for the 
     sleep 1; i=$(( i + 1 ))
     [ $i -eq 10 ] && lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null   # one more kick halfway
   done
+  if [ "$(radio_state)" != "CONNECTED" ]; then
+    # 2026-11-09: after a window the radio came back as cmState "NA" and stayed so for 15 h (ar6003 reloaded, wifid
+    # never associated); only a reboot cleared it. One power cycle of the radio is the cheap first attempt.
+    log "radio still $(radio_state) after ${i}s ($1): power-cycling the radio once"
+    lipc-set-prop com.lab126.cmd wirelessEnable 0 2>/dev/null
+    sleep 3
+    lipc-set-prop com.lab126.cmd wirelessEnable 1 2>/dev/null
+    j=0
+    while [ $j -lt $WIFI_WAIT ]; do
+      [ "$(radio_state)" = "CONNECTED" ] && break
+      sleep 1; j=$(( j + 1 ))
+    done
+    i=$(( i + 3 + j ))
+  fi
   RADIO_UP_AT=$(date +%s)
   if [ "$(radio_state)" = "CONNECTED" ]; then
     log "radio on after ${i}s ($1)"

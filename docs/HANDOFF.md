@@ -169,6 +169,20 @@ User: some Immich favourites dither really well, some badly; wants to judge them
 - Bridge: page sets `<html data-eink-busy>` while mark + next photo are in flight; `pressKey` waits for it to clear (BUSY_WAIT_MS=6000) so the F1 redraw already shows the next photo.
 - Next step when a few hundred are marked: switch the pool to the marks (e.g. env `SCREENSAVER_POOL=marked`) — not built. To inspect: `docker compose exec app cat /data/kindle-photo-marks.json`.
 
+## Kindle offline 15 h: radio came back dead after a window (2026-11-09/10)
+
+Timeline (device log, UTC): 14:40:16 radio off for a 589 s screensaver window; 14:50:43 `radio still NA after 30s (poll):
+leaving it on, no duty cycling for 900s`; from then on `fetch failed (N)` every 20 s for 15 h (counter reached 2646) with
+wifid cmState NA, the router never saw the device again, ping/ssh impossible. The owner's long power-button hold (06:46
+local) fixed it; the first boot associated at once. dmesg shows the normal ar6003 unload/reload sequences, nothing else.
+Two fixes, both tested (kindle/tests, dash) and deployed 2026-11-10 07:2x with backups `*.bak-20261110` on the device:
+1. `nexus.sh radio_up`: when wifid is not CONNECTED after WIFI_WAIT, power-cycle the radio once (`wirelessEnable 0`,
+   3 s, `wirelessEnable 1`, wait WIFI_WAIT again) before the "leave it on" fallback.
+2. `cron.sh`: when the bridge is unreachable AND wifid is not CONNECTED for `WIFI_DEAD_REBOOT` s (1800; config knob,
+   0 = off) past the stale threshold and after the last window ended, reboot the device (once per 6 h, logged).
+Gotchas: the device's busybox grep has no `-E`; ping from the server misses the ~10 s radio windows (watch the bridge
+log for the Kindle's request and ssh at once, or `touch /mnt/us/nexus/NORADIO` from that window to hold the radio on).
+
 ## kindle_panel 0.12.1 — queue covers through MA's proxy id, also for remote covers (2026-11-08)
 
 Symptom: broken-image icon on the Kindle's now-playing screen for Black Sabbath "We Sold Our Soul For Rock 'N' Roll".

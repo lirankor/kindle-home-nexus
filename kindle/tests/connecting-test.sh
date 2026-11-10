@@ -72,6 +72,16 @@ check "key while the radio is on: nothing drawn" hasnt "eips"
 
 touch $W/no_wifi; up key; rm -f $W/no_wifi
 check "Wi-Fi does not come back: says so on the screen" has "No Wi-Fi yet"
+check "Wi-Fi does not come back: the radio was power-cycled once (off then on again)" sh -c "[ \"\$(grep -c 'wirelessEnable 0' $W/calls)\" = 1 ] && [ \"\$(grep -c 'wirelessEnable 1' $W/calls)\" -ge 2 ]"
+check "Wi-Fi does not come back: the power cycle happens before the on-screen notice" order "wirelessEnable 0" "No Wi-Fi yet"
+
+# the radio comes back only after the power cycle: lipc-get-prop says CONNECTED once a 'wirelessEnable 0' was logged
+printf '#!/bin/sh\ngrep -q "wirelessEnable 0" %s/calls 2>/dev/null && { echo CONNECTED; exit 0; }\necho NA\n' $W > $W/bin/lipc-get-prop
+up poll
+check "radio dead (NA) until power-cycled: recovers, no on-screen notice" hasnt "No Wi-Fi yet"
+check "radio dead (NA) until power-cycled: exactly one power cycle" sh -c "[ \"\$(grep -c 'wirelessEnable 0' $W/calls)\" = 1 ]"
+printf '#!/bin/sh\n[ -f %s/no_wifi ] && echo PENDING || echo CONNECTED\n' $W > $W/bin/lipc-get-prop
+chmod +x $W/bin/lipc-get-prop
 
 # ---- the badge picture ----
 echo BADGE > $CONN; echo e1 > $W/tmp/nexus.conn.etag
