@@ -20,6 +20,19 @@ describe("applyOptimistic", () => {
     expect(after.lights[1]?.on).toBe(true);
     expect(before.lights[1]?.on).toBe(false);
   });
+  it("switching a light on keeps its last level; only an unknown level is guessed as 100", () => {
+    const before = demoSnapshot();
+    const level = before.lights[1]!.level;
+    expect(level).toBeGreaterThan(0);
+    const on = applyOptimistic(before, { type: "light.toggle", entity: LIGHTS[1]!.id });
+    expect(on.lights[1]).toMatchObject({ on: true, level });
+    const off = applyOptimistic(on, { type: "light.toggle", entity: LIGHTS[1]!.id });
+    expect(off.lights[1]).toMatchObject({ on: false, level });
+    before.lights[1]!.level = 0;
+    expect(
+      applyOptimistic(before, { type: "light.toggle", entity: LIGHTS[1]!.id }).lights[1]?.level,
+    ).toBe(100);
+  });
   it("scene buttons are HA scenes: nothing guessed, only the movie script marks movie mode", () => {
     const bright = applyOptimistic(demoSnapshot(), { type: "scene", entity: "scene.bright" });
     expect(bright.lights).toEqual(demoSnapshot().lights);

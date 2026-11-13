@@ -180,6 +180,10 @@ toggle, Left / Right to dim without going in, and everything else behind a long 
   anywhere else is replayed as Enter (key handlers first, then the focused button's click). Row height =
   `min(84px, (446px - gaps) / rows)`, second line hidden from seven lights on; checked at 4, 5, 6 and 8 rows in both
   languages (rows end at 639, content ends at 642).
+- Level of an off light (`src/lib/home.server.ts`, `src/lib/light-levels.test.ts`): HA drops `brightness` while a
+  light is off, so the server remembers each light's last level (memory + `kindle-light-levels.json` under
+  `MEDIA_STATE_DIR`) and keeps reporting it for the off light. Switching a light on then shows the level it really
+  comes back at instead of a guessed 100 % (the guess remains only for a light never seen on).
 - Bridge: key name `select-long` = `ContextMenu`.
 - Kindle client (`kindle/nexus.sh`): `LONG_PRESS` (default 1 s), `handle_event` (the old loop body), `sel_down` /
   `sel_up` / `sel_done`, a one-shot `hold` timer line like the poll timer, `send_key`. Self-enabling after the first

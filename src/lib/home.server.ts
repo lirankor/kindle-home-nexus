@@ -28,6 +28,9 @@ import {
 } from "@/lib/photo.server";
 import type { PhotoAsset } from "@/lib/photo.server";
 import { entityIcons } from "@/lib/mdi.server";
+import { readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import type { Action, LightState, Shade, Snapshot } from "@/lib/home";
 
 type HaAttrs = {
@@ -107,7 +110,46 @@ const num = (s?: HaState): number | null => {
 };
 const attrNum = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-function parseLight(s?: HaState): LightState {
+// HA drops `brightness` while a light is off, so the level a light comes back at is remembered here: an off
+// light keeps showing its last level (the row and the modal hide it behind "off"), and switching it on shows
+// that level at once instead of a guessed 100 %. Kept in a small file under MEDIA_STATE_DIR so a restart does
+// not forget it; without that variable (tests, a bare dev server) it is memory only.
+const lastLevels = new Map<string, number>();
+let levelsLoaded = false;
+const levelsFile = () => {
+  const dir = (process.env["MEDIA_STATE_DIR"] ?? "").trim();
+  return dir ? path.join(dir, "kindle-light-levels.json") : null;
+};
+function loadLevels() {
+  if (levelsLoaded) return;
+  levelsLoaded = true;
+  const file = levelsFile();
+  if (!file) return;
+  try {
+    const raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    for (const [id, v] of Object.entries(raw))
+      if (typeof v === "number" && v >= 1 && v <= 100 && !lastLevels.has(id)) lastLevels.set(id, v);
+  } catch {
+    /* no file yet */
+  }
+}
+function rememberLevel(id: string, level: number) {
+  if (lastLevels.get(id) === level) return;
+  lastLevels.set(id, level);
+  const file = levelsFile();
+  if (!file) return;
+  void mkdir(path.dirname(file), { recursive: true })
+    .then(() => writeFile(file, JSON.stringify(Object.fromEntries(lastLevels)), "utf8"))
+    .catch(() => {});
+}
+/** Test hook: forget every remembered level. */
+export function resetLightLevels() {
+  lastLevels.clear();
+  levelsLoaded = false;
+}
+
+function parseLight(s?: HaState, id = s?.entity_id): LightState {
+  loadLevels();
   const on = s?.state === "on";
   const a = s?.attributes ?? {};
   const b = attrNum(a.brightness);
@@ -125,9 +167,18 @@ function parseLight(s?: HaState): LightState {
     : [];
   const canColor = modes.some((m) => typeof m === "string" && COLOR_MODES.includes(m));
   const shade: Shade = kelvin !== null ? nearestShade(kelvin) : "Neutral";
+  const known = id ? lastLevels.get(id) : undefined;
+  const dimmable = modes.some((m) => m !== "onoff");
+  let level: number;
+  if (on && b !== null) {
+    level = Math.max(1, Math.round((b / 255) * 100));
+    if (id) rememberLevel(id, level);
+  } else if (on)
+    level = dimmable ? (known ?? 100) : 100; // on without a brightness yet (or an on/off-only light)
+  else level = known ?? 0;
   return {
     on,
-    level: on ? (b === null ? 100 : Math.max(1, Math.round((b / 255) * 100))) : 0,
+    level,
     shade,
     color: canColor && colored ? nearestColor(rgb) : "White",
     canColor,
@@ -147,7 +198,7 @@ export function buildSnapshot(states: Map<string, HaState>): Snapshot {
   });
   const w = states.get(SENSORS.weather);
   return {
-    lights: LIGHTS.map((l) => parseLight(states.get(l.id))),
+    lights: LIGHTS.map((l) => parseLight(states.get(l.id), l.id)),
     movieActive: states.get(SCRIPTS.movieActive)?.state === "on",
     vacuum: {
       state: vac?.state ?? "unavailable",
