@@ -195,7 +195,6 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .shade-neutral { background: var(--shade-neutral); }
 .shade-cool { background: var(--shade-cool); }
 :root { --shade-warm: oklch(0.45 0 0); --shade-neutral: oklch(0.7 0 0); --shade-cool: oklch(0.96 0 0); --overlay: oklch(0.5 0 0 / 65%); }
-.light-row { gap: 11px; }
 .toggle-button.eink-button { width: 32px; height: 32px; padding: 0; flex-shrink: 0; border: 2px solid var(--foreground); }
 .switch-indicator { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 .toggle-button.eink-button svg { width: 19px; height: 19px; stroke-width: 3; }
@@ -238,7 +237,6 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .section-heading p { margin: 5px 0 0; font-size: 12px; color: var(--muted-foreground); }
 .section-heading .eink-button { font-size: 12px; height: 33px; padding: 0 11px; }
 .group-label { font-size: 10px; font-weight: 700; text-transform: uppercase; margin: 0 0 7px; color: var(--muted-foreground); }
-.light-row { display: flex; align-items: center; gap: 14px; height: 64px; border-top: 1px solid var(--border); }
 .device-icon { width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; background: var(--secondary); flex-shrink: 0; }
 .device-icon.on { background: var(--primary); color: var(--primary-foreground); }
 .device-info { flex: 1; min-width: 0; margin: 0 5px 0 0 }
@@ -304,16 +302,6 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .section-heading .eink-button { width: 42px; height: 42px; padding: 0; }
 .device-info strong { font-size: 21px; }
 .device-info p { font-size: 17px; margin-top: 8px; }
-.light-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.light-card { border: 1px solid var(--border); padding: 18px 14px; height: 220px; }
-.light-card-heading { display: flex; gap: 12px; align-items: center; }
-.light-card .device-icon.eink-button { width: 48px; height: 52px; padding: 0; border-color: var(--foreground); }
-.light-card .device-icon.eink-button svg { width: 32px; height: 32px; }
-.light-card .device-info strong { font-size: 20px; display: block; }
-.light-room { font-size: 15px; color: var(--muted-foreground); margin: 18px 0 24px; }
-.light-card-controls { display: flex; justify-content: space-between; gap: 10px; }
-.light-card-controls .eink-button { width: 42px; height: 44px; padding: 0; }
-.light-card-controls .shade-swatch { width: 23px; height: 23px; }
 .device-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 12px 12px 14px; border-top: 2px solid var(--foreground); flex-shrink: 0; }
 .device-actions .eink-button { height: 84px; padding: 8px 4px; flex-direction: column; gap: 8px; font-size: 16px; line-height: 1.15; white-space: normal; }
 .device-actions .eink-button:nth-child(2) { margin-right: 5px; }
@@ -400,14 +388,9 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .section-heading p { font-size: 21px; }
 .demo-status { font-size: 16px; }
 .device-actions .eink-button { font-size: 19px; }
-.light-card.eink-button { display: flex; flex-direction: column; align-items: stretch; justify-content: space-between; text-align: start; white-space: normal; height: 220px; padding: 18px 14px; font-weight: 400; }
-.light-card .light-card-heading { display: flex; gap: 12px; align-items: center; }
-.light-card .device-icon, .power-row .device-icon { width: 56px; height: 60px; border: 1px solid var(--foreground); flex-shrink: 0; }
-.light-card .device-info strong, .power-row .device-info strong { display: block; font-size: 26px; line-height: 1.1; font-weight: 700; }
+.power-row .device-icon { width: 56px; height: 60px; border: 1px solid var(--foreground); flex-shrink: 0; }
+.power-row .device-info strong { display: block; font-size: 26px; line-height: 1.1; font-weight: 700; }
 .light-state { display: block; font-size: 21px; color: var(--muted-foreground); margin-top: 8px; font-weight: 600; }
-.light-card-foot { display: flex; justify-content: space-between; align-items: center; }
-.light-card .light-room { font-size: 20px; margin: 0; color: var(--muted-foreground); font-weight: 400; }
-.light-card .shade-swatch { width: 28px; height: 28px; }
 .power-row.eink-button { display: flex; width: 100%; height: 96px; justify-content: flex-start; gap: 14px; text-align: start; padding: 0 12px; white-space: normal; border: 1px solid var(--border); margin-bottom: 10px; font-weight: 400; }
 .power-row .device-info { text-align: start; }
 .watt-reading { font-size: 36px; font-weight: 600; }
@@ -435,8 +418,6 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .photo-block > span, .calendar-block .calendar-weekday { font-size: 24px; }
 .photo-block .humidity-reading svg { width: 24px; height: 24px; }
 .photo-screen > img { object-fit: cover; }
-.light-card.eink-button { height: 212px; }
-.light-card-grid { gap: 14px; }
 .vacuum-summary { padding: 12px 0; }
 .room-grid .eink-button { height: 66px; }
 .room-grid { gap: 10px; }
@@ -457,11 +438,8 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 
 /* Round 4: bigger type on the card screens. */
 .device-tabs .eink-button { font-size: 24px; }
-.light-card .device-info strong, .power-row .device-info strong { font-size: 34px; line-height: 1.7; }
+.power-row .device-info strong { font-size: 34px; line-height: 1.7; }
 .light-state { font-size: 26px; margin-top: 6px; }
-.light-card .light-room { font-size: 24px; }
-.light-card .light-card-heading { gap: 10px; align-items: flex-start; }
-.light-card .shade-swatch { width: 32px; height: 32px; }
 .power-row.eink-button { height: 108px; }
 .watt-reading { font-size: 42px; }
 .watt-reading small { font-size: 24px; }
@@ -664,3 +642,24 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .lib-search-field { margin-top: 10px; }
 .music-rows.search-rows.lib-search-rows { min-height: 234px; } /* four rows under the five-row keyboard */
 .discover-rows { min-height: 0; margin: 10px -16px 0; }
+
+/* Lights: one row per light (the whole row is the focus target). Enter toggles, Left / Right dim in
+   10 % steps, a long press opens the light's page. The row height follows the number of lights so the
+   list always ends above the footer; from seven lights on the second line is dropped. */
+.light-list { display: flex; flex-direction: column; gap: 8px; margin-inline: -6px; }
+.light-row.eink-button { display: flex; width: 100%; height: min(84px, calc((446px - (var(--rows, 5) - 1) * 8px) / var(--rows, 5))); justify-content: flex-start; align-items: center; gap: 12px; text-align: start; padding: 0 12px; white-space: nowrap; border: 1px solid var(--border); font-weight: 400; }
+.light-row .device-icon { width: 50px; height: 50px; border: 1px solid var(--foreground); flex-shrink: 0; }
+.light-row .device-info { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; margin: 0; text-align: start; }
+.light-row .device-info strong { display: block; font-size: 27px; line-height: 1.15; font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+.light-row .light-sub { font-size: 19px; line-height: 1.15; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; }
+.level-bar { display: flex; gap: 3px; flex-shrink: 0; }
+.level-bar i { display: block; width: 11px; height: 26px; box-sizing: border-box; border: 1px solid var(--foreground); }
+.level-bar i[data-on] { background: var(--foreground); }
+.light-row[data-on="false"] .level-bar i { border-color: var(--muted-foreground); }
+.light-row .light-level { width: 66px; flex-shrink: 0; text-align: end; font-size: 24px; font-weight: 700; }
+.light-row[data-on="false"] .light-level { font-weight: 400; color: var(--muted-foreground); }
+.light-list[data-dense] .light-sub { display: none; }
+.light-list[data-dense] .device-icon { width: 40px; height: 40px; }
+.light-list[data-dense] .device-icon svg { width: 26px; height: 26px; }
+.light-list[data-dense] .device-info strong { font-size: 24px; }
+.light-list[data-dense] .level-bar i { height: 22px; }

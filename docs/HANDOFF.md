@@ -169,6 +169,27 @@ User: some Immich favourites dither really well, some badly; wants to judge them
 - Bridge: page sets `<html data-eink-busy>` while mark + next photo are in flight; `pressKey` waits for it to clear (BUSY_WAIT_MS=6000) so the F1 redraw already shows the next photo.
 - Next step when a few hundred are marked: switch the pool to the marks (e.g. env `SCREENSAVER_POOL=marked`) — not built. To inspect: `docker compose exec app cat /data/kindle-photo-marks.json`.
 
+## Lights tab = a list; long press on the 5-way centre (2026-11-13)
+
+Why: with a fifth light the two-column card grid ran under the footer. The owner asked for a list, the centre key to
+toggle, Left / Right to dim without going in, and everything else behind a long press (which did not exist).
+- App (`src/routes/index.tsx`, `src/styles.css`): `.light-list` of `.light-row` buttons (icon, name, room and shade,
+  ten-segment level bar, level). Enter = `light.toggle`; Left / Right on a focused row = `light.brightness` -10 / +10
+  (clamped 1..100, physical Right is brighter in Hebrew too, Right on a dark light = on at 10 %); Up / Down move the
+  focus; `ContextMenu` (or Shift+Enter on a desktop) on a row opens the old full-page light modal. A `ContextMenu`
+  anywhere else is replayed as Enter (key handlers first, then the focused button's click). Row height =
+  `min(84px, (446px - gaps) / rows)`, second line hidden from seven lights on; checked at 4, 5, 6 and 8 rows in both
+  languages (rows end at 639, content ends at 642).
+- Bridge: key name `select-long` = `ContextMenu`.
+- Kindle client (`kindle/nexus.sh`): `LONG_PRESS` (default 1 s), `handle_event` (the old loop body), `sel_down` /
+  `sel_up` / `sel_done`, a one-shot `hold` timer line like the poll timer, `send_key`. Self-enabling after the first
+  release event of a run. Tests `kindle/tests/longpress-test.sh`. Deployed to the device 2026-11-13 (backups
+  `nexus.sh.bak-20261113`, `config.bak-20261113`).
+- Tests: `src/test/lights-list.test.tsx` (7). `src/test/app-routing.test.tsx` fails at import under vitest
+  (`z` undefined in `media.functions.ts`) before and after this change; not touched here.
+- Open: plugs and custom tabs have no long-press options yet; the hold lengths in the Kindle log tell whether 1 s
+  suits the keypad.
+
 ## Kindle offline 15 h: radio came back dead after a window (2026-11-09/10)
 
 Timeline (device log, UTC): 14:40:16 radio off for a 589 s screensaver window; 14:50:43 `radio still NA after 30s (poll):

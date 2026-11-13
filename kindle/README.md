@@ -74,4 +74,14 @@ rollout test. `nexus.sh status` shows the radio state, the current window and th
 Button map: 5-way = up/down/left/right/select, upper side buttons = prev tab,
 lower side buttons = next tab, Back = escape, Menu = menu, Home = home, keyboard = keyboard.
 
+**Long press:** holding the 5-way centre for `LONG_PRESS` seconds (config, whole seconds, default 1) sends
+`select-long` instead of `select`; the panel then opens the focused control's extra options (a light row's full
+page) and treats it as a plain press where there are none. With it on, the centre acts on release: a short press
+is sent when the thumb lifts, a long one as soon as the time is up. The length of a press comes from the kernel's
+event times, not from when the script got round to reading them. It switches itself on only after the run has seen
+a key release event from the hardware, so a keypad that reports presses only keeps acting on key-down; the log
+says `key releases seen: long press on (1s)` once and then the length of every centre press
+(`key 194 -> select (140ms)`). `LONG_PRESS=0` switches it off. The bridge must know `select-long` (older bridges
+answer 400). State machine cases: `sh kindle/tests/longpress-test.sh` (16 cases).
+
 **Connecting badge:** right before the radio goes off (screensaver only) the client downloads the frame on the panel with a Wi-Fi badge in the middle (`/screen.png?connecting=1&of=<etag>` → `/tmp/nexus.conn.png`, once per frame ETag). The instant a key is pressed while the radio is off, it draws that picture with `eips -g` without `-f` (partial update): only the badge visibly appears, until the reconnect redraw replaces it. This Kindle 4's eips cannot overlay an image otherwise (`eips -g` redraws the whole screen, transparency comes out blank, `-x`/`-y` draw nothing). Without a badge for the frame on the panel (download failed, frame changed) it falls back to the text label `Connecting...` (`eips <col> <row> "text"`; `CONNECTING_COL`/`CONNECTING_ROW` in `config`, 12×20 px cells, 50×40 grid). See `docs/battery-saver-plan.md`.

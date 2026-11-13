@@ -30,6 +30,10 @@ RADIO_DUTY=${RADIO_DUTY:-${SLEEP:-1}}
 MIN_DOZE=${MIN_DOZE:-60}; MAX_DOZE=${MAX_DOZE:-7800}; KEY_HOLD=${KEY_HOLD:-300}
 WIFI_WAIT=${WIFI_WAIT:-30}; RADIO_FAIL_HOLD=${RADIO_FAIL_HOLD:-900}
 BATTERY_EVERY=${BATTERY_EVERY:-60}; EINK_SETTLE=${EINK_SETTLE:-2}
+# LONG_PRESS: whole seconds the 5-way centre must be held to count as a long press (bridge key
+# "select-long" = the focused control's extra options). 0 = off: the centre acts on key-down as before.
+LONG_PRESS=${LONG_PRESS:-1}
+case "$LONG_PRESS" in ''|*[!0-9]*) LONG_PRESS=1;; esac
 log() { echo "$(date '+%H:%M:%S') $*" >> $LOG; }
 get() { # get <outfile|-> <path> : wget with a hard timeout. busybox 1.7.2 wget has no -T, and a bridge that
   # vanishes mid-request (container recreate) leaves a half-open socket that would otherwise block forever.
@@ -259,6 +263,45 @@ cycle() { # one scheduled update: radio up if needed, battery + frame, then deci
   if radio_down $secs "$label"; then arm $secs; else arm $s; fi
 }
 
+# ---- keys ----
+send_key() { # send_key <name> : radio up if needed, press the key at the bridge, draw the answer
+  radio_up key   # a press while the radio is down: back up (~6 s) and the frame is redrawn in full
+  if [ "$RECONNECTED" = "1" ]; then
+    RECONNECTED=; fetch "/key/$1" full
+  else
+    case $1 in prev|next) fetch "/key/$1?etag=$(etag)" full;; *) fetch "/key/$1?etag=$(etag)";; esac
+  fi
+  arm ${POLL_SECONDS:-20}   # the panel is in use: back to the short cadence (and re-ask /schedule)
+}
+
+# Long press of the 5-way centre. With LONG_PRESS > 0 the centre acts on RELEASE: "select" for a short
+# press, "select-long" when it was held for LONG_PRESS seconds, sent as soon as the time is up (a
+# one-shot timer line, like the poll timer), not only when the thumb lifts. The length of a press is
+# taken from the kernel's event times, so a slow reader does not stretch it.
+# Self-checking: it only switches on once this run has seen a key RELEASE event (value 0) from the
+# hardware. A keypad that reports presses only keeps the old act-on-key-down behaviour.
+RELEASES=      # 1 = this run has seen a release event
+SEL=           # 1 = centre is down and not yet acted on
+SEL_S=0; SEL_U=0   # kernel time of that key-down
+SELGEN=0; HOLDT=
+sel_down() { # sel_down <sec> <usec>
+  SEL=1; SEL_S=$1; SEL_U=$2
+  SELGEN=$(( SELGEN + 1 ))
+  ( sleep $LONG_PRESS; echo "0 0 hold $SELGEN 0" > $FIFO ) &
+  HOLDT=$!
+  radio_up key   # start the radio (and the "Connecting..." badge) while the thumb is still down
+}
+sel_done() { # sel_done <key name> <note> : the pending press is decided
+  SEL=
+  [ -n "$HOLDT" ] && kill $HOLDT 2>/dev/null; HOLDT=
+  log "key 194 -> $1 ($2)"
+  send_key $1
+}
+sel_up() { # sel_up <sec> <usec> : the centre was released
+  ms=$(( ($1 - SEL_S) * 1000 + ($2 - SEL_U) / 1000 ))
+  if [ $ms -ge $(( LONG_PRESS * 1000 )) ]; then sel_done select-long "held ${ms}ms"; else sel_done select "${ms}ms"; fi
+}
+
 keyname() { # keyname <code>
   case $1 in
     103) echo up;; 108) echo down;; 105) echo left;; 106) echo right;; 194) echo select;;
@@ -267,6 +310,35 @@ keyname() { # keyname <code>
     158) echo f1;; 29) echo f2;; 139) echo f3;; 102) echo f4;;   # bottom row = soft keys F1..F4
     *) echo "";;
   esac
+}
+
+handle_event() { # handle_event <sec> <usec> <type> <code> <value> : one line from the FIFO (an input event or a timer line)
+  sec=$1; usec=$2; type=$3; code=$4; value=$5
+  if [ "$type" = "poll" ]; then
+    [ "$code" = "$GEN" ] || return 0   # a timer we superseded (a key press cut its window short)
+    cycle
+    return 0
+  fi
+  if [ "$type" = "hold" ]; then   # the centre has been down for LONG_PRESS seconds
+    [ "$SEL" = "1" ] && [ "$code" = "$SELGEN" ] && sel_done select-long "still held after ${LONG_PRESS}s"
+    return 0
+  fi
+  [ "$type" = "1" ] || return 0
+  if [ "$value" = "0" ]; then   # a key release
+    [ -n "$RELEASES" ] || { RELEASES=1; [ $LONG_PRESS -gt 0 ] && log "key releases seen: long press on (${LONG_PRESS}s)"; }
+    [ "$code" = "194" ] && [ "$SEL" = "1" ] && sel_up $sec $usec
+    return 0
+  fi
+  [ "$value" = "1" ] || return 0   # 2 = auto-repeat
+  k=$(keyname $code)
+  [ -n "$k" ] || return 0
+  [ "$SEL" = "1" ] && sel_done select "no release before the next key"   # never lose a press
+  if [ "$k" = "select" ] && [ $LONG_PRESS -gt 0 ] && [ -n "$RELEASES" ]; then
+    sel_down $sec $usec
+    return 0
+  fi
+  log "key $code -> $k"
+  send_key $k
 }
 
 run() {
@@ -285,27 +357,10 @@ run() {
   reader /dev/input/event1 1 > $FIFO &
   R1=$!
   echo "$R0 $R1" > $KIDS
-  trap 'kill $R0 $R1 $TIMER 2>/dev/null; killall dd 2>/dev/null; exit 0' TERM INT
+  trap 'kill $R0 $R1 $TIMER $HOLDT 2>/dev/null; killall dd 2>/dev/null; exit 0' TERM INT
   fetch /reload full || fetch /screen.png full
   arm ${POLL_SECONDS:-20}
-  while read sec usec type code value; do
-    if [ "$type" = "poll" ]; then
-      [ "$code" = "$GEN" ] || continue   # a timer we superseded (a key press cut its window short)
-      cycle
-      continue
-    fi
-    [ "$type" = "1" ] && [ "$value" = "1" ] || continue
-    k=$(keyname $code)
-    [ -n "$k" ] || continue
-    log "key $code -> $k"
-    radio_up key   # a press while the radio is down: back up (~6 s) and the frame is redrawn in full
-    if [ "$RECONNECTED" = "1" ]; then
-      RECONNECTED=; fetch "/key/$k" full
-    else
-      case $k in prev|next) fetch "/key/$k?etag=$(etag)" full;; *) fetch "/key/$k?etag=$(etag)";; esac
-    fi
-    arm ${POLL_SECONDS:-20}   # the panel is in use: back to the short cadence (and re-ask /schedule)
-  done < $FIFO
+  while read sec usec type code value; do handle_event "$sec" "$usec" "$type" "$code" "$value"; done < $FIFO
   log "fifo closed, exiting"
 }
 

@@ -38,7 +38,7 @@ and serves 8-bit grayscale PNG screenshots (WIDTH x HEIGHT) for a Kindle to draw
   screensaver (`<html data-eink-saver="1">`), no key for `KEEP_AWAKE_MS` and `RADIO_DUTY_ENABLED`; the next update is the next
   point on the day grid (`DAY_WAKE_MIN`) or, in the night window (`NIGHT_START`–`NIGHT_END` in `SLEEP_TZ`), on the night grid
   (`NIGHT_WAKE_MIN`). The device never suspends, so there is no wake-up endpoint; `woke=1` is still accepted and counts as a key.
-- `/key/<name>[?etag=]` press a key, settle, return a fresh frame. Names: `up down left right select enter ok back escape prev pageup next pagedown home menu keyboard`. Unknown name gives 400.
+- `/key/<name>[?etag=]` press a key, settle, return a fresh frame. Names: `up down left right select select-long enter ok back escape prev pageup next pagedown home menu keyboard`. `select-long` is a long press of the 5-way centre (sent as `ContextMenu`; the panel opens the focused control's extra options). Unknown name gives 400.
 - `/reload` reload the page, return a frame.
 - `/healthz` JSON `{ok, etag, fullGen, servedFullGen, battery, lastShotAt, appUrl, saver, duty, lastKeyAt, schedule{…, next}}` — `duty` is what `/schedule` last told the device (`{verdict, windowSec, nextWake, label, night, at}`), the server-side way to see the radio duty cycle working.
 - Tests: `npm test` (`node --test`, `schedule.test.js`: grid, the 00:00/06:00 night edges, both DST transitions inside the night window, 2-day sweep).

@@ -89,8 +89,9 @@ describe("Panel idle behaviour and persistence", () => {
   it("closes a light modal after 30 s idle but keeps the amp view open", async () => {
     await renderApp();
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    // Light modal: open the first light card (Enter on a focused card is a native button click).
-    act(() => document.querySelector<HTMLButtonElement>(".light-card")?.click());
+    // Light modal: a long press on the first light row (Enter alone toggles the light).
+    act(() => document.querySelector<HTMLButtonElement>(".light-row")?.focus());
+    press("ContextMenu");
     expect(dialog()).toMatch(/^אור /);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(31_000);

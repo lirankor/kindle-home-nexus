@@ -1,6 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import {
   Home,
   Sun,
@@ -546,6 +553,18 @@ function HomeControl() {
         pct: Math.max(1, Math.min(100, (light.on ? light.level : 0) + amount)),
       });
   };
+  const toggleLight = (index: number) => {
+    const entity = LIGHTS[index]?.id;
+    if (!entity) return;
+    setScene("");
+    act({ type: "light.toggle", entity });
+  };
+  /** Index of the light whose list row holds the focus (Lights tab), else null. */
+  const focusedLight = () => {
+    const el = document.activeElement;
+    const raw = el instanceof HTMLElement ? el.dataset["lightIndex"] : undefined;
+    return raw === undefined || !el?.closest(".light-list") ? null : Number(raw);
+  };
   const applyScene = (row: SceneButton) => {
     // Scripts (movie mode, …) are actions, not states: their button never stays pressed.
     setScene(row.entity_id.startsWith("script.") || isMovieScene(row) ? "" : row.entity_id);
@@ -562,15 +581,6 @@ function HomeControl() {
   const readings = shot?.result.snapshot && configured ? shot.result.snapshot : data;
   const SIcon = weatherIcon(readings.weather.condition);
 
-  /** "96% · Warm"; colour names only for lights that can do colour. */
-  const lightLine = (light: LightState) => (
-    <>
-      {light.on ? <Ltr>{light.level}%</Ltr> : t("lights.off")} ·{" "}
-      {light.canColor && light.color !== "White"
-        ? t(`color.${light.color as (typeof COLORS)[number]}`)
-        : t(`shade.${light.shade}`)}
-    </>
-  );
   const modalLight = modal ? data.lights[modal.index] : undefined;
   const modalMeta = modal ? LIGHTS[modal.index] : undefined;
   const openModal = (kind: "light" | "shade" | "color" | "plug", index: number) => {
@@ -622,12 +632,7 @@ function HomeControl() {
               label: t("modal.power"),
               icon: Power,
               pressed: modalLight?.on ?? false,
-              onClick: () => {
-                const entity = modalMeta?.id;
-                if (!entity) return;
-                setScene("");
-                act({ type: "light.toggle", entity });
-              },
+              onClick: () => toggleLight(modal.index),
             },
             {
               label: t("modal.warmCold"),
@@ -772,6 +777,32 @@ function HomeControl() {
             : customActions();
 
   keyHandler.current = (event) => {
+    // Long press of the 5-way centre (the bridge sends ContextMenu; Shift+Enter on a desktop keyboard):
+    // the extra options of the focused control. For a light row that is its full page. Anywhere else
+    // there is nothing extra, so a long press counts as a plain press and a slow thumb never loses a key.
+    const held = !media.screen && !modal ? focusedLight() : null;
+    if (
+      held !== null &&
+      (event.key === "ContextMenu" || (event.key === "Enter" && event.shiftKey))
+    ) {
+      event.preventDefault();
+      openModal("light", held);
+      return;
+    }
+    if (event.key === "ContextMenu") {
+      event.preventDefault();
+      const target = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const enter = new KeyboardEvent("keydown", {
+        key: "Enter",
+        code: "Enter",
+        bubbles: true,
+        cancelable: true,
+      });
+      // Same order as a real Enter: the key handlers first, then the focused button's click.
+      if ((target ?? document).dispatchEvent(enter) && target instanceof HTMLButtonElement)
+        target.click();
+      return;
+    }
     const footer = media.screen ? media.modalActions : modal ? modalActions : actions;
     if (pressSoftKey(footer, event.key)) {
       event.preventDefault();
@@ -841,10 +872,17 @@ function HomeControl() {
       )?.focus();
       return;
     }
+    const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
+    // On a light row Left / Right dim in 10 % steps (physical: Right is always brighter, like the
+    // level bar); Up / Down keep moving through the list.
+    const dimmed = horizontal ? focusedLight() : null;
+    if (dimmed !== null) {
+      changeLight(dimmed, event.key === "ArrowRight" ? 10 : -10);
+      return;
+    }
     const origin = active.getBoundingClientRect();
     const ox = origin.x + origin.width / 2;
     const oy = origin.y + origin.height / 2;
-    const horizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
     const sign = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
     const target = controls
       .filter((control) => control !== active)
@@ -1028,35 +1066,50 @@ function HomeControl() {
                     <Moon />
                   </Button>
                 </div>
-                <div className="light-card-grid">
+                <div
+                  className="light-list"
+                  data-dense={data.lights.length > 6 || undefined}
+                  style={{ "--rows": Math.max(1, data.lights.length) } as CSSProperties}
+                >
                   {data.lights.map((light, index) => {
                     const meta = LIGHTS[index];
                     if (!meta) return null;
                     const Icon = pickIcon(meta.icon, haIcon(meta.id), ICON_DEFAULTS.light);
                     const name = localName(lang, meta.name);
+                    const look =
+                      light.canColor && light.color !== "White"
+                        ? t(`color.${light.color as (typeof COLORS)[number]}`)
+                        : t(`shade.${light.shade}`);
+                    // Ten segments = the ten 10 % steps of Left / Right; a lit light always shows at least one.
+                    const filled = light.on ? Math.max(1, Math.round(light.level / 10)) : 0;
                     return (
                       <Button
                         variant="eink"
-                        className="light-card"
+                        className="light-row"
                         key={meta.id}
                         data-on={light.on}
+                        data-light-index={index}
                         data-autofocus={index === 0 || undefined}
-                        title={t("lights.open", { name })}
-                        aria-label={`${name}, ${lightLine(light)}`}
-                        onClick={() => openModal("light", index)}
+                        title={t("lights.toggle", { name })}
+                        aria-label={`${name}, ${light.on ? `${light.level}%` : t("lights.off")}`}
+                        onClick={() => toggleLight(index)}
                       >
-                        <span className="light-card-heading">
-                          <span className={`device-icon ${light.on ? "on" : ""}`}>
-                            <Icon size={34} strokeWidth={1.6} />
-                          </span>
-                          <span className="device-info">
-                            <strong>{name}</strong>
-                            <span className="light-state">{lightLine(light)}</span>
+                        <span className={`device-icon ${light.on ? "on" : ""}`}>
+                          <Icon size={30} strokeWidth={1.6} />
+                        </span>
+                        <span className="device-info">
+                          <strong>{name}</strong>
+                          <span className="light-sub">
+                            {[localName(lang, meta.room), look].filter(Boolean).join(" · ")}
                           </span>
                         </span>
-                        <span className="light-card-foot">
-                          <span className="light-room">{localName(lang, meta.room)}</span>
-                          <span className={`shade-swatch shade-${light.shade.toLowerCase()}`} />
+                        <span className="level-bar" dir="ltr" aria-hidden="true">
+                          {Array.from({ length: 10 }, (_, step) => (
+                            <i key={step} data-on={step < filled || undefined} />
+                          ))}
+                        </span>
+                        <span className="light-level">
+                          {light.on ? <Ltr>{light.level}%</Ltr> : t("lights.off")}
                         </span>
                       </Button>
                     );

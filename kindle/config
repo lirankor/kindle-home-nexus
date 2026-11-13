@@ -5,6 +5,7 @@ STOP_FRAMEWORK=1                           # 1 = stop the Kindle reader UI while
 BRIDGE_TOKEN=CHANGE_ME                    # set on the device only (the app's BRIDGE_TOKEN from .env); never copy this template over /mnt/us/nexus/config
 FULL_REFRESH_EVERY=0                      # 0 = full (flashing) refresh only when the app asks (screen/page/song change) or on tab keys; N>0 adds one every N drawn frames
 FLIP_SIDE_BUTTONS=1                       # 1 = upper side buttons go to the next tab (RTL layout), 0 = previous
+LONG_PRESS=1                              # whole s the 5-way centre must be held for a long press (extra options of the focused control); 0 = off, the centre acts on key-down
 FETCH_TIMEOUT=15                          # hard timeout (s) for every bridge call; the stock wget has no -T
 FAIL_HINT_AFTER=3                         # draw the "bridge unreachable" footer after N consecutive failed fetches
 CPU_GOVERNOR=ondemand                     # set at start when the kernel offers it (idles at 160 MHz); empty = leave the stock "performance"

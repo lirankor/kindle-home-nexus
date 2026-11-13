@@ -78,6 +78,8 @@ const KEYS = {
   select: "Enter",
   enter: "Enter",
   ok: "Enter",
+  // Long press of the 5-way centre (the Kindle client times it): the panel's "more options" key.
+  "select-long": "ContextMenu",
   escape: "Escape",
   prev: "PageUp",
   pageup: "PageUp",
