@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import voluptuous as vol
 from homeassistant.config_entries import (
@@ -82,22 +85,65 @@ def _select(options: list[str], key: str, multiple: bool = False) -> sel.SelectS
 
 
 # Every icon column offers "auto" first (bus task 020: the entity's own HA icon, the default), then the whole pack (bus
-# task 019): a dropdown, no free text. Options come sorted (auto first), so the frontend must not re-sort them by label.
+# task 019), no free text. Options come sorted (auto first), so the frontend must not re-sort them by label.
 # Labels are spelled out: the frontend does not translate fields nested in an object list.
-ICON_FIELD: dict[str, Any] = {
-    "label": "Icon",
-    "selector": {
-        "select": {
-            "options": [
-                {"value": ICON_AUTO, "label": ICON_AUTO_LABEL},
-                *({"value": n, "label": n} for n in sorted(ICONS)),
-            ],
-            "mode": "dropdown",
-            "custom_value": False,
-            "sort": False,
+#
+# Since 0.13.0 the options show the icons themselves: the frontend's select `box` mode, a grid of boxes with the name
+# and a picture each (a dropdown cannot show pictures). The pictures are icon_pack.json, written from the app's own
+# components (src/lib/icons.test.ts; a pytest and that vitest fail when the file and the pack differ). They travel
+# inside the form as data: URIs, so nothing is served and nothing is fetched. An <img> cannot take the page's colour,
+# so each comes twice: light for a dark theme, and a mid grey for everything else, which also reads on a custom dark
+# theme that does not declare itself dark. They are never mirrored in a right-to-left language: the Kindle draws them
+# the same way.
+ICON_COLUMNS = 2  # boxes a row: on a phone every name stays whole (three cut one in five, from the front in Hebrew)
+ICON_PX = 48  # the picture's side (unsized, the frontend stretches it to the box)
+ICON_INK = "#727272"  # Home Assistant's secondary text colour: reads on a light and on a dark background
+ICON_INK_DARK = "#e1e1e1"  # its text colour in dark mode
+ICON_PICTURES: dict[str, str] = json.loads(Path(__file__).with_name("icon_pack.json").read_text(encoding="utf-8"))
+
+
+def _picture(svg: str, ink: str) -> str:
+    """The SVG as a data: URI, ICON_PX a side, drawn in one colour."""
+    svg = svg.replace("<svg ", f'<svg width="{ICON_PX}" height="{ICON_PX}" ', 1).replace("currentColor", ink)
+    return "data:image/svg+xml," + quote(svg.replace('"', "'"), safe=" '=/:.,-")
+
+
+def _icon_option(value: str, label: str) -> dict[str, Any]:
+    """One box: a pack icon with its picture; "auto" (no picture) says what it means in the line under its name."""
+    if svg := ICON_PICTURES.get(value):
+        return {
+            "value": value,
+            "label": label,
+            "image": {"src": _picture(svg, ICON_INK), "src_dark": _picture(svg, ICON_INK_DARK)},
         }
-    },
-}
+    return {"value": value, "label": value, "description": label}
+
+
+class IconSelector(sel.SelectSelector):
+    """The icon column. Core's select selector knows neither the `box` mode nor pictures on options, so the config
+    stays the plain dropdown of the same values (that is what a submitted value is checked against) and only what the
+    frontend gets (serialize) says `box` and carries the pictures."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            sel.SelectSelectorConfig(
+                options=[
+                    sel.SelectOptionDict(value=ICON_AUTO, label=ICON_AUTO_LABEL),
+                    *(sel.SelectOptionDict(value=n, label=n) for n in sorted(ICONS)),
+                ],
+                mode=sel.SelectSelectorMode.DROPDOWN,
+                custom_value=False,
+                sort=False,
+            )
+        )
+        boxes = [_icon_option(o["value"], o["label"]) for o in self.config["options"]]
+        self._shown = {**self.config, "options": boxes, "mode": "box", "box_max_columns": ICON_COLUMNS}
+
+    def serialize(self) -> dict[str, Any]:
+        return {"selector": {self.selector_type: self._shown}}
+
+
+ICON_FIELD: dict[str, Any] = {"label": "Icon", "selector": IconSelector()}
 
 
 def _auto_icons(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

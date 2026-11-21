@@ -197,7 +197,9 @@ SQ / LQ, one fixed box); codec, rate and Hi-Res stay in the data.
 
 Every icon field in Configure offers the same 80 icons (since 0.7.0, bus task 019): lights, vacuum rooms, scene
 buttons, custom tabs and their toggles, screensaver sensor cards, Power tab plugs, Media devices and receiver input rows.
-Each is a dropdown in alphabetical order (no free text), with **auto** first.
+Each is a grid of boxes in alphabetical order (no free text), with **auto** first; since 0.13.0 every box shows the
+icon itself next to its name, two boxes a row on a phone. What is stored did not change: the pack name, or nothing for
+**auto**.
 
 ### Precedence: the entity's own icon is the default (since 0.7.1, bus task 020)
 
@@ -233,6 +235,13 @@ into its SVG path on the server).
 The names live in `const.ICONS`; the app's `src/data/icons.json` maps each name to the icon it draws (lucide-react 0.575,
 tree-shaken). A pytest (`test_icon_pack_equals_the_app_json`) and a vitest (`src/lib/icons.test.ts`) fail when the two
 differ, so adding an icon means a row in both. A name the pack does not have is refused when the config is saved.
+
+The pictures in Configure are `icon_pack.json` in this folder: every pack icon as the app's own component draws it,
+written by that vitest (`UPDATE_ICON_PICTURES=1 bunx vitest run src/lib/icons.test.ts` after changing the pack or
+lucide-react). The vitest fails when a drawing differs, a pytest (`test_icon_pictures_are_the_pack`) when a name is
+missing or extra. The pictures travel inside the form as `data:` URIs in a light and a dark variant (the frontend's
+select `box` mode), so Home Assistant serves nothing new and the browser fetches nothing. The list of rows itself still
+shows names only: the frontend's list editor has no picture column.
 
 | name | drawn as (lucide export) | note |
 |---|---|---|

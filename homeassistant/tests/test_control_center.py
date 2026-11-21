@@ -1088,6 +1088,62 @@ def test_icon_pack_equals_the_app_json() -> None:
         *("thermometer", "droplets", "gauge", "wind", "battery"),
     }
     assert before <= set(ICONS)
+
+
+def test_icon_pictures_are_the_pack() -> None:
+    """icon_pack.json (the chooser's pictures, written by src/lib/icons.test.ts) has one drawing for every pack name and
+    for nothing else: a name added to or dropped from the app's pack fails here until the file is written again."""
+    import json
+    from pathlib import Path
+
+    from custom_components.kindle_panel.config_flow import ICON_PICTURES
+    from custom_components.kindle_panel.const import ICONS
+
+    pack = json.loads((Path(__file__).parents[2] / "src" / "data" / "icons.json").read_text())
+    assert sorted(ICON_PICTURES) == sorted(pack) == ICONS
+    for name, svg in ICON_PICTURES.items():
+        # a standalone drawing in the page's colour, nothing a picture must not carry
+        assert svg.startswith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '), name
+        assert svg.endswith("</svg>") and 'stroke="currentColor"' in svg, name
+        assert not any(bad in svg.lower() for bad in ("<script", "href", "url(", "<foreignobject", " on")), name
+
+
+def test_icon_chooser_shows_pictures_and_checks_names() -> None:
+    """What the frontend gets is the `box` mode with a picture per pack icon (light and dark); what a submitted value
+    is checked against is the same list of names as before: a pack name or "auto", nothing else."""
+    import json
+    from urllib.parse import unquote
+
+    from homeassistant.helpers import selector as sel
+
+    from custom_components.kindle_panel.config_flow import ICON_FIELD, ICON_PICTURES
+    from custom_components.kindle_panel.const import ICON_AUTO, ICON_AUTO_LABEL, ICONS
+
+    chooser = ICON_FIELD["selector"]
+    shown = chooser.serialize()["selector"]["select"]
+    assert shown["mode"] == "box" and shown["box_max_columns"] == 2
+    assert shown["custom_value"] is False and shown["sort"] is False and shown["multiple"] is False
+    assert [o["value"] for o in shown["options"]] == [ICON_AUTO, *ICONS]  # the stored values, auto first
+    auto, *boxes = shown["options"]
+    assert auto == {"value": ICON_AUTO, "label": ICON_AUTO, "description": ICON_AUTO_LABEL}  # no picture of its own
+    for box in boxes:
+        assert box["label"] == box["value"] and set(box) == {"value", "label", "image"}
+        light, dark = unquote(box["image"]["src"]), unquote(box["image"]["src_dark"])
+        assert light.startswith("data:image/svg+xml,<svg ") and "flip_rtl" not in box["image"]
+        assert light != dark and "currentColor" not in light + dark
+        # the drawing itself is the pack's
+        inner = ICON_PICTURES[box["value"]].split(">", 1)[1].replace('"', "'")
+        assert light.endswith(inner) and dark.endswith(inner), box["value"]
+    json.dumps(shown)  # plain data: it goes to the frontend as JSON
+    # nested in a list editor it reaches the frontend the same way
+    listed = sel.ObjectSelector(sel.ObjectSelectorConfig(fields={"icon": ICON_FIELD}, multiple=True)).serialize()
+    assert listed["selector"]["object"]["fields"]["icon"]["selector"]["select"] == shown
+    # the check of a submitted value
+    for good in (ICON_AUTO, "bulb", "lamp_ceiling"):
+        assert chooser(good) == good
+    for bad in ("nope", "Bulb", "mdi:lightbulb", "", None, 3):
+        with pytest.raises(vol.Invalid):
+            chooser(bad)
     # the app's row defaults (src/lib/icons.ts ICON_DEFAULTS) are pack names; "auto" is not one
     assert {"bulb", "room", "star", "plug", "gauge", "speaker", "tv"} <= set(ICONS)
     assert ICON_AUTO not in ICONS
@@ -1198,12 +1254,13 @@ async def test_every_icon_column_offers_the_whole_pack(hass, panel) -> None:
         schema = {str(k): v for k, v in flow["data_schema"].schema.items()}
         for name in lists:
             fields = schema[name].config["fields"]
-            sel = fields["icon"]["selector"]["select"]
-            assert sel["options"] == offered and sel["mode"] == "dropdown" and sel["custom_value"] is False, (
-                page,
-                name,
-            )
+            sel = fields["icon"]["selector"].config  # what a submitted value is checked against
+            assert sel["options"] == offered and sel["custom_value"] is False, (page, name)
             assert sel["sort"] is False  # auto stays first
+            # what the frontend draws: the same values as boxes with pictures
+            box = schema[name].serialize()["selector"]["object"]["fields"]["icon"]["selector"]["select"]
+            assert box["mode"] == "box" and [o["value"] for o in box["options"]] == [o["value"] for o in offered]
+            assert all("image" in o for o in box["options"][1:]), (page, name)
             # rows without an icon of their own show "auto"
             rows = {str(k): k for k in flow["data_schema"].schema}[name].description["suggested_value"]
             assert all(r["icon"] for r in rows) and (page, name, rows[0]["icon"]) in shown, (page, name, rows[0])
@@ -1226,7 +1283,12 @@ async def test_every_icon_column_offers_the_whole_pack(hass, panel) -> None:
     )
     assert flow["step_id"] == "media_inputs"
     fields = {str(k): v for k, v in flow["data_schema"].schema.items()}["inputs"].config["fields"]
-    assert fields["icon"]["selector"]["select"]["options"] == offered
+    assert fields["icon"]["selector"].config["options"] == offered
+    # a name outside the pack never gets in through the form
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            flow["flow_id"], {"inputs": [{"input": "CD", "icon": "nope"}]}
+        )
     res = await hass.config_entries.options.async_configure(
         flow["flow_id"], {"inputs": [{"input": "CD", "icon": "bluetooth"}, {"input": "PHONO", "icon": ICON_AUTO}]}
     )

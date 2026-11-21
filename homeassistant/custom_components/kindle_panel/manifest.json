@@ -11,7 +11,7 @@
   "issue_tracker": "https://github.com/lirankor/kindle-home-nexus/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "0.12.1",
+  "version": "0.13.0",
   "dependencies": [
     "http",
     "media_source"
