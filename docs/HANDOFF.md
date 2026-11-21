@@ -169,6 +169,25 @@ User: some Immich favourites dither really well, some badly; wants to judge them
 - Bridge: page sets `<html data-eink-busy>` while mark + next photo are in flight; `pressKey` waits for it to clear (BUSY_WAIT_MS=6000) so the F1 redraw already shows the next photo.
 - Next step when a few hundred are marked: switch the pool to the marks (e.g. env `SCREENSAVER_POOL=marked`) — not built. To inspect: `docker compose exec app cat /data/kindle-photo-marks.json`.
 
+## kindle_panel 0.13.0 — the icon chooser shows the icons (2026-11-21)
+
+Every icon field in Configure was a dropdown of 81 names. It is now the frontend's select `box` mode: a grid, two boxes
+a row, each with the name and the picture; `auto` first with its meaning in the line under it. Stored values unchanged.
+How: `IconSelector` (config_flow.py) is core's select selector with the old plain option list as its config (that is
+what a submitted value is checked against) and its own `serialize()` for the frontend (`mode: box`, an `image` per
+option). Core's select selector knows neither `box` nor images, but its object selector passes a nested selector
+instance through, so nothing is patched. Pictures: `icon_pack.json`, written by `src/lib/icons.test.ts` from the app's
+components (`UPDATE_ICON_PICTURES=1`), sent as `data:` URIs (`src` mid grey, `src_dark` light), so no view, no auth
+question and no 80 image requests. Never name that file `icons.json`: Home Assistant reads a file of that name as icon
+translations.
+Ruled out: a dropdown with pictures (the frontend's dropdown takes text only); three boxes a row (at 400 px 11 of 80
+names are cut, at 360 px 25, and in Hebrew they are cut from the front); pictures in the list of rows (the list editor
+shows one text field per row).
+Checked in a throwaway HA 2026.11.0 with headless Chromium at 400 px: dark and light, English and Hebrew, pick + save
+stores the pack name. The Lights page (two icon lists) is 156 kB as JSON, 16 kB on the wire. Tests: 97 passed.
+Not in CI: the vitest (CI runs the pytest only), so a changed drawing shows up only when the vitest is run.
+Deploy as before (docker cp of the integration folder + HA restart, only while the players are idle).
+
 ## Lights tab = a list; long press on the 5-way centre (2026-11-13)
 
 Why: with a fifth light the two-column card grid ran under the footer. The owner asked for a list, the centre key to
