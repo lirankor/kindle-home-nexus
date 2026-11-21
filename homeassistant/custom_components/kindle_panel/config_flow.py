@@ -95,7 +95,7 @@ def _select(options: list[str], key: str, multiple: bool = False) -> sel.SelectS
 # so each comes twice: light for a dark theme, and a mid grey for everything else, which also reads on a custom dark
 # theme that does not declare itself dark. They are never mirrored in a right-to-left language: the Kindle draws them
 # the same way.
-ICON_COLUMNS = 2  # boxes a row: on a phone every name stays whole (three cut one in five, from the front in Hebrew)
+ICON_COLUMNS = 3  # boxes a row (owner, 2026-11-21: less scrolling; two keep every name whole, three cut some long ones)
 ICON_PX = 48  # the picture's side (unsized, the frontend stretches it to the box)
 ICON_INK = "#727272"  # Home Assistant's secondary text colour: reads on a light and on a dark background
 ICON_INK_DARK = "#e1e1e1"  # its text colour in dark mode

@@ -198,7 +198,7 @@ SQ / LQ, one fixed box); codec, rate and Hi-Res stay in the data.
 Every icon field in Configure offers the same 80 icons (since 0.7.0, bus task 019): lights, vacuum rooms, scene
 buttons, custom tabs and their toggles, screensaver sensor cards, Power tab plugs, Media devices and receiver input rows.
 Each is a grid of boxes in alphabetical order (no free text), with **auto** first; since 0.13.0 every box shows the
-icon itself next to its name, two boxes a row on a phone. What is stored did not change: the pack name, or nothing for
+icon itself next to its name, three boxes a row (a long name can be cut on a phone). What is stored did not change: the pack name, or nothing for
 **auto**.
 
 ### Precedence: the entity's own icon is the default (since 0.7.1, bus task 020)

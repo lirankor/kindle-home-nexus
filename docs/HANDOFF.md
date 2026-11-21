@@ -254,3 +254,5 @@ Fix (homeassistant/custom_components/kindle_panel/__init__.py): unavailable + un
 Deploy of the integration: `docker cp homeassistant/custom_components/kindle_panel/. homeassistant:/config/custom_components/kindle_panel/ && docker restart homeassistant` (the HA config dir is root-owned; docker cp writes through the bind mount). Tests: throwaway container `ghcr.io/home-assistant/home-assistant:stable` + `pytest-homeassistant-custom-component==0.13.357` (matches HA 2026.8.3) + pytest-asyncio pytest-socket syrupy freezegun requests-mock pytest-unordered respx pytest-xdist pytest-cov pytest-timeout; `test_icon_pack_equals_the_app_json` needs the repo root mounted (reads /src/data/icons.json).
 Verified live: play → plug on at once, amp on after ~24 s, AirPlay playing at ~28 s.
 Also today: desktop debugging on http://<LAN_IP>:8791 (1..4 = F1..F4, [ ] = tabs), "Music Assistant" subtitle dropped, all key-hint lines removed.
+
+0.13.1 (same day): three boxes a row, the owner's choice after seeing both (less scrolling; some long names are cut).

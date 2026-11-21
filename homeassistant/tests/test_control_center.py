@@ -1121,7 +1121,7 @@ def test_icon_chooser_shows_pictures_and_checks_names() -> None:
 
     chooser = ICON_FIELD["selector"]
     shown = chooser.serialize()["selector"]["select"]
-    assert shown["mode"] == "box" and shown["box_max_columns"] == 2
+    assert shown["mode"] == "box" and shown["box_max_columns"] == 3
     assert shown["custom_value"] is False and shown["sort"] is False and shown["multiple"] is False
     assert [o["value"] for o in shown["options"]] == [ICON_AUTO, *ICONS]  # the stored values, auto first
     auto, *boxes = shown["options"]
