@@ -9,13 +9,21 @@ import {
   leavesLibrary,
   libraryKeys,
   librarySectionsPageSize,
+  libraryTopTabs,
   libraryViewFrom,
+  addRecentSearch,
+  matchRecentSearches,
+  orderSearchItems,
+  searchPageOf,
+  searchPageStart,
+  searchPages,
   maStations,
   musicScreenKeys,
   pageWindow,
   playNowTarget,
   playingStationIndex,
   rowOpens,
+  topTabOnArrow,
 } from "./library";
 import type { LibItem } from "./library";
 
@@ -111,6 +119,24 @@ describe("key maps", () => {
     expect(discoverKeys("categories")).toEqual(["back", null, null, null]);
     expect(discoverKeys("items")).toEqual(["back", null, null, "favourite"]);
   });
+  it("the Library's two tabs: the panel option decides, Left / Right follow the strip as the eye sees it", () => {
+    expect(libraryTopTabs({ discoverKey: true })).toEqual(["library", "discover"]);
+    expect(libraryTopTabs({ discoverKey: false })).toEqual([]);
+    const tabs = libraryTopTabs({ discoverKey: true });
+    // Hebrew: the first tab sits on the right, so Left goes on to Discover and Right comes back
+    expect(topTabOnArrow(tabs, "library", "ArrowLeft", true)).toBe("discover");
+    expect(topTabOnArrow(tabs, "library", "ArrowRight", true)).toBeNull();
+    expect(topTabOnArrow(tabs, "discover", "ArrowRight", true)).toBe("library");
+    expect(topTabOnArrow(tabs, "discover", "ArrowLeft", true)).toBeNull();
+    // English: mirrored
+    expect(topTabOnArrow(tabs, "library", "ArrowRight", false)).toBe("discover");
+    expect(topTabOnArrow(tabs, "library", "ArrowLeft", false)).toBeNull();
+    expect(topTabOnArrow(tabs, "discover", "ArrowLeft", false)).toBe("library");
+    expect(topTabOnArrow(tabs, "discover", "ArrowRight", false)).toBeNull();
+    // no strip: no tab to go to
+    expect(topTabOnArrow([], "library", "ArrowLeft", true)).toBeNull();
+    expect(topTabOnArrow([], "library", "ArrowRight", false)).toBeNull();
+  });
   it("only play now leaves the library for the music screen", () => {
     expect(leavesLibrary("replace")).toBe(true);
     expect(leavesLibrary("next")).toBe(false);
@@ -135,9 +161,25 @@ describe("key maps", () => {
       "space",
       "results",
     ]);
-    // the sections list: Back only, like Discover's categories
+    // the sections list: Back only, like Discover's categories (2026-11-22: Discover is a tab, F4 is empty again)
+    expect(libraryKeys({ tab: null, opened: false, searchKeys: false })).toEqual([
+      "back",
+      null,
+      null,
+      null,
+    ]);
     expect(libraryKeys({ tab: null, opened: false, searchKeys: false })).toEqual(
       discoverKeys("categories"),
+    );
+    // search, the highlight on a recent search: Back only (Enter runs it)
+    expect(libraryKeys({ tab: "search", opened: false, searchKeys: false, recent: true })).toEqual([
+      "back",
+      null,
+      null,
+      null,
+    ]);
+    expect(libraryKeys({ tab: "search", opened: false, searchKeys: true, recent: true })[3]).toBe(
+      "results",
     );
     // search results and an opened container keep the list keys
     expect(libraryKeys({ tab: "search", opened: false, searchKeys: false })).toEqual([
@@ -153,20 +195,135 @@ describe("key maps", () => {
       "open",
     ]);
   });
-  it("music screen: Discover on the free key, Radio on F1 only while an MA radio plays without a queue", () => {
-    expect(musicScreenKeys({ queue: false, maRadio: false, discover: true })).toEqual([
+  it("music screen: Search on F4, Radio on F1 only while an MA radio plays without a queue", () => {
+    expect(musicScreenKeys({ queue: false, maRadio: false })).toEqual([
       null,
       "library",
       "player",
-      "discover",
+      "search",
     ]);
-    expect(musicScreenKeys({ queue: true, maRadio: true, discover: true })[0]).toBe("queue");
-    expect(musicScreenKeys({ queue: false, maRadio: true, discover: false })).toEqual([
+    expect(musicScreenKeys({ queue: true, maRadio: true })[0]).toBe("queue");
+    expect(musicScreenKeys({ queue: false, maRadio: true })).toEqual([
       "radio",
       "library",
       "player",
-      null,
+      "search",
     ]);
+  });
+});
+
+// 2026-11-22: Music Assistant's search listed the way its web app lists it (the owner searched a song and got the
+// artist on top, the song on the third screen).
+describe("search results order", () => {
+  type Raw = { type: LibItem["mediaType"]; name: string; artist?: string | null };
+  const raw = (type: Raw["type"], name: string, artist: string | null = null): Raw => ({
+    type,
+    name,
+    artist,
+  });
+  const get = (r: Raw) => r;
+  // Music Assistant's answer for the song as kindle_panel hands it over when asked in the old order
+  const ANSWER: Raw[] = [
+    raw("artist", "Arik Einstein"),
+    raw("artist", "Miki Gavrielov"),
+    raw("album", "על גבול האור", "Arik Einstein, Miki Gavrielov"),
+    raw("album", "אוסף", "Arik Einstein"),
+    raw("track", "עוף גוזל", "Arik Einstein"),
+    raw("track", "עוף גוזל", "Sarit Hadad"),
+    raw("track", "עוף גוזל", "Arik Einstein, Miki Gavrielov"),
+    raw("track", "עוף מוזר", "פאר טסי"),
+    raw("playlist", "מסיבת סיום"),
+    raw("playlist", "מסיבת סיום"),
+    raw("podcast", "עוף גוזל"),
+  ];
+  it("the typed song first, then tracks, artists, albums, playlists; duplicates dropped as the web app drops them", () => {
+    const { items, top } = orderSearchItems(ANSWER, " עוף  גוזל ", get);
+    expect(top).toBe(2);
+    expect(items.map((i) => `${i.type}:${i.name}:${i.artist ?? ""}`)).toEqual([
+      // top results: the first exact match of each type, songs first
+      "track:עוף גוזל:Arik Einstein",
+      "podcast:עוף גוזל:",
+      // tracks: the other exact match first; the same song by the same first artist is listed once
+      "track:עוף גוזל:Sarit Hadad",
+      "track:עוף מוזר:פאר טסי",
+      "artist:Arik Einstein:",
+      "artist:Miki Gavrielov:",
+      "album:על גבול האור:Arik Einstein, Miki Gavrielov",
+      "album:אוסף:Arik Einstein",
+      // playlists are never merged
+      "playlist:מסיבת סיום:",
+      "playlist:מסיבת סיום:",
+    ]);
+  });
+  it("an artist typed in full is the first row; the match ignores case; no exact match = no top group", () => {
+    const answer = [
+      raw("track", "Bohemian Rhapsody", "Queen"),
+      raw("track", "Killer Queen", "Queen"),
+      raw("artist", "Queen"),
+      raw("album", "Queen", "Queen"),
+      raw("album", "Queen II", "Queen"),
+      raw("radio", "Queen Radio"),
+    ];
+    const hit = orderSearchItems(answer, "queen", get);
+    expect(hit.top).toBe(2);
+    expect(hit.items.slice(0, 3).map((i) => `${i.type}:${i.name}`)).toEqual([
+      "artist:Queen",
+      "album:Queen",
+      "track:Bohemian Rhapsody",
+    ]);
+    const typing = orderSearchItems(answer, "que", get);
+    expect(typing.top).toBe(0);
+    expect(typing.items.map((i) => i.type)).toEqual([
+      "track",
+      "track",
+      "artist",
+      "album",
+      "album",
+      "radio",
+    ]);
+  });
+  it("pages by height: a heading per group, repeated when a group runs over, never a heading at the foot", () => {
+    const items = [
+      item("t://track/0", "track", "exact"),
+      ...[1, 2, 3, 4, 5].map((i) => item(`t://track/${i}`, "track", `t${i}`)),
+      ...[1, 2, 3].map((i) => item(`t://artist/${i}`, "artist", `a${i}`)),
+      item("t://album/1", "album", "al1"),
+    ];
+    const pages = searchPages(items, 1);
+    const shape = (p: (typeof pages)[number]) =>
+      p.map((e) => (e.kind === "heading" ? `[${e.group}]` : e.item.name));
+    // 462 px: top heading + 1 row, tracks heading + 5 rows = 2 * 32 + 6 * 54 + 5 * 6 = 418; the artists heading and a
+    // row (92 more) do not fit, so the group starts the next page
+    expect(pages.map(shape)).toEqual([
+      ["[top]", "exact", "[track]", "t1", "t2", "t3", "t4", "t5"],
+      ["[artist]", "a1", "a2", "a3", "[album]", "al1"],
+    ]);
+    for (const p of pages) {
+      const height =
+        p.reduce((h, e) => h + (e.kind === "heading" ? 26 : 54), 0) + (p.length - 1) * 6;
+      expect(height).toBeLessThanOrEqual(462);
+      expect(p[p.length - 1]!.kind).toBe("item");
+    }
+    expect(searchPageOf(pages, 0)).toBe(0);
+    expect(searchPageOf(pages, 6)).toBe(1);
+    expect(searchPageStart(pages, 1)).toBe(6);
+    // one long group: its heading again on the second page
+    const long = searchPages(
+      Array.from({ length: 9 }, (_, i) => item(`t://track/${i}`, "track", `t${i}`)),
+      0,
+    );
+    expect(long.map((p) => p[0]!.kind === "heading" && p[0]!.group)).toEqual(["track", "track"]);
+    expect(long.map((p) => p.length - 1)).toEqual([7, 2]);
+    expect(searchPages([], 0)).toEqual([]);
+  });
+  it("recent searches: newest first, one entry per search whatever its case, capped; offered by what is typed", () => {
+    let list: string[] = [];
+    for (const q of ["Queen", "עוף גוזל", "queen ", "a", ""]) list = addRecentSearch(list, q);
+    expect(list).toEqual(["a", "queen", "עוף גוזל"]);
+    expect(addRecentSearch(["1", "2", "3"], "4", 3)).toEqual(["4", "1", "2"]);
+    expect(matchRecentSearches(list, "")).toEqual(list);
+    expect(matchRecentSearches(list, "Q")).toEqual(["queen"]);
+    expect(matchRecentSearches(list, "ג")).toEqual(["עוף גוזל"]);
   });
 });
 

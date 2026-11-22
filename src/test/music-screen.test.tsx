@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +9,7 @@ import { LangContext } from "@/lib/lang-context";
 import { demoMediaSnapshot, demoMusicList, demoRadioLists, demoTracks } from "@/lib/media";
 import type { MediaSnapshotResult, MusicListResult, MusicTab, QueueProgress } from "@/lib/media";
 import { useMediaPanel } from "@/lib/media-panel";
+import { COVER_RETRY_MS } from "@/lib/use-cover";
 import type { MediaNotice } from "@/lib/media-panel";
 
 const mocks = vi.hoisted(() => ({
@@ -432,6 +433,111 @@ describe("Music screen", () => {
     expect(dialog.querySelector(".amp-sub")?.textContent).toBe("קול זיכרון ישן · עידן עמדי");
     const img = dialog.querySelector<HTMLImageElement>(".amp-art img");
     expect(img?.getAttribute("src")).toBe("/media/img?station=ma%3A100fm-israeli&w=360");
+  });
+
+  it("a cover that fails to load: the glyph instead of a broken image, asked again with growing pauses, shown once it loads", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // the background retries load through `new Image()`; jsdom loads nothing, so the test answers for the server
+    const probes: { src: string; onload: (() => void) | null; onerror: (() => void) | null }[] = [];
+    vi.stubGlobal(
+      "Image",
+      class {
+        src = "";
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        constructor() {
+          probes.push(this);
+        }
+      },
+    );
+    const withArt = (art: string) => {
+      const r = musicResult();
+      r.snapshot!.nowPlaying.artItemId = art;
+      return r;
+    };
+    try {
+      mocks.getMediaSnapshot.mockResolvedValue(withArt("ma:abc"));
+      renderPanel();
+      await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
+      press("F1");
+      const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
+      const img = () => dialog.querySelector<HTMLImageElement>(".amp-art img");
+      const src = "/media/img?item=ma%3Aabc&w=360";
+      expect(img()?.getAttribute("src")).toBe(src);
+      expect(dialog.querySelector(".amp-art svg")).toBeNull();
+      // the first request fails: the empty cover look, never the browser's broken-image icon
+      fireEvent.error(img()!);
+      expect(img()).toBeNull();
+      expect(dialog.querySelector(".amp-art svg")).not.toBeNull();
+      expect(probes).toHaveLength(0);
+      // first retry after the first pause, on a new address so the browser asks the server again
+      await act(() => vi.advanceTimersByTimeAsync(COVER_RETRY_MS[0]! + 50));
+      expect(probes.map((p) => p.src)).toEqual([`${src}&retry=1`]);
+      // it fails too: nothing before the second, longer pause is over
+      act(() => probes[0]!.onerror!());
+      await act(() => vi.advanceTimersByTimeAsync(COVER_RETRY_MS[1]! - 1000));
+      expect(probes).toHaveLength(1);
+      expect(img()).toBeNull();
+      await act(() => vi.advanceTimersByTimeAsync(1100));
+      expect(probes.map((p) => p.src)).toEqual([`${src}&retry=1`, `${src}&retry=2`]);
+      // this one loads: the cover shows, with a full e-ink refresh, and nothing is asked any more
+      const full = Number(document.documentElement.getAttribute("data-eink-full") ?? 0);
+      act(() => probes[1]!.onload!());
+      expect(img()?.getAttribute("src")).toBe(`${src}&retry=2`);
+      expect(dialog.querySelector(".amp-art svg")).toBeNull();
+      expect(Number(document.documentElement.getAttribute("data-eink-full"))).toBe(full + 1);
+      await act(() => vi.advanceTimersByTimeAsync(COVER_RETRY_MS.reduce((a, b) => a + b, 0)));
+      expect(probes).toHaveLength(2);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it("a cover that never loads is given up after the last pause; the next song's cover is asked for at once", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const probes: { src: string; onerror: (() => void) | null }[] = [];
+    vi.stubGlobal(
+      "Image",
+      class {
+        src = "";
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        constructor() {
+          probes.push(this);
+        }
+      },
+    );
+    try {
+      const first = musicResult();
+      first.snapshot!.nowPlaying.artItemId = "ma:abc";
+      mocks.getMediaSnapshot.mockResolvedValue(first);
+      renderPanel();
+      await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
+      press("F1");
+      const dialog = screen.getByRole("dialog", { name: "תצוגת המגבר" });
+      const img = () => dialog.querySelector<HTMLImageElement>(".amp-art img");
+      fireEvent.error(img()!);
+      for (let i = 0; i < COVER_RETRY_MS.length; i++) {
+        await act(() => vi.advanceTimersByTimeAsync(COVER_RETRY_MS[i]! + 50));
+        expect(probes).toHaveLength(i + 1);
+        act(() => probes[i]!.onerror!());
+      }
+      await act(() => vi.advanceTimersByTimeAsync(10 * 60_000));
+      expect(probes).toHaveLength(COVER_RETRY_MS.length);
+      expect(img()).toBeNull();
+      // another song: its own cover, straight away
+      const second = musicResult();
+      second.snapshot!.nowPlaying.artItemId = "ma:next";
+      mocks.getMediaSnapshot.mockResolvedValue(second);
+      await act(() => vi.advanceTimersByTimeAsync(61_000));
+      await waitFor(() =>
+        expect(img()?.getAttribute("src")).toBe("/media/img?item=ma%3Anext&w=360"),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
   });
 
   it("amp view with music: progress bar and track position, right / left / Enter drive the queue, the bar counts on between polls", async () => {

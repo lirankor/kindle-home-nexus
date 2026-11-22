@@ -626,14 +626,19 @@ export function queueListFrom(
 let sentQueue: { title: string; tracks: MusicTrack[] } | null = null;
 /** kindle_panel missing (HA answers 400 for an unknown service): do not ask again for a minute. */
 let panelMissingUntil = 0;
-async function panelQueue(player: string): Promise<PanelQueue | null> {
+async function panelQueue(
+  player: string,
+  offset = 0,
+  limit = 500,
+  timeoutMs = 15_000,
+): Promise<PanelQueue | null> {
   if (Date.now() < panelMissingUntil) return null;
   try {
     const r = await ha<{ service_response?: PanelQueue }>(
       "POST",
       "/api/services/kindle_panel/get_queue?return_response",
-      { entity_id: player, offset: 0, limit: 500 },
-      15_000,
+      { entity_id: player, offset, limit },
+      timeoutMs,
     );
     return r.service_response ?? null;
   } catch {
@@ -641,6 +646,59 @@ async function panelQueue(player: string): Promise<PanelQueue | null> {
     return null;
   }
 }
+
+/** Music Assistant's own image proxy: the only cover address /media/img fetches (maImageAllowed in media.server.ts). */
+export const isMaProxyUrl = (u: string | null | undefined): boolean => {
+  try {
+    return !!u && new URL(u).pathname.startsWith("/imageproxy");
+  } catch {
+    return false;
+  }
+};
+/** music_state reads Music Assistant's own get_queue, and that hands out the raw CDN address for covers MA marks
+ *  remotely accessible (every YouTube Music song; fanart.tv, theaudiodb, coverartarchive covers). /media/img refuses
+ *  those, so the amp view's cover was a 404 for the whole song (2026-11-22). kindle_panel's queue rows carry MA's
+ *  proxy address of the same picture (0.12.1): put that in, for the playing track and the next ones (same position
+ *  and same item), and no address at all rather than one the image route refuses. Proxy addresses stay as they are. */
+export function withProxyArt(s: HaMusicState, items: PanelQueueItem[] | null): HaMusicState {
+  const q = s.queue;
+  if (!q) return s;
+  const fix = (t: HaTrack, index: number): HaTrack => {
+    if (!t.artUrl || isMaProxyUrl(t.artUrl)) return t;
+    const row = items?.find((i) => i.index === index && (i.id ?? null) === t.id);
+    return { ...t, artUrl: row && isMaProxyUrl(row.image) ? (row.image ?? null) : null };
+  };
+  return {
+    ...s,
+    queue: {
+      ...q,
+      track: q.track && fix(q.track, q.index),
+      next: q.next.map((t, i) => fix(t, q.index + 1 + i)),
+    },
+  };
+}
+/** The queue rows last asked for the covers (one kindle_panel call per new track with a CDN cover, never per poll). */
+let proxyArt: { key: string; until: number; items: Promise<PanelQueueItem[] | null> } | null = null;
+async function withProxyArtFromPanel(s: HaMusicState): Promise<HaMusicState> {
+  const q = s.queue;
+  const tracks = q ? [q.track, ...q.next] : [];
+  if (!q || !tracks.some((t) => t?.artUrl && !isMaProxyUrl(t.artUrl))) return s;
+  const key = [s.player, q.index, ...tracks.map((t) => t?.uri ?? t?.id ?? "")].join("|");
+  if (proxyArt?.key !== key || Date.now() > proxyArt.until) {
+    const items = panelQueue(s.player, q.index, tracks.length, 5_000).then((r) => r?.items ?? null);
+    const memo = (proxyArt = { key, until: Infinity, items });
+    // kindle_panel did not answer: ask again in 20 s, the cover then comes with a later status poll
+    void items.then((r) => {
+      if (!r) memo.until = Date.now() + 20_000;
+    });
+  }
+  return withProxyArt(s, await proxyArt.items);
+}
+/** Test hook. */
+export const resetProxyArt = () => {
+  proxyArt = null;
+  panelMissingUntil = 0;
+};
 
 // ---- Runtime ----
 let lastState: { at: number; value: HaMusicState } | null = null;
@@ -661,7 +719,9 @@ export const forgetMusicState = () => {
 
 export async function readMusicState(maxAgeMs = 0): Promise<HaMusicState> {
   if (lastState && Date.now() - lastState.at <= maxAgeMs) return lastState.value;
-  const value = await haScript<HaMusicState>("music_state", outputFields());
+  const value = await withProxyArtFromPanel(
+    await haScript<HaMusicState>("music_state", outputFields()),
+  );
   lastState = { at: Date.now(), value };
   if (value.powerOn.running) powerStartedAt ??= Date.now();
   else powerStartedAt = null;

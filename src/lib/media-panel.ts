@@ -8,7 +8,6 @@ import {
   ArrowRightLeft,
   Check,
   ChevronLeft,
-  Compass,
   Gauge,
   ChevronRight,
   CornerDownLeft,
@@ -1338,8 +1337,8 @@ export function useMediaPanel({
             : screen === "now" && output
               ? // music played by HA: the MA controller only (bus task 025: the amp's dial is on its node screen). Bus
                 // task 027: F1 = the playlist while there is a queue, else "Radio" (the MA radio dial) while an MA radio
-                // plays; F2 the MA library; F3 the player; Discover on the free key (panel option discover_key). No back
-                // key: Back / the tab keys leave it; no Power on: playing wakes the output's receiver (task 015).
+                // plays; F2 the MA library; F3 the player; F4 Search (2026-11-22; Discover is the Library's second
+                // tab). No back key: Back / the tab keys leave it; no Power on: playing wakes the output's receiver.
                 musicScreenKeys({
                   queue: !!data?.queue,
                   // MA radio (the projection reads SERVER for MA), not the amp's own NET RADIO
@@ -1347,7 +1346,6 @@ export function useMediaPanel({
                     !!data?.amp.on &&
                     data.amp.source === INPUT_SERVER &&
                     data.nowPlaying.kind === "radio",
-                  discover: library.view.discoverKey,
                 }).map((k): DeviceAction | null =>
                   k === "queue"
                     ? { label: t("amp.playlist"), icon: ListOrdered, onClick: () => open("queue") }
@@ -1361,11 +1359,11 @@ export function useMediaPanel({
                         ? { label: t("amp.library"), icon: ListMusic, onClick: library.openLibrary }
                         : k === "player"
                           ? outputKey
-                          : k === "discover"
+                          : k === "search"
                             ? {
-                                label: t("discover.title"),
-                                icon: Compass,
-                                onClick: library.openDiscover,
+                                label: t("search.title"),
+                                icon: Search,
+                                onClick: library.openSearch,
                               }
                             : null,
                 )

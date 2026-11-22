@@ -12,7 +12,10 @@ What this branch changes in the app:
   Music Assistant; the Jellyfin list views (lists, mixes, artist, search) remain for `MUSIC_BACKEND=app` only. Since bus
   task 029 (kindle_panel 0.11.0) Enter plays now everywhere in the Library / Discover and returns to the music screen,
   F4 **Open** browses a container, Discover's rows come from `media.discover_rows` (no podcasts by default, up to 20
-  items a row) and both screens use the list screens' standard footer. The snapshot reuses `buildMediaSnapshot`
+  items a row) and both screens use the list screens' standard footer. Since 2026-11-22 the music screen's F4 opens
+  Search, search results are grouped as in MA's web app, the typed song first, and Library and Discover are one
+  screen with two tabs (F2; Left / Right change the tab; the panel option `discover_key` decides whether the Discover
+  tab exists) (`docs/HANDOFF.md`). The snapshot reuses `buildMediaSnapshot`
   by projecting the bridge entity onto `AMP.player`, so the screen rules are unchanged.
 - In HA mode the legacy queue never resumes or touches the amp, and `/api/voice/{play,action,radio}` answer 409.
 - For every mode:

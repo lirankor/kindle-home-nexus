@@ -14,7 +14,12 @@ import type {
   LibSearchResult,
   LibraryTab,
 } from "./library";
-import { LIBRARY_PAGE_SIZE } from "./library";
+import {
+  LIBRARY_PAGE_SIZE,
+  SEARCH_LIMIT_PER_TYPE,
+  SEARCH_TYPE_ORDER,
+  orderSearchItems,
+} from "./library";
 
 /** kindle_panel's item (library.py item_view). */
 export type PanelLibItem = {
@@ -175,12 +180,22 @@ export async function panelLibrarySearch(
   return r.items ?? [];
 }
 
+/**
+ * Music Assistant's own search (music/search through kindle_panel.library_search: its library first, then every
+ * provider), asked for the types in the panel's order and listed as MA's web app lists it: see orderSearchItems.
+ * 2026-11-22: before, the answer was shown as it came, artists and albums ahead of the songs.
+ */
 export async function searchLibrary(query: string): Promise<LibSearchResult> {
   try {
-    const r = await panelService<{ items: PanelLibItem[] }>("library_search", { query, limit: 6 });
-    return { ok: true, query, items: (r.items ?? []).map(libItemFrom) };
+    const raw = await panelLibrarySearch(query, SEARCH_TYPE_ORDER, SEARCH_LIMIT_PER_TYPE);
+    const { items, top } = orderSearchItems(raw, query, (i) => ({
+      type: i.media_type,
+      name: i.name ?? "",
+      artist: i.artist,
+    }));
+    return { ok: true, query, items: items.map(libItemFrom), top };
   } catch (e) {
-    return { ok: false, error: errorText(e), query, items: [] };
+    return { ok: false, error: errorText(e), query, items: [], top: 0 };
   }
 }
 

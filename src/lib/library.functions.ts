@@ -3,7 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { haConfigured } from "./home.server";
 import { DISCOVER_ROWS, LIBRARY_TABS } from "./library";
-import { SEARCH_MAX_CHARS } from "./media";
+import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS } from "./media";
 import type {
   DiscoverRow,
   LibHomeResult,
@@ -18,6 +18,7 @@ import {
   readLibraryList,
   searchLibrary,
 } from "./library-ha.server";
+import { readRecentSearches, rememberRecentSearch } from "./search-recent.server";
 
 /**
  * A Music Assistant uri (provider://type/id). Podcast episode ids contain a space (an RSS url, a space, a guid), so the
@@ -47,6 +48,7 @@ function buildSchemas() {
       sections: z.array(z.enum(DISCOVER_ROWS)).max(DISCOVER_ROWS.length).optional(),
     }),
     search: z.object({ query: z.string().trim().min(1).max(SEARCH_MAX_CHARS) }),
+    recent: z.object({ query: z.string().trim().min(SEARCH_MIN_CHARS).max(SEARCH_MAX_CHARS) }),
     play: z.object({ uri, option: z.enum(["replace", "next", "add"]), startItem: uri.optional() }),
     favourite: z.object({ uri, favorite: z.boolean() }),
   };
@@ -81,8 +83,20 @@ export const getLibraryList = createServerFn({ method: "GET" })
 export const searchLibraryItems = createServerFn({ method: "GET" })
   .validator((d: { query: string }) => schemas().search.parse(d))
   .handler(async ({ data }): Promise<LibSearchResult> =>
-    haConfigured() ? searchLibrary(data.query) : { ...noHa, query: data.query, items: [] },
+    haConfigured() ? searchLibrary(data.query) : { ...noHa, query: data.query, items: [], top: 0 },
   );
+
+/** The panel's recent searches, newest first (search-recent.server.ts). */
+export const getSearchRecents = createServerFn({ method: "GET" }).handler(
+  async (): Promise<{ items: string[] }> => ({ items: await readRecentSearches() }),
+);
+
+/** The results of this search were opened: remember it. */
+export const rememberSearch = createServerFn({ method: "POST" })
+  .validator((d: { query: string }) => schemas().recent.parse(d))
+  .handler(async ({ data }): Promise<{ items: string[] }> => ({
+    items: await rememberRecentSearch(data.query),
+  }));
 
 export const playLibrary = createServerFn({ method: "POST" })
   .validator((d: PlayInput) => schemas().play.parse(d) as PlayInput)

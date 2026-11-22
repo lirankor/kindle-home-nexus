@@ -256,3 +256,96 @@ Verified live: play → plug on at once, amp on after ~24 s, AirPlay playing at 
 Also today: desktop debugging on http://<LAN_IP>:8791 (1..4 = F1..F4, [ ] = tabs), "Music Assistant" subtitle dropped, all key-hint lines removed.
 
 0.13.1 (same day): three boxes a row, the owner's choice after seeing both (less scrolling; some long names are cut).
+
+## 2026-11-22: search one key away, and Music Assistant's results the way its web app lists them (uncommitted)
+
+The owner searched a Hebrew song and got the artist on top, the song on the third screen.
+Cause: the panel asked `kindle_panel.library_search` (Music Assistant `music/search`) for the types in the order artist,
+album, track, playlist, radio, podcast, audiobook, six of each, and showed the flat answer four rows at a time under the
+keyboard. Three artists and six albums came before the song.
+
+What the web app does (MA 2.10 frontend, read from its bundle): the same `music/search`, from two characters, 250 ms
+after the last key, listed by type in the order track, artist, album, playlist, podcast, audiobook, radio, an exact
+name match first within a type, the same name by the same first artist listed once (never playlists). Its recent
+searches are on the MA server, per MA user (preference `search.recent`, five entries, saved when a result is opened),
+shown only below two characters; there is no separate suggestion source.
+
+Now (`src/lib/library.ts` `orderSearchItems`, `searchPages`; `use-library.ts`; `components/library-screens.tsx`):
+- Music screen F4 (the Home key) opens Search directly (`musicScreenKeys`), with an empty field; Back returns to the
+  music screen. Library → Search still works. Discover left the music screen's keys (first to F4 of the Library
+  sections list, the same day it became the Library's second tab, see the next section).
+- The request asks the types tracks first (the answer is cached by MA under the same key as before). The answer is
+  deduplicated and ordered as the web app does, plus a "Top result" group: the first exact name match of each type,
+  songs first, at most three (`SEARCH_TOP_MAX`). So the typed song is row one, also in the four rows under the keyboard.
+- On the results (F4 / Down off the keyboard) the keyboard gives its place to the whole list: slim group headings
+  (Top result, Tracks, Artists, Albums, Playlists, Radio, Podcasts, Audiobooks), cut into pages by height
+  (`SEARCH_LIST_HEIGHTS`, 462 px), a heading repeated when a group continues, page keys jump a page, Up from the
+  first row or Back returns to the keyboard. Enter plays the row, F4 opens a container, as before.
+- Recent searches are the panel's own list (`src/lib/search-recent.server.ts`, file `kindle-search-recent.json` in
+  `MEDIA_STATE_DIR`, eight entries, newest first): the panel reaches MA only through HA's integration, which has no
+  call for an MA user's preferences. A search is remembered when its results are opened. Below two characters the
+  rows under the keyboard are the recent searches that contain what is typed; Enter on one runs it at once.
+  Sharing MA's own list would need a `kindle_panel` service for the MA user's preferences (and an HA restart).
+- The integration is unchanged. Its option text "Discover key" now means the Discover tab of the Library.
+
+Render check without touching the house: a second copy of the app image on a local port, behind a small gate that
+passes HA reads and only the answer-only calls (`get_config`, `get_queue`, `library_search`, `script.music_state`) and
+answers 403 to every other service call, driven by a separate headless Chromium from the bridge image.
+
+## 2026-11-22: Library and Discover are two tabs of one screen (uncommitted)
+
+The owner's call. F2 on the music screen opens one screen with a two-tab strip at the top: Library, then Discover. It
+always opens on the Library tab.
+
+- Library tab: the sections list as before. Discover tab: Discover's categories as before; the strip stands where the
+  "Discover" heading stood. The open tab is inverted (black), the other one outlined.
+- Left / Right change the tab while a top-level list shows, following the strip as the eye sees it: in Hebrew the
+  Library tab sits on the right, so Left goes to Discover and Right comes back; in English mirrored. Before, both keys
+  did nothing on these two lists. Inside an opened section, an opened Discover category, search and the radio dial
+  they are unchanged, and no strip shows there.
+- Back from an opened Discover category returns to the Discover tab, Back from an opened section to the Library tab,
+  Back from either tab to the music screen. Each tab keeps its highlight while the other one shows.
+- F4 on the sections list is empty again (it carried Discover for a few hours). The footer is otherwise unchanged.
+- The panel option `discover_key` (`view.discoverKey`) decides whether the Discover tab exists. Off: no strip, the
+  sections list at its old row height, Left / Right do nothing, Discover is not reachable.
+- Layout: the strip is 46 px; under it the section rows are 68 px instead of 74 px, so eight sections still fit one
+  page (`styles.css` `.lib-top-tabs`).
+- E-ink: the two tabs stay two screens (`library`, `discover`), so a tab change is a screen change and gets the full
+  refresh every screen change gets. No new refresh logic.
+- Code: `src/lib/library.ts` (`libraryTopTabs`, `topTabOnArrow`, `libraryKeys`), `src/lib/use-library.ts`
+  (`selectTopTab`, the two top-level key branches), `src/components/library-screens.tsx` (`TopTabs`). The integration
+  is unchanged; its option text "Discover key" now switches the tab.
+- Deployed 2026-11-22 17:00 UTC while nothing played (app image, then app and bridge recreated). Rollback image tag
+  `kindle-home-nexus-app:pre-tabs`. Rendered in a test copy (Hebrew and English, option on and off); not yet tried
+  on the device.
+
+## 2026-11-22: the amp view's cover for YouTube Music songs (uncommitted)
+
+Symptom: the music screen showed the browser's broken-image icon in the cover square for every YouTube Music song.
+
+- Cause: the amp view takes the playing track from Home Assistant's `script.music_state`, which reads Music
+  Assistant's own `get_queue`. For a cover Music Assistant marks as remotely accessible (every YouTube Music song;
+  also fanart.tv, theaudiodb and coverartarchive covers) that answer carries the picture's address on the provider's
+  image host, not Music Assistant's `/imageproxy` address. `/media/img` accepts only `/imageproxy` on the LAN
+  (`maImageAllowed`), so it answered 404 without fetching anything, and the cover `<img>` had no error handler.
+  kindle_panel 0.12.1 already hands out the proxy address in its own queue rows, which is why the queue list and the
+  library were fine; the now-playing path never used those rows. Broken since the covers moved to Music Assistant
+  (2026-10-27) for remote covers, visible on every song since the YouTube Music provider arrived (2026-11-21).
+- Fix, app only (`src/lib/media-ha.server.ts`, `withProxyArt`): when the playing track or one of the next ones has
+  a cover address that is not `/imageproxy`, `readMusicState` asks `kindle_panel.get_queue` for that window
+  (`offset` = queue index, a few rows) and takes the proxy address of the same position and the same item. One call
+  per new track, never per poll; when kindle_panel does not answer it is asked again after 20 s. An address the image
+  route would refuse is dropped, so the page never asks for it.
+- Never a broken image (`src/lib/use-cover.ts`, used by the amp view): a cover that fails to load shows the normal
+  empty look (the source glyph) and is asked again after 5 s, 20 s, 60 s and 120 s, each time under a new address so
+  the browser really asks; the first one that loads is shown with a full e-ink refresh. After the last pause the
+  empty look stays until the song changes. The image route remembers a Music Assistant miss for 20 s now (was two
+  minutes), so the later tries are real ones.
+- Not changed: the list rows (`MusicArt`), the radio screen, the integration, `script.music_state`. The cleaner
+  long-term place for this is `script.music_state` (or the integration) handing out the proxy address itself; the
+  app-side lookup then simply finds nothing to replace.
+- Tests: `src/lib/media-ha.test.ts` (substitution, one call per track, recovery), `src/test/music-screen.test.tsx`
+  (glyph on error, the pauses, giving up, the next song).
+- Deployed 2026-11-22 18:39 UTC while nothing played (app image, then app and bridge recreated). Rollback image tag
+  `kindle-home-nexus-app:pre-art`. Rendered in a test copy with the live queue (cover shown; cover refused, then
+  shown by the second retry); not yet seen on the device.

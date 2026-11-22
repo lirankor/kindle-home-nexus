@@ -590,7 +590,7 @@ describe("Media tab and amp view", () => {
       "\u00a0", // no queue: F1 empty; no radio key (bus task 025)
       "Library",
       "Player",
-      "Discover", // the free key (bus task 027)
+      "Search", // 2026-11-22: search one key away (Discover is the Library's second tab)
     ]);
     expect(now.textContent).toContain("R-N500");
     press("F3");
@@ -633,7 +633,7 @@ describe("Media tab and amp view", () => {
       "\u00a0", // no queue: F1 empty; no radio key (bus task 025)
       "Library",
       "Player",
-      "Discover", // the free key (bus task 027)
+      "Search", // 2026-11-22: search one key away (Discover is the Library's second tab)
     ]);
     expect(now.textContent).toContain("Playing something turns it on"); // no "right-hand button" hint
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -701,7 +701,7 @@ describe("Media tab and amp view", () => {
   const keysOf = (el: Element) =>
     Array.from(el.querySelectorAll("[data-soft-key]")).map((b) => b.textContent);
 
-  it("music screen keys through HA: F1 Playlist when the player has a queue, F2 Library, F3 Player, F4 Discover (bus tasks 025 + 027)", async () => {
+  it("music screen keys through HA: F1 Playlist when the player has a queue, F2 Library, F3 Player, F4 Search (bus tasks 025 + 027, 2026-11-22)", async () => {
     const r = haResult("AirPlay");
     r.snapshot!.nowPlaying = { ...r.snapshot!.nowPlaying, kind: "music", station: null };
     r.snapshot!.queue = {
@@ -721,7 +721,7 @@ describe("Media tab and amp view", () => {
     await waitFor(() => expect(screen.getByTitle("פתח מוזיקה")).toBeVisible());
     press("F1");
     const now = screen.getByRole("dialog", { name: "תצוגת המגבר" });
-    expect(keysOf(now)).toEqual(["רשימת השמעה", "ספריה", "נגן", "גילוי"]); // Discover on F4 (bus task 027)
+    expect(keysOf(now)).toEqual(["רשימת השמעה", "ספריה", "נגן", "חיפוש"]); // Search on F4 (2026-11-22)
     press("F3");
     expect(screen.getByRole("dialog", { name: "נגנים" })).toBeVisible();
   });

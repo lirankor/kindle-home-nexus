@@ -2,6 +2,8 @@
 // rows from the panel option): state and keys of the Music Assistant client screens (MUSIC_BACKEND=ha): the Library (a
 // plain list of MA's sections, then a section's list, 2026-10-23), Discover (MA's Home rows) and the MA radio dial (MA's radios on the amp dial's slider). Data comes
 // from kindle_panel's library_* services through library.functions.ts. useMediaPanel owns the screen and the footer.
+// 2026-11-22: the Library's sections list and Discover's categories are the two tabs of one screen (a strip above both
+// lists, Left / Right change the tab); they stay two MediaScreen values, so a tab change is an ordinary screen change.
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -18,6 +20,7 @@ import {
   Space,
 } from "lucide-react";
 import type { DeviceAction } from "@/components/device-actions";
+import { isRtl } from "@/lib/i18n";
 import type { Key, Lang } from "@/lib/i18n";
 import {
   DEFAULT_LIBRARY_VIEW,
@@ -31,10 +34,16 @@ import {
   leavesLibrary,
   libraryKeys,
   librarySectionsPageSize,
+  libraryTopTabs,
   pageWindow,
   playNowTarget,
+  matchRecentSearches,
   playingStationIndex,
   rowOpens,
+  searchPageOf,
+  searchPageStart,
+  searchPages,
+  topTabOnArrow,
 } from "@/lib/library";
 import type {
   LibHomeResult,
@@ -44,13 +53,16 @@ import type {
   LibPlayOption,
   LibSearchResult,
   LibraryTab,
+  LibraryTopTab,
   MaDialBand,
 } from "@/lib/library";
 import {
   favouriteLibrary,
   getLibraryHome,
   getLibraryList,
+  getSearchRecents,
   playLibrary,
+  rememberSearch,
   searchLibraryItems,
 } from "@/lib/library.functions";
 import { SEARCH_MAX_CHARS, SEARCH_MIN_CHARS } from "@/lib/media";
@@ -87,6 +99,7 @@ const DIAL_LIST_LIMIT = 100;
 export function useLibrary({
   screen,
   open,
+  lang,
   t,
   notify,
   data,
@@ -95,7 +108,7 @@ export function useLibrary({
 }: {
   screen: string | null;
   open: (s: "now" | LibScreen) => void;
-  /** The panel's language (kept in the call; Left / Right no longer depend on the reading direction). */
+  /** The panel's language: Left / Right on the two top-level lists follow the tab strip as the eye sees it. */
   lang: Lang;
   t: (key: Key, vars?: Record<string, string | number>) => string;
   notify: (n: { text: string; error?: boolean }) => void;
@@ -107,10 +120,17 @@ export function useLibrary({
   const queryClient = useQueryClient();
   const view = data?.output?.library ?? DEFAULT_LIBRARY_VIEW;
   const tabs = view.tabs;
+  /** The strip above the two top-level lists (empty = no strip: the panel option `discover_key` is off). */
+  const topTabs = libraryTopTabs(view);
   // 2026-10-23 (owner): the Library is a plain list of the sections (section === null), Enter opens one; Back climbs.
   const [sectionState, setSection] = useState<LibraryTab | null>(null);
+  /** 2026-11-22: Search was opened by its own key on the music screen (Back returns there, and it opens even when the
+   *  panel's sections leave Search out). */
+  const [searchDirect, setSearchDirect] = useState(false);
   const section: LibraryTab | null =
-    sectionState && tabs.includes(sectionState) ? sectionState : null;
+    sectionState && (tabs.includes(sectionState) || (sectionState === "search" && searchDirect))
+      ? sectionState
+      : null;
   /** The sections list's cursor, kept while the hook lives; null = start on the panel's configured tab. */
   const [sectionsCursorState, setSectionsCursor] = useState<number | null>(null);
   const sectionsCursor = Math.max(
@@ -195,9 +215,30 @@ export function useLibrary({
     placeholderData: keepPreviousData,
   });
   const searchActive = search.query.trim().length >= SEARCH_MIN_CHARS;
-  const searchRows: LibItem[] = searchActive ? (searchQuery.data?.items ?? []) : [];
-  const searchCursor = Math.min(cursor, Math.max(0, searchRows.length - 1));
+  const searchRows: LibItem[] = useMemo(
+    () => (searchActive ? (searchQuery.data?.items ?? []) : []),
+    [searchActive, searchQuery.data],
+  );
+  const searchTop = searchActive ? Math.min(searchQuery.data?.top ?? 0, searchRows.length) : 0;
+  // Recent searches (the panel's own list, search-recent.server.ts): offered while fewer than two characters are
+  // typed, as Music Assistant's web app does; from two characters on the live results take their place.
+  const recentQuery = useQuery<{ items: string[] }>({
+    queryKey: ["lib", "recent"],
+    queryFn: () => getSearchRecents(),
+    enabled: screen === "library" && section === "search",
+    staleTime: LIST_STALE_MS,
+  });
+  const recentRows = useMemo(
+    () => (searchActive ? [] : matchRecentSearches(recentQuery.data?.items ?? [], search.query)),
+    [searchActive, recentQuery.data, search.query],
+  );
+  const searchMode: "recent" | "results" = searchActive ? "results" : "recent";
+  const searchCount = searchMode === "recent" ? recentRows.length : searchRows.length;
+  const searchCursor = Math.min(cursor, Math.max(0, searchCount - 1));
   const searchKeysFocus = section === "search" && !opened && search.focus === "keys";
+  /** The results list with the keyboard hidden: groups under slim headings, cut into pages by height. */
+  const searchPageList = useMemo(() => searchPages(searchRows, searchTop), [searchRows, searchTop]);
+  const searchPage = searchPageOf(searchPageList, searchCursor);
 
   // ---- Discover ----
   const discoverRows = view.discoverRows;
@@ -336,17 +377,44 @@ export function useLibrary({
   );
 
   // ---- navigation ----
+  /** F2 on the music screen: always the Library tab; the Discover tab starts at the top of its categories. */
   const openLibrary = () => {
+    setSearchDirect(false);
     setSection(null);
     setStack([]);
     setCursor(0);
     setFavs({});
+    setDisc({ row: null, cursor: 0 });
     open("library");
   };
-  const openDiscover = () => {
+  /** The tab strip (2026-11-22): the Library's sections list and Discover's categories are two screens, so a tab
+   *  change is a screen change (full refresh by the panel's convention). Each list keeps its highlight meanwhile. */
+  const selectTopTab = (next: LibraryTopTab) => {
+    if (!topTabs.includes(next) || next === (screen === "discover" ? "discover" : "library"))
+      return;
     setFavs({});
-    setDisc({ row: null, cursor: 0 });
-    open("discover");
+    if (next === "discover") setDisc((d) => ({ row: null, cursor: d.row === null ? d.cursor : 0 }));
+    open(next);
+  };
+  /** Left / Right on a top-level list: the tab on that side of the strip, if there is one. */
+  const arrowTopTab = (current: LibraryTopTab, key: "ArrowLeft" | "ArrowRight") => {
+    const next = topTabOnArrow(topTabs, current, key, isRtl(lang));
+    if (next) selectTopTab(next);
+  };
+  /** Search starts empty on the English layout: the recent searches show, the last one first. */
+  const resetSearch = () => {
+    setSearch({ query: "", focus: "keys", key: 0, layout: "en" });
+    setTerm("");
+  };
+  /** F4 on the music screen (2026-11-22): straight to Search, the cursor on the keyboard. */
+  const openSearch = () => {
+    setSearchDirect(true);
+    setSection("search");
+    setStack([]);
+    setCursor(0);
+    setFavs({});
+    resetSearch();
+    open("library");
   };
   const openMaDial = (from: "now" | "library") => {
     // the band of the station that plays (favourites when it is one), else favourites
@@ -364,8 +432,9 @@ export function useLibrary({
     if (i >= 0) setSectionsCursor(i);
     setStack([]);
     setCursor(0);
-    // the keyboard opens on the English layout every time, whatever the UI language
-    setSearch((s) => ({ ...s, focus: "keys", layout: "en" }));
+    // the keyboard opens on the English layout every time, whatever the UI language; since 2026-11-22 the field starts
+    // empty too (the last search is the first recent row; deleting it letter by letter cost a key press each)
+    if (next === "search") resetSearch();
   };
   const moveSections = (delta: number) =>
     setSectionsCursor(Math.max(0, Math.min(Math.max(0, tabs.length - 1), sectionsCursor + delta)));
@@ -381,11 +450,18 @@ export function useLibrary({
       return setSearch((s) => ({ ...s, focus: "keys" }));
     setSection(null);
     setCursor(0);
+    if (tab === "search" && searchDirect) {
+      setSearchDirect(false);
+      open("now");
+    }
   };
   const highlightedRow = (): LibRow | null => {
     if (section === null) return null;
     if (tab === "search" && !opened) {
-      const item = search.focus === "results" ? searchRows[searchCursor] : undefined;
+      const item =
+        search.focus === "results" && searchMode === "results"
+          ? searchRows[searchCursor]
+          : undefined;
       return item ? { kind: "item", item } : null;
     }
     return rowAt(Math.min(cursor, Math.max(0, listTotal - 1))) ?? null;
@@ -399,6 +475,11 @@ export function useLibrary({
   /** Enter (bus task 029): play now, whatever the row (a container plays whole, a track inside an opened album /
    *  playlist plays that list from the track), then the music screen. */
   const enter = () => {
+    if (tab === "search" && !opened && search.focus === "results" && searchMode === "recent") {
+      const recent = recentRows[searchCursor];
+      if (recent) pickRecent(recent);
+      return;
+    }
     const row = highlightedRow();
     if (!row) return;
     if (row.kind === "playAll") void play({ uri: row.parent.uri }, "replace", row.parent.name);
@@ -407,7 +488,7 @@ export function useLibrary({
   const moveCursor = (delta: number) => {
     if (tab === "search" && !opened) {
       if (delta < 0 && searchCursor === 0) setSearch((s) => ({ ...s, focus: "keys" }));
-      else setCursor(Math.max(0, Math.min(searchRows.length - 1, searchCursor + delta)));
+      else setCursor(Math.max(0, Math.min(searchCount - 1, searchCursor + delta)));
       return;
     }
     setCursor((c) => Math.max(0, Math.min(Math.max(0, listTotal - 1), c + delta)));
@@ -421,10 +502,34 @@ export function useLibrary({
     setCursor(0);
   };
   const backspace = () => setSearch((s) => ({ ...s, query: s.query.slice(0, -1), focus: "keys" }));
+  /** The search is kept once its results are opened (not on every letter): the web app saves on opening a result. */
+  const remember = (query: string) => {
+    const q = query.trim();
+    if (q.length < SEARCH_MIN_CHARS) return;
+    void rememberSearch({ data: { query: q } })
+      .then((r) => queryClient.setQueryData(["lib", "recent"], r))
+      .catch(() => {});
+  };
   const toResults = () => {
-    if (!searchRows.length) return;
+    if (!searchCount) return;
+    if (searchMode === "results") remember(search.query);
     setSearch((s) => ({ ...s, focus: "results" }));
     setCursor(0);
+  };
+  /** Enter on a recent search: it becomes the query and its results open at once (no debounce). */
+  const pickRecent = (query: string) => {
+    setSearch((s) => ({ ...s, query, focus: "results" }));
+    setTerm(query.trim());
+    setCursor(0);
+    remember(query);
+  };
+  /** The page keys on the results list: the first row of the next / previous page. */
+  const moveSearchPage = (delta: 1 | -1) => {
+    if (searchMode === "recent") return moveCursor(delta * LIBRARY_PAGE_SIZE);
+    const next = searchPage + delta;
+    if (next < 0) return setCursor(0);
+    if (next >= searchPageList.length) return setCursor(Math.max(0, searchRows.length - 1));
+    setCursor(searchPageStart(searchPageList, next));
   };
   const setSearchKey = (key: number) =>
     setSearch((s) => ({
@@ -464,7 +569,8 @@ export function useLibrary({
     if (!homeRows.length) return;
     setDisc({ row: discCursor, cursor: 0 });
   };
-  /** Back on the items: the categories, highlight on the one that was open; on the categories: the music screen. */
+  /** Back on the items: the categories (the Discover tab), highlight on the one that was open; on the categories: the
+   *  music screen, like Back on the Library tab. */
   const discBack = () => {
     if (disc.row === null) open("now");
     else setDisc({ row: null, cursor: discRowIndex });
@@ -570,7 +676,7 @@ export function useLibrary({
         return {
           label: t("search.enter"),
           icon: CornerDownLeft,
-          disabled: !searchRows.length,
+          disabled: !searchCount,
           onClick: toResults,
         };
       default:
@@ -586,6 +692,7 @@ export function useLibrary({
         opened: !!opened,
         searchKeys: searchKeysFocus,
         opens: rowOpens(item, row?.kind === "playAll"),
+        recent: searchMode === "recent",
       }).map((k) => keyAction(k, item, back));
     }
     if (s === "discover")
@@ -611,7 +718,9 @@ export function useLibrary({
         else if (k === "ArrowDown") moveSections(1);
         else if (k === "PageUp") moveSections(-sectionsPageSize);
         else if (k === "PageDown") moveSections(sectionsPageSize);
-        else if (!NAV.includes(k)) return false;
+        // Left / Right: the other tab (2026-11-22); without the strip they stay swallowed as before
+        else if (k === "ArrowLeft" || k === "ArrowRight") arrowTopTab("library", k);
+        else return false;
         event.preventDefault();
         return true;
       }
@@ -628,12 +737,15 @@ export function useLibrary({
         event.preventDefault();
         return true;
       }
+      const searchList = tab === "search" && !opened;
       if (k === "Enter") enter();
       else if (k === "ArrowUp") moveCursor(-1);
       else if (k === "ArrowDown") moveCursor(1);
-      else if (k === "PageUp") moveCursor(-LIBRARY_PAGE_SIZE);
-      else if (k === "PageDown") moveCursor(LIBRARY_PAGE_SIZE);
-      else if (!NAV.includes(k)) return false; // Left / Right: no section cycling (2026-10-23)
+      else if (k === "PageUp" || k === "PageDown") {
+        const dir = k === "PageUp" ? -1 : 1;
+        if (searchList) moveSearchPage(dir);
+        else moveCursor(dir * LIBRARY_PAGE_SIZE);
+      } else if (!NAV.includes(k)) return false; // Left / Right: no section cycling (2026-10-23)
       event.preventDefault();
       return true;
     }
@@ -646,6 +758,13 @@ export function useLibrary({
       else if (k === "ArrowDown") moveDisc(1);
       else if (k === "PageUp") moveDisc(-discPageSize);
       else if (k === "PageDown") moveDisc(discPageSize);
+      // Left / Right on the categories: the other tab (2026-11-22); inside a category they stay unused
+      else if (
+        (k === "ArrowLeft" || k === "ArrowRight") &&
+        discLevel === "categories" &&
+        topTabs.length
+      )
+        arrowTopTab("discover", k);
       else return false;
       event.preventDefault();
       return true;
@@ -669,6 +788,8 @@ export function useLibrary({
     tab,
     section,
     sections: tabs,
+    topTabs,
+    selectTopTab,
     sectionsCursor,
     sectionsPage,
     sectionsPages,
@@ -689,8 +810,15 @@ export function useLibrary({
         : null,
     search,
     searchRows,
+    searchTop,
     searchCursor,
     searchActive,
+    searchMode,
+    recentRows,
+    searchPageList,
+    searchPage,
+    searchDirect,
+    pickRecent,
     searchLoading: searchActive && (searchQuery.isFetching || term === ""),
     searchError: searchQuery.data && !searchQuery.data.ok ? (searchQuery.data.error ?? null) : null,
     typeChar,
@@ -724,11 +852,12 @@ export function useLibrary({
     playingStation,
     // wiring
     openLibrary,
-    openDiscover,
+    openSearch,
     openMaDial,
     actionsFor,
     onKey,
-    refreshKey: `${section ?? "sections"}|${sectionsPage}|${opened?.uri ?? ""}|${page}|${discLevel}|${discRowIndex}|${discPage}|${dial.band}`,
+    // search: the keyboard coming and going and a new results page are full redraws too
+    refreshKey: `${section ?? "sections"}|${sectionsPage}|${opened?.uri ?? ""}|${page}|${discLevel}|${discRowIndex}|${discPage}|${dial.band}|${section === "search" && !opened ? `${search.focus}|${search.focus === "results" ? searchPage : 0}` : ""}`,
   };
 }
 export type LibraryPanel = ReturnType<typeof useLibrary>;

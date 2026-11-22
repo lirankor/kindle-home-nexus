@@ -67,6 +67,7 @@ import {
 import type { TransportMode } from "@/lib/media-ui";
 import { nodeIcon, optionalIcon, pickIcon } from "@/lib/icons";
 import { qualityBadge } from "@/lib/quality";
+import { useCover } from "@/lib/use-cover";
 import type { QualityBadge } from "@/lib/quality";
 import { OUTPUT_PAGE_SIZE, QUEUE_PAGE_SIZE, RADIO_PAGE_SIZE } from "@/lib/media-panel";
 import type { MediaPanel } from "@/lib/media-panel";
@@ -612,7 +613,14 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
   // radio has no cover item: the station's picture, through the dial's path (bus task 024)
   const stationArt =
     !art && on && s?.nowPlaying.kind === "radio" ? (s.nowPlaying.stationId ?? null) : null;
-  const [artFailed, setArtFailed] = useState<string | null>(null);
+  // a cover that fails to load shows the glyph, not the browser's broken image, and is asked again (useCover)
+  const cover = useCover(
+    art
+      ? `/media/img?item=${encodeURIComponent(art)}&w=360`
+      : stationArt
+        ? `/media/img?station=${encodeURIComponent(stationArt)}&w=360`
+        : null,
+  );
   const Glyph = on && s?.amp.source ? sourceIcon(s.amp.source) : Power;
   const queue = on && s?.nowPlaying.kind === "music" ? s.queue : null;
   const position = useTrackPosition(queue);
@@ -641,21 +649,14 @@ function AmpView({ panel, status }: { panel: MediaPanel; status: string }) {
         )}
         {!panel.showPowerOn && (
           <div className="amp-art" data-on={on} aria-hidden="true">
-            {art ? (
+            {cover.url ? (
               <img
-                src={`/media/img?item=${encodeURIComponent(art)}&w=360`}
+                className={art ? undefined : "amp-art-station"}
+                src={cover.url}
                 alt=""
                 width={360}
                 height={360}
-              />
-            ) : stationArt && artFailed !== stationArt ? (
-              <img
-                className="amp-art-station"
-                src={`/media/img?station=${encodeURIComponent(stationArt)}&w=360`}
-                alt=""
-                width={360}
-                height={360}
-                onError={() => setArtFailed(stationArt)}
+                onError={cover.onError}
               />
             ) : (
               <Glyph size={64} strokeWidth={1.4} />

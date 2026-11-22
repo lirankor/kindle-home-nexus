@@ -644,3 +644,151 @@ describe("art for items without a Jellyfin id", () => {
     expect(maImageAllowed(new URL("http://10.0.0.10:8095/api/other"))).toBe(false);
   });
 });
+
+describe("covers Music Assistant marks remotely accessible (YouTube Music, fanart.tv): MA's proxy address from kindle_panel", () => {
+  const CDN = "https://covers.example.com/abc=w600-h600";
+  const PROXY = "http://10.0.0.10:8095/imageproxy/";
+  const yt = (title: string, id: string) => ({
+    ...track(title, "t1"),
+    id,
+    uri: `ytmusic://track/${id}`,
+    albumId: null,
+    artUrl: `${CDN}-${id}`,
+  });
+  /** Index 2 plays, index 3 is next; both covers are CDN addresses. */
+  const remote = (): HaMusicState => {
+    const base = music();
+    return {
+      ...base,
+      queue: { ...base.queue!, track: yt("Song", "v1"), next: [yt("Next", "v2")] },
+    };
+  };
+  const row = (index: number, id: string, image: string | null) => ({
+    index,
+    id,
+    title: id,
+    artist: null,
+    album: null,
+    album_id: null,
+    image,
+    duration: 200,
+  });
+
+  it("puts the proxy address of the same queue row in, for the playing track and the next one", async () => {
+    const { withProxyArt, artToken, toMusicTrack } = await import("./media-ha.server");
+    const { maImageAllowed } = await import("./media.server");
+    const s = withProxyArt(remote(), [
+      row(2, "v1", `${PROXY}p1?size=0`),
+      row(3, "v2", `${PROXY}p2?size=0`),
+    ]);
+    expect(s.queue!.track!.artUrl).toBe(`${PROXY}p1?size=0`);
+    expect(s.queue!.next[0]!.artUrl).toBe(`${PROXY}p2?size=0`);
+    // what the amp view asks /media/img for is now an address the route fetches
+    const token = toMusicTrack(s.queue!.track!).artItemId!;
+    expect(token).toBe(artToken([], `${PROXY}p1?size=0`));
+    expect(maImageAllowed(new URL(Buffer.from(token.slice(3), "base64url").toString("utf8")))).toBe(
+      true,
+    );
+  });
+  it("no address rather than one the image route refuses: no rows, another item at that position, a row with a CDN address", async () => {
+    const { withProxyArt, toMusicTrack } = await import("./media-ha.server");
+    for (const rows of [null, [], [row(2, "other", `${PROXY}p1?size=0`)], [row(2, "v1", CDN)]]) {
+      const s = withProxyArt(remote(), rows);
+      expect(s.queue!.track!.artUrl).toBeNull();
+      expect(toMusicTrack(s.queue!.track!).artItemId).toBeNull();
+    }
+  });
+  it("leaves proxy addresses, tracks without a cover and a state without a queue alone", async () => {
+    const { withProxyArt } = await import("./media-ha.server");
+    const base = music();
+    const local = {
+      ...base,
+      queue: { ...base.queue!, track: { ...track("A", "t1"), artUrl: `${PROXY}local?size=0` } },
+    };
+    expect(withProxyArt(local, null).queue!.track!.artUrl).toBe(`${PROXY}local?size=0`);
+    expect(withProxyArt(local, null).queue!.next[0]!.artUrl).toBeNull();
+    const radio = { ...base, queue: null };
+    expect(withProxyArt(radio, null)).toBe(radio);
+  });
+
+  describe("reading the music state", () => {
+    let state: HaMusicState;
+    let panel: "ok" | "down";
+    let queueCalls: Record<string, unknown>[];
+    beforeEach(async () => {
+      state = remote();
+      panel = "ok";
+      queueCalls = [];
+      process.env["HA_TOKEN"] = "t";
+      process.env["HA_BASE_URL"] = "http://ha.test";
+      (await import("./media-ha.server")).resetProxyArt();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init?: RequestInit) => {
+          const path = url.replace("http://ha.test", "");
+          if (path.startsWith("/api/services/script/music_state"))
+            return new Response(JSON.stringify({ service_response: state }), { status: 200 });
+          if (path.startsWith("/api/services/kindle_panel/get_queue")) {
+            const body = JSON.parse(String(init?.body)) as { offset: number; limit: number };
+            queueCalls.push(body);
+            if (panel === "down") return new Response("{}", { status: 400 });
+            const ids = [state.queue!.track!.id!, ...state.queue!.next.map((t) => t.id!)];
+            const items = ids
+              .slice(0, body.limit)
+              .map((id, i) => row(body.offset + i, id, `${PROXY}${id}?size=0`));
+            return new Response(JSON.stringify({ service_response: { items } }), { status: 200 });
+          }
+          return new Response("[]", { status: 200 });
+        }),
+      );
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    });
+    const fresh = () => import("./media-ha.server");
+    /** A status poll that really asks Home Assistant (two reads in the same millisecond share one answer). */
+    const read = async (readMusicState: () => Promise<HaMusicState>) => {
+      (await fresh()).forgetMusicState();
+      return readMusicState();
+    };
+
+    it("asks kindle_panel once per track for just the playing row and the next, not on every poll", async () => {
+      const { readMusicState } = await fresh();
+      const a = await read(readMusicState);
+      expect(a.queue!.track!.artUrl).toBe(`${PROXY}v1?size=0`);
+      expect(a.queue!.next[0]!.artUrl).toBe(`${PROXY}v2?size=0`);
+      expect(queueCalls).toEqual([{ entity_id: "media_player.ma_amp_dlna", offset: 2, limit: 2 }]);
+      await read(readMusicState);
+      await read(readMusicState);
+      expect(queueCalls).toHaveLength(1);
+      // the next song: one more call
+      state = {
+        ...state,
+        queue: { ...state.queue!, index: 3, track: yt("Next", "v2"), next: [yt("Third", "v3")] },
+      };
+      const b = await read(readMusicState);
+      expect(b.queue!.track!.artUrl).toBe(`${PROXY}v2?size=0`);
+      expect(queueCalls).toHaveLength(2);
+      expect(queueCalls[1]).toMatchObject({ offset: 3, limit: 2 });
+    });
+    it("makes no call for covers that already are proxy addresses", async () => {
+      const { readMusicState } = await fresh();
+      state = music();
+      await read(readMusicState);
+      expect(queueCalls).toHaveLength(0);
+    });
+    it("kindle_panel not answering: no cover for now, asked again later, then the cover comes", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const { readMusicState } = await fresh();
+      panel = "down";
+      expect((await read(readMusicState)).queue!.track!.artUrl).toBeNull();
+      expect((await read(readMusicState)).queue!.track!.artUrl).toBeNull();
+      expect(queueCalls).toHaveLength(1);
+      panel = "ok";
+      vi.setSystemTime(Date.now() + 61_000);
+      expect((await read(readMusicState)).queue!.track!.artUrl).toBe(`${PROXY}v1?size=0`);
+      expect(queueCalls).toHaveLength(2);
+    });
+  });
+});

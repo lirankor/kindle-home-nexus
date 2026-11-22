@@ -28,6 +28,8 @@ const lib = vi.hoisted(() => ({
   getLibraryHome: vi.fn(),
   getLibraryList: vi.fn(),
   searchLibraryItems: vi.fn(),
+  getSearchRecents: vi.fn(),
+  rememberSearch: vi.fn(),
   playLibrary: vi.fn(),
   favouriteLibrary: vi.fn(),
 }));
@@ -53,8 +55,9 @@ const it_ = (
   ...extra,
 });
 
-/** Music through HA on R-N500 AirPlay, nothing queued; `radio`: an MA radio plays. */
-const haResult = (radio = false): MediaSnapshotResult => {
+/** Music through HA on R-N500 AirPlay, nothing queued; `radio`: an MA radio plays; `discoverKey`: the panel option
+ *  that gives the Library its Discover tab. */
+const haResult = (radio = false, discoverKey = true): MediaSnapshotResult => {
   const s = demoMediaSnapshot();
   s.amp.source = "SERVER";
   s.nowPlaying = radio
@@ -72,7 +75,7 @@ const haResult = (radio = false): MediaSnapshotResult => {
     library: {
       tabs: ["playlists", "radio", "genres", "albums", "artists", "tracks", "podcasts", "search"],
       tab: "playlists",
-      discoverKey: true,
+      discoverKey,
       discoverRows: ["recently_played", "favorite_radio", "recommendations"],
     },
   };
@@ -120,6 +123,11 @@ const sectionsOf = (el: Element) =>
   Array.from(el.querySelectorAll(".lib-sections [role=option]")).map((b) => b.textContent);
 const selectedSection = (el: Element) =>
   el.querySelector('.lib-sections [aria-selected="true"]')?.textContent;
+/** The tab strip above the two top-level lists: the tabs' names in DOM order and the open one. */
+const topTabsOf = (el: Element) =>
+  Array.from(el.querySelectorAll(".lib-top-tabs [role=tab]")).map((b) => b.textContent);
+const openTopTab = (el: Element) =>
+  el.querySelector('.lib-top-tabs [role=tab][aria-selected="true"]')?.textContent;
 
 const ALBUM = it_("library://album/1", "album", "Sheer Heart Attack", { sub: "Queen · 1974" });
 const TRACKS = [1, 2, 3].map((i) =>
@@ -130,8 +138,8 @@ const RADIOS = [
   it_("library://radio/2", "radio", "100FM Israeli", { favorite: true }),
 ];
 
-async function openMusic(radio = false, lang: "he" | "en" = "en") {
-  mocks.getMediaSnapshot.mockResolvedValue(haResult(radio));
+async function openMusic(radio = false, lang: "he" | "en" = "en", discoverKey = true) {
+  mocks.getMediaSnapshot.mockResolvedValue(haResult(radio, discoverKey));
   renderPanel(lang);
   const title = lang === "en" ? "Open music" : "פתח מוזיקה";
   await waitFor(() => expect(screen.getByTitle(title).textContent).toContain("R-N500 AirPlay"));
@@ -155,6 +163,10 @@ describe("the Music Assistant library (bus task 027)", () => {
     );
     lib.playLibrary.mockResolvedValue({ ok: true, status: "playing" });
     lib.favouriteLibrary.mockResolvedValue({ ok: true });
+    lib.getSearchRecents.mockResolvedValue({ items: [] });
+    lib.rememberSearch.mockImplementation(({ data }: { data: { query: string } }) =>
+      Promise.resolve({ items: [data.query] }),
+    );
     lib.getLibraryHome.mockResolvedValue({
       ok: true,
       rows: [
@@ -167,10 +179,11 @@ describe("the Music Assistant library (bus task 027)", () => {
   it("F2 opens the sections list; Enter opens Playlists; a container row has Open, its Play all row the heart", async () => {
     await openMusic();
     const now = screen.getByRole("dialog", { name: "Amplifier view" });
-    expect(keysOf(now)).toEqual(["\u00a0", "Library", "Player", "Discover"]);
+    expect(keysOf(now)).toEqual(["\u00a0", "Library", "Player", "Search"]);
     press("F2");
     let sections = screen.getByRole("dialog", { name: "Library" });
-    // every section in the owner's order, no strip, no heading, no page text on one page, Back only
+    // every section in the owner's order, no heading, no page text on one page; the two tabs above it, the Library
+    // tab open; Back only (2026-11-22: Discover is the second tab, no longer F4)
     expect(sectionsOf(sections)).toEqual([
       "Playlists",
       "Radio",
@@ -181,15 +194,16 @@ describe("the Music Assistant library (bus task 027)", () => {
       "Podcasts",
       "Search",
     ]);
-    expect(sections.querySelector("[role=tab]")).toBeNull();
+    expect(topTabsOf(sections)).toEqual(["Library", "Discover"]);
+    expect(openTopTab(sections)).toBe("Library");
     expect(sections.querySelector("h1")).toBeNull();
     expect(sections.querySelector(".music-page")).toBeNull();
     expect(selectedSection(sections)).toBe("Playlists");
     expect(keysOf(sections)).toEqual(["Back", "\u00a0", "\u00a0", "\u00a0"]);
     expect(lib.getLibraryList).not.toHaveBeenCalled();
-    // Left / Right do nothing here
+    expect(lib.getLibraryHome).not.toHaveBeenCalled();
+    // English: the Library tab is the left one, so Left has no tab to go to
     press("ArrowLeft");
-    press("ArrowRight");
     sections = screen.getByRole("dialog", { name: "Library" });
     expect(selectedSection(sections)).toBe("Playlists");
     press("Enter");
@@ -393,11 +407,26 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
   });
 
-  it("Discover on F4: a plain list of the categories, Enter opens one, Enter on an item plays now and leaves, Back climbs", async () => {
+  it("the Discover tab: a plain list of the categories, Enter opens one, Enter on an item plays now and leaves, Back climbs", async () => {
     await openMusic(false, "he");
+    // 2026-11-22: Search took F4 on the music screen; Discover is the Library's second tab. Hebrew: the Library tab
+    // sits on the right, so Left goes to Discover; F4 is empty
+    press("F2");
+    const sections = screen.getByRole("dialog", { name: "ספריה" });
+    expect(keysOf(sections)).toEqual(["חזרה", "\u00a0", "\u00a0", "\u00a0"]);
+    expect(topTabsOf(sections)).toEqual(["ספריה", "גילוי"]);
+    expect(openTopTab(sections)).toBe("ספריה");
     press("F4");
+    expect(screen.getByRole("dialog", { name: "ספריה" })).toBeVisible();
+    press("ArrowRight"); // no tab on that side
+    expect(screen.getByRole("dialog", { name: "ספריה" })).toBeVisible();
+    press("ArrowLeft");
     let dlg = screen.getByRole("dialog", { name: "גילוי" });
     await waitFor(() => expect(dlg.textContent).toContain("הושמעו לאחרונה"));
+    // the same strip, the Discover tab open, in place of the heading
+    expect(topTabsOf(dlg)).toEqual(["ספריה", "גילוי"]);
+    expect(openTopTab(dlg)).toBe("גילוי");
+    expect(dlg.querySelector("h1")).toBeNull();
     expect(lib.getLibraryHome).toHaveBeenCalledWith({
       data: { sections: ["recently_played", "favorite_radio", "recommendations"] },
     });
@@ -416,11 +445,42 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(dlg.querySelectorAll(".lib-row").length).toBe(2);
     expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe("1/1");
     expect(keysOf(dlg)).toEqual(["חזרה", "\u00a0", "\u00a0", "הסר ממועדפים"]);
-    // Back: the categories again, highlight kept on the radio category
+    // inside a category: no strip, and Left / Right do not change the tab
+    expect(topTabsOf(dlg)).toEqual([]);
+    press("ArrowRight");
+    press("ArrowLeft");
+    dlg = screen.getByRole("dialog", { name: "גילוי" });
+    expect(dlg.querySelector("h1")?.textContent).toBe("תחנות רדיו מועדפות");
+    // Back: the Discover tab again, highlight kept on the radio category
     press("F1");
     dlg = screen.getByRole("dialog", { name: "גילוי" });
-    expect(dlg.querySelector("h1")?.textContent).toBe("גילוי");
+    expect(openTopTab(dlg)).toBe("גילוי");
+    expect(dlg.querySelector('.discover-category[aria-selected="true"] strong')?.textContent).toBe(
+      "תחנות רדיו מועדפות",
+    );
     expect(dlg.querySelector(".discover-foot .music-page")?.textContent).toBe("1/1");
+    // Right: back to the Library tab, its highlight where it was; Left: Discover again, its highlight kept too
+    press("ArrowRight");
+    const again = screen.getByRole("dialog", { name: "ספריה" });
+    expect(openTopTab(again)).toBe("ספריה");
+    expect(selectedSection(again)).toBe("פלייליסטים");
+    press("ArrowLeft");
+    dlg = screen.getByRole("dialog", { name: "גילוי" });
+    expect(dlg.querySelector('.discover-category[aria-selected="true"] strong')?.textContent).toBe(
+      "תחנות רדיו מועדפות",
+    );
+    // Back on the Discover tab: the music screen, as on the Library tab; F2 opens on the Library tab again
+    press("F1");
+    expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
+    press("F2");
+    expect(openTopTab(screen.getByRole("dialog", { name: "ספריה" }))).toBe("ספריה");
+    press("ArrowLeft");
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "גילוי" }).textContent).toContain(
+        "תחנות רדיו מועדפות",
+      ),
+    );
+    press("ArrowDown");
     press("Enter");
     press("ArrowDown");
     expect(
@@ -434,6 +494,55 @@ describe("the Music Assistant library (bus task 027)", () => {
       }),
     );
     expect(screen.getByRole("dialog", { name: "תצוגת המגבר" })).toBeVisible();
+  });
+
+  it("English: Right goes to the Discover tab and Left comes back; Back from an opened section returns to the Library tab", async () => {
+    await openMusic();
+    press("F2");
+    press("ArrowRight");
+    const dlg = screen.getByRole("dialog", { name: "Discover" });
+    await waitFor(() => expect(dlg.textContent).toContain("Recently played"));
+    expect(topTabsOf(dlg)).toEqual(["Library", "Discover"]);
+    expect(openTopTab(dlg)).toBe("Discover");
+    press("ArrowRight"); // no tab on that side
+    expect(screen.getByRole("dialog", { name: "Discover" })).toBeVisible();
+    press("ArrowLeft");
+    let libDlg = screen.getByRole("dialog", { name: "Library" });
+    expect(openTopTab(libDlg)).toBe("Library");
+    // an opened section: no strip, Left / Right do nothing; Back returns to the Library tab
+    press("Enter");
+    libDlg = screen.getByRole("dialog", { name: "Library" });
+    await waitFor(() => expect(libDlg.textContent).toContain("Sheer Heart Attack"));
+    expect(topTabsOf(libDlg)).toEqual([]);
+    press("ArrowRight");
+    press("ArrowLeft");
+    expect(screen.getByRole("dialog", { name: "Library" }).querySelector("h1")?.textContent).toBe(
+      "Playlists",
+    );
+    press("F1");
+    libDlg = screen.getByRole("dialog", { name: "Library" });
+    expect(openTopTab(libDlg)).toBe("Library");
+    expect(selectedSection(libDlg)).toBe("Playlists");
+    // Back on the top level: the music screen
+    press("F1");
+    expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
+  });
+
+  it("panel option discover_key off: no tab strip, no Discover; Left / Right do nothing on the sections list", async () => {
+    await openMusic(false, "he", false);
+    press("F2");
+    let sections = screen.getByRole("dialog", { name: "ספריה" });
+    expect(sections.querySelector("[role=tab]")).toBeNull();
+    expect(sections.querySelector(".lib-top-tabs")).toBeNull();
+    expect(sectionsOf(sections)).toHaveLength(8);
+    expect(keysOf(sections)).toEqual(["חזרה", "\u00a0", "\u00a0", "\u00a0"]);
+    press("ArrowLeft");
+    press("ArrowRight");
+    press("F4");
+    sections = screen.getByRole("dialog", { name: "ספריה" });
+    expect(selectedSection(sections)).toBe("פלייליסטים");
+    expect(screen.queryByRole("dialog", { name: "גילוי" })).toBeNull();
+    expect(lib.getLibraryHome).not.toHaveBeenCalled();
   });
 
   it("an MA radio plays: F1 reads Radio and opens the MA dial on the playing station; F2 switches the band", async () => {
@@ -516,12 +625,157 @@ describe("the Music Assistant library (bus task 027)", () => {
     expect(dlg.querySelector('.search-rows [aria-selected="true"]')?.textContent).toContain(
       "Sheer Heart Attack",
     );
-    // leaving Search and coming back: English again, the query kept
+    // on the results the keyboard gives its place to the list; the search is remembered once they are opened
+    expect(dlg.querySelector(".search-keys")).toBeNull();
+    expect(lib.rememberSearch).toHaveBeenCalledWith({ data: { query: "אבA" } });
+    // leaving Search and coming back: English again and an empty field (2026-11-22: the last search is a recent row)
     press("F1"); // results -> keys
+    expect(field().textContent).toBe("אבA");
     press("F1"); // keys -> sections list
     press("Enter");
     dlg = screen.getByRole("dialog", { name: "ספריה" });
     expect(grid().getAttribute("data-layout")).toBe("en");
-    expect(field().textContent).toBe("אבA");
+    expect(field().getAttribute("data-empty")).toBe("true");
+  });
+});
+
+// 2026-11-22 (the owner): search one key away from the music screen, and Music Assistant's results the way its web app
+// lists them: the typed song first, groups by type, recent searches below two characters.
+describe("search from the music screen", () => {
+  const SONG = it_("ytmusic://track/1", "track", "עוף גוזל", {
+    sub: "Arik Einstein · על גבול האור",
+    inLibrary: false,
+  });
+  const COVER = it_("ytmusic://track/2", "track", "עוף גוזל", { sub: "Sarit Hadad" });
+  const ARTIST = it_("ytmusic://artist/1", "artist", "Arik Einstein");
+  const RECORD = it_("ytmusic://album/1", "album", "על גבול האור", { sub: "Arik Einstein · 1987" });
+  const rowsOf = (el: Element) =>
+    Array.from(el.querySelectorAll(".lib-search-rows [role=option]")).map((b) => b.textContent);
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.runMediaAction.mockResolvedValue({ ok: true });
+    mocks.getPowerOnStatus.mockResolvedValue(null);
+    lib.playLibrary.mockResolvedValue({ ok: true, status: "playing" });
+    lib.getSearchRecents.mockResolvedValue({ items: [] });
+    lib.rememberSearch.mockImplementation(({ data }: { data: { query: string } }) =>
+      Promise.resolve({ items: [data.query] }),
+    );
+    lib.searchLibraryItems.mockResolvedValue({
+      ok: true,
+      query: "AA",
+      items: [SONG, COVER, ARTIST, RECORD],
+      top: 1,
+    });
+    lib.getLibraryList.mockResolvedValue({
+      ok: true,
+      total: 0,
+      offset: 0,
+      favorites: 0,
+      parent: ARTIST,
+      items: [],
+    });
+  });
+
+  it("F4 opens Search with the keyboard; Back returns to the music screen", async () => {
+    await openMusic();
+    expect(keysOf(screen.getByRole("dialog", { name: "Amplifier view" }))).toEqual([
+      "\u00a0",
+      "Library",
+      "Player",
+      "Search",
+    ]);
+    press("F4");
+    const dlg = screen.getByRole("dialog", { name: "Library" });
+    expect(dlg.querySelector("h1")?.textContent).toBe("Search");
+    expect(dlg.querySelector('.search-key[aria-selected="true"]')?.textContent).toBe("A");
+    expect(keysOf(dlg).slice(0, 3)).toEqual(["Back", "Delete", "Space"]);
+    expect(lib.getLibraryList).not.toHaveBeenCalled();
+    press("F1");
+    expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
+    // the Library path still leads there, and its Back climbs to the sections list
+    press("F2");
+    for (let i = 0; i < 7; i++) press("ArrowDown");
+    press("Enter");
+    expect(screen.getByRole("dialog", { name: "Library" }).querySelector(".search-keys")).not.toBe(
+      null,
+    );
+    press("F1");
+    expect(sectionsOf(screen.getByRole("dialog", { name: "Library" })).length).toBe(8);
+  });
+
+  it("the typed song is the first row under the keyboard; on the results the list is grouped; Enter plays the song", async () => {
+    await openMusic();
+    press("F4");
+    const dlg = screen.getByRole("dialog", { name: "Library" });
+    press("Enter");
+    press("Enter");
+    await waitFor(() =>
+      expect(lib.searchLibraryItems).toHaveBeenLastCalledWith({ data: { query: "AA" } }),
+    );
+    await waitFor(() => expect(rowsOf(dlg).length).toBe(4));
+    // under the keyboard: the head of the list, each row says its type
+    expect(rowsOf(dlg)[0]).toBe("עוף גוזלTrack · Arik Einstein · על גבול האור");
+    expect(rowsOf(dlg)[2]).toBe("Arik EinsteinArtist");
+    expect(dlg.querySelector('.lib-search-rows [aria-selected="true"]')).toBeNull();
+    expect(lib.rememberSearch).not.toHaveBeenCalled();
+    // F4 (Enter): the keyboard goes, the whole list shows under its headings, the cursor on the song
+    press("F4");
+    expect(dlg.querySelector(".search-keys")).toBeNull();
+    expect(Array.from(dlg.querySelectorAll(".lib-search-group")).map((e) => e.textContent)).toEqual(
+      ["Top result", "Tracks", "Artists", "Albums"],
+    );
+    expect(dlg.querySelector('.lib-search-rows [aria-selected="true"]')?.textContent).toBe(
+      "עוף גוזלTrack · Arik Einstein · על גבול האור",
+    );
+    // under a type's heading the second line is the artist only
+    expect(rowsOf(dlg)[1]).toBe("עוף גוזלSarit Hadad");
+    expect(dlg.querySelector(".lib-search-foot .music-page")?.textContent).toBe("1/1");
+    expect(lib.rememberSearch).toHaveBeenCalledWith({ data: { query: "AA" } });
+    expect(keysOf(dlg)).toEqual(["Back", "Play next", "Add to queue", "Favourite"]);
+    // an artist row offers Open; Up from the first row is the keyboard again
+    press("ArrowDown");
+    press("ArrowDown");
+    expect(keysOf(dlg)[3]).toBe("Open");
+    press("ArrowUp");
+    press("ArrowUp");
+    press("ArrowUp");
+    expect(dlg.querySelector(".search-keys")).not.toBeNull();
+    press("F4");
+    press("Enter");
+    await waitFor(() =>
+      expect(lib.playLibrary).toHaveBeenCalledWith({
+        data: { uri: "ytmusic://track/1", option: "replace" },
+      }),
+    );
+    expect(screen.getByRole("dialog", { name: "Amplifier view" })).toBeVisible();
+  });
+
+  it("recent searches show below two characters; Enter on one runs it", async () => {
+    lib.getSearchRecents.mockResolvedValue({ items: ["עוף גוזל", "queen"] });
+    await openMusic(false, "he");
+    press("F4");
+    const dlg = screen.getByRole("dialog", { name: "ספריה" });
+    await waitFor(() => expect(dlg.querySelectorAll(".lib-recent").length).toBe(2));
+    expect(rowsOf(dlg)).toEqual(["עוף גוזלחיפוש אחרון", "queenחיפוש אחרון"]);
+    press("F4");
+    expect(dlg.querySelector(".search-keys")).toBeNull();
+    expect(dlg.querySelector(".lib-search-group")?.textContent).toBe("חיפושים אחרונים");
+    expect(keysOf(dlg)).toEqual(["חזרה", "\u00a0", "\u00a0", "\u00a0"]);
+    expect(dlg.querySelector('.lib-search-rows [aria-selected="true"]')?.textContent).toContain(
+      "עוף גוזל",
+    );
+    press("Enter");
+    expect(dlg.querySelector(".search-field")?.textContent).toBe("עוף גוזל");
+    expect(dlg.querySelector(".search-field")?.getAttribute("dir")).toBe("auto");
+    await waitFor(() =>
+      expect(lib.searchLibraryItems).toHaveBeenLastCalledWith({ data: { query: "עוף גוזל" } }),
+    );
+    await waitFor(() =>
+      expect(
+        Array.from(dlg.querySelectorAll(".lib-search-group")).map((e) => e.textContent),
+      ).toEqual(["התאמה מדויקת", "שירים", "אמנים", "אלבומים"]),
+    );
+    expect(lib.rememberSearch).toHaveBeenCalledWith({ data: { query: "עוף גוזל" } });
+    expect(lib.playLibrary).not.toHaveBeenCalled();
   });
 });

@@ -641,7 +641,18 @@ body { margin: 0; font-family: "Alef", Arial, Helvetica, sans-serif; }
 .lib-heading p { margin: 0; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lib-search-field { margin-top: 10px; }
 .music-rows.search-rows.lib-search-rows { min-height: 234px; } /* four rows under the five-row keyboard */
+/* 2026-11-22: on the results the keyboard is hidden and the whole list takes its place: groups under slim headings,
+   cut into pages by height (library.ts SEARCH_LIST_HEIGHTS: 462 px of rows, the page text under them). */
+.music-rows.search-rows.lib-search-rows.lib-search-list { min-height: 462px; }
+.lib-search-group { height: 26px; margin: 0; padding: 0 2px; display: flex; align-items: center; box-sizing: border-box; font-size: 18px; font-weight: 700; line-height: 1; border-bottom: 2px solid var(--foreground); flex-shrink: 0; }
+.lib-search-list .music-note { margin: 24px 0; }
+.lib-search-foot { margin-top: 8px; }
 .discover-rows { min-height: 0; margin: 10px -16px 0; }
+/* 2026-11-22: the Library's two tabs (Library, Discover) above both top-level lists, at the rows' width; the open tab
+   is inverted (.music-tab). Under the strip the eight section rows are 68px, so they still fit one page. */
+.lib-top-tabs { margin-inline: -16px; }
+.lib-top-tabs .music-tab { height: 46px; font-size: 24px; }
+.lib-top-tabs + .lib-sections .source-row.eink-button { height: 68px; }
 
 /* Lights: one row per light (the whole row is the focus target). Enter toggles, Left / Right dim in
    10 % steps, a long press opens the light's page. The row height follows the number of lights so the
