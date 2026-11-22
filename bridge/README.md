@@ -18,7 +18,14 @@ and serves 8-bit grayscale PNG screenshots (WIDTH x HEIGHT) for a Kindle to draw
 | `RADIO_DUTY_ENABLED` | `1` | `0` = `/schedule` never says `doze` (server-side kill switch for the Kindle's radio duty cycle; the old name `SLEEP_ENABLED` is still read) |
 | `DAY_WAKE_MIN` / `NIGHT_START` / `NIGHT_END` / `NIGHT_WAKE_MIN` / `SLEEP_TZ` | `10` / `00:00` / `06:00` / `120` / `Europe/Berlin` | Update schedule (`schedule.js`; the same keys live in the app's `.env`) |
 | `SAVER_POLL_S` | `60` | Poll cadence `/poll` and `/schedule` answer while the screensaver shows (the fallback whenever the device is not duty cycling) |
-| `KEEP_AWAKE_MS` | `300000` | A `/key` (or `/schedule?woke=1`) keeps the device's radio up this long |
+| `KEEP_AWAKE_MS` | `300000` | A `/key`, `/press` or `/wake` (or `/schedule?woke=1`) keeps the device's radio up this long |
+| `STREAM_SETTLE_MS` | `10` | Two channels: the page is rendered this long after it reported the first change of a batch |
+| `STREAM_SELF_MIN_MS` | `5000` | ... changes of the page's own (clock, progress bar) are rendered at most this often; a change right after a press or one the app counts in `data-eink-full` is not held back |
+| `PRESS_URGENT_MS` | `1500` | ... how long after a press a change of the page counts as its result |
+| `STREAM_IDLE_MS` | `10000` | ... nothing is rendered when no `/stream.png` request was seen for this long |
+| `STREAM_WAIT_MS` | `25000` | ... how long `/stream.png` is held open when the request names no `wait` |
+| `PRESS_MAX_AGE_MS` | `2000` | ... a press that waited longer than this for the page is dropped, never fed late |
+| `PRESS_GONE_WAIT_MS` | `5` | ... a `/press` whose sender has hung up by then is dropped (`0` = check off) |
 
 ## Endpoints (all GET)
 
@@ -40,8 +47,35 @@ and serves 8-bit grayscale PNG screenshots (WIDTH x HEIGHT) for a Kindle to draw
   (`NIGHT_WAKE_MIN`). The device never suspends, so there is no wake-up endpoint; `woke=1` is still accepted and counts as a key.
 - `/key/<name>[?etag=]` press a key, settle, return a fresh frame. Names: `up down left right select select-long enter ok back escape prev pageup next pagedown home menu keyboard`. `select-long` is a long press of the 5-way centre (sent as `ContextMenu`; the panel opens the focused control's extra options). Unknown name gives 400.
 - `/reload` reload the page, return a frame.
-- `/healthz` JSON `{ok, etag, fullGen, servedFullGen, battery, lastShotAt, appUrl, saver, duty, lastKeyAt, schedule{…, next}}` — `duty` is what `/schedule` last told the device (`{verdict, windowSec, nextWake, label, night, at}`), the server-side way to see the radio duty cycle working.
-- Tests: `npm test` (`node --test`, `schedule.test.js`: grid, the 00:00/06:00 night edges, both DST transitions inside the night window, 2-day sweep).
+- `/press/<name>`, `/wake`, `/stream.png?have=<etag>&wait=<ms>`: the two-channel flow, see below. They are additions;
+  every endpoint above answers as before, so a client that knows only `/key` keeps working.
+- `/healthz` JSON `{ok, etag, fullGen, servedFullGen, battery, lastShotAt, appUrl, saver, duty, lastKeyAt, stream{listening, waiting, presses{fed, dropped}, lastRender{captureMs, encodeMs, at}, dirty, urgent, running, renders}, schedule{…, next}}` — `duty` is what `/schedule` last told the device (`{verdict, windowSec, nextWake, label, night, at}`), the server-side way to see the radio duty cycle working.
+- Tests: `npm test` (`node --test`, `schedule.test.js`: grid, the 00:00/06:00 night edges, both DST transitions inside the night window, 2-day sweep; `stream.test.js`: when the page is rendered, the order and the dropping of presses, the held request).
+
+## Two channels
+
+For a Kindle client with `STREAM=1` (`kindle/README.md`). Presses come in on one kind of request, pictures go out on
+another, and neither waits for the other. The parts that need no browser are in `stream.js`.
+
+- `GET /press/<name>` (the names of `/key`): answers `ok` at once = received, then presses the key on the page. Presses
+  reach the page one at a time, in the order they arrived. A press is **dropped** instead of fed late when its sender
+  hung up before the answer (the Kindle gives up after 0.3 s and never sends a press twice; log
+  `press down dropped: the client had already hung up`) or when it waited more than `PRESS_MAX_AGE_MS` for the page.
+  No picture comes back here. Unknown name gives 400.
+- `GET /wake`: answers `ok`; leaves the screensaver when it shows (`data-eink-saver="1"`) and does nothing otherwise.
+  It hands the page a key no control knows, so it cannot act on anything. Sent once by the Kindle after a press made
+  it switch its radio back on.
+- `GET /stream.png?have=<etag>&wait=<ms>`: held open until a frame other than `have` exists (the ETag of the frame on
+  the panel), at most `wait` ms (max 60000, default `STREAM_WAIT_MS`); then an **empty 200** with `X-Unchanged: 1`
+  and the client asks again. Always the newest frame: frames produced in between are skipped, nothing queues. Without
+  `have`, or as the first request after a pause, a fresh frame is rendered and sent at once.
+- Rendering. Nobody polls: the page reports its own changes (a mutation observer on the document, plus image loads and focus moves) and
+  the bridge renders `STREAM_SETTLE_MS` after the first change of a batch. One render at a time; a change that arrives
+  while a frame is produced gives exactly one more render afterwards. Changes of the page's own are spaced
+  `STREAM_SELF_MIN_MS` apart, the result of a press or an app event (`data-eink-full`) is not. Nothing is rendered while
+  no stream client listens. The capture holds the page lock, the PNG encoding does not, so a press never waits for an
+  encode. The fixed `KEY_SETTLE_MS` wait of `/key` is not used here (measured in a test copy: no frame after a press
+  was ever followed by a corrected one); the wait while the page sets `data-eink-busy` is kept.
 
 ## Run locally
 

@@ -24,3 +24,8 @@ WIFI_DEAD_REBOOT=1800                     # cron.sh: Wi-Fi not CONNECTED and bri
 EINK_SETTLE=2                             # s to let the e-ink controller finish the (full) draw before anything else happens
 DOZE_OVERRIDE=                            # rollout test only: a fixed window length in s (e.g. 120) instead of the bridge schedule; empty = schedule
 DOZE_OVERRIDE_CYCLES=3                    # ... for this many windows after a start, then the schedule applies
+# --- two channels (kindle/README.md "Two channels"): presses go out on their own short request, pictures come down on
+# --- one held-open request. Needs a bridge that knows /press, /wake and /stream.png. Off = one request per key, as before.
+STREAM=0                                  # 1 = two channels, 0 = the flow above (needs a restart)
+PRESS_LIMIT_MS=300                        # STREAM=1: a press the bridge has not taken within N ms is dropped, never sent again
+STREAM_WAIT=25                            # STREAM=1: s the bridge may hold the picture request open without a new frame (1-55); the client cuts it off 5 s after that

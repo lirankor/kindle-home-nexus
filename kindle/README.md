@@ -71,6 +71,53 @@ window; the older `NOSLEEP` name still works), `DISABLED` (no client at all), or
 + a bridge rebuild. `DOZE_OVERRIDE=120` (+ `DOZE_OVERRIDE_CYCLES=3`) = three fixed 2-minute windows after a start for a
 rollout test. `nexus.sh status` shows the radio state, the current window and the governor.
 
+## Two channels (`STREAM=1`)
+
+Off by default (`STREAM=0` = everything described above, unchanged). With `STREAM=1` in `config` (+ restart) presses
+and pictures no longer wait for each other. The bridge must know `/press`, `/wake` and `/stream.png` (`bridge/README.md`
+"Two channels"); the old flow keeps working against such a bridge, so the switch can be flipped back at any time.
+
+- **Presses.** Each press is its own very short request, `GET /press/<name>`, answered with `ok` = received (not: done).
+  It may take `PRESS_LIMIT_MS` (default 300): `wget &`, `usleep`, `kill`. A press that was not taken in that time is
+  **dropped and never sent again**, so a key can never act late. The main loop sends one press at a time, in the order
+  they were made; a press that had to wait 2 s or more for its turn is dropped too (log: `key down dropped: pressed 3s ago`,
+  `key down not delivered, dropped`).
+- **Radio off** (screensaver window). A press then only switches the radio back on, with the connecting badge as before,
+  and is itself dropped; so is every press made until the connection is up, also when it was the timer that switched the
+  radio on (`key right dropped: pressed while the radio connected`). When a press started it and the connection is up,
+  the bridge gets **one** `GET /wake`, which leaves the screensaver and can do nothing else. The next press acts normally.
+- **Pictures.** A picture loop (a child of the main loop, recorded in `children.pid`) keeps one request open:
+  `GET /stream.png?have=<md5 of the frame on the panel>&wait=<STREAM_WAIT s in ms>`. The bridge answers the moment it has
+  a newer frame; the loop draws it (`/hint` and `FULL_REFRESH_EVERY` decide full or partial, as before) and asks again.
+  It always gets the newest frame; frames in between are skipped, nothing queues up. No newer frame within `STREAM_WAIT`
+  is an empty answer and a success. The main loop's round every `POLL_SECONDS` only asks `/schedule` and reports the battery.
+- **A dead connection.** The stock `wget` never gives up by itself, so the held request is cut off `STREAM_WAIT + 5` s
+  after it was sent (a request without `have`, which the bridge answers at once, after `FETCH_TIMEOUT`). After a failure
+  the loop waits 1, 2, 4, 8, then 10 s between tries (one log line when it starts failing, one when pictures are back),
+  draws the `bridge unreachable` footer after `FAIL_HINT_AFTER` failures and, once the bridge answers again, redraws
+  everything with a full refresh. Presses made meanwhile fail within `PRESS_LIMIT_MS` and are dropped.
+- **One drawer.** The picture loop draws only while the radio is up. Before the last frame of a radio-off window (and so
+  before any connecting badge) the main loop stops it and waits until it is gone; it starts again, with a full redraw,
+  when the radio is back. A draw cut short (`/tmp/nexus.drawing` left behind) is redone in full, as before.
+- **Stopping the picture loop.** The loop sets **no signal handler**. On this Kindle's shell (busybox 1.7.2) a `trap`
+  set inside a background function never runs: TERM only ended the request in flight, the loop lived on and the main
+  loop waited for it for ever at the first radio-off window (found on the device 2026-11-23; the cron watchdog restarted
+  the client). `stream_stop` therefore lets a draw in progress finish (at most 5 s), sends TERM, sends KILL 0.1 s later,
+  ends the request the loop held open and waits for a draw that had just begun. It never waits without a limit.
+- **One flash at the screensaver.** The last frame before a radio-off window is still a full refresh of a fresh frame,
+  with one exception: when the picture loop already drew this very frame, complete and as a full refresh
+  (`/tmp/nexus.full.md5`), the main loop only asks whether it is still current (`etag`) and does not flash it again.
+- **Watchdog.** `cron.sh` is unchanged. The picture loop writes `/tmp/nexus.last_ok` after every answered request, also
+  an empty one, but only while the main loop vouches for itself: every time it arms its timer it writes
+  `/tmp/nexus.beat` = the time of its next round + 120 s, and a beat in the past stops the stamp. So a client whose
+  main loop hangs still goes stale (about 2 min later than in the old flow) and is restarted, a quiet one is not.
+- `nexus.sh stop` also ends a request that is still in flight (it looks for the `wget` and `timeout` processes that
+  talk to this client's bridge address; a shell that merely quotes such a command is left alone). `status` prints `stream=0|1`.
+
+Not in this mode: the tab keys no longer force a full refresh by themselves (the app counts a tab change in
+`data-eink-full`, so `/hint` says `full` for it anyway), and the poll cadence the bridge hands out for the Media tab is
+ignored (pictures arrive by themselves). Tests: `dash kindle/tests/stream-test.sh` (stubbed device commands, both flows).
+
 Button map: 5-way = up/down/left/right/select, upper side buttons = prev tab,
 lower side buttons = next tab, Back = escape, Menu = menu, Home = home, keyboard = keyboard.
 

@@ -5,6 +5,12 @@ import puppeteer from "puppeteer";
 import sharp from "sharp";
 import { computeSchedule, readConfig as readScheduleConfig } from "./schedule.js";
 import { connectingResponse, createConnectingStore } from "./connecting.js";
+import {
+  createPressFeeder,
+  createRenderScheduler,
+  nextFrame,
+  pageChangeReporter,
+} from "./stream.js";
 
 const env = (k, d) => process.env[k] ?? d;
 const APP_URL = env("APP_URL", "http://app:3000/");
@@ -29,6 +35,22 @@ const ALIVE_STALE_MS = Number(env("ALIVE_STALE_MS", 45000));
 // radio up (server-side kill switch; the old name SLEEP_ENABLED still works), SAVER_POLL_S is the
 // fallback poll cadence on the screensaver, KEEP_AWAKE_MS how long a key press on the panel keeps the
 // radio up (= the app's own 5 min screensaver idle time).
+// Two channels (stream.js, README "Two channels"): GET /press/<name> only acknowledges a press, GET /stream.png is
+// held open until a newer frame exists. Nobody polls for pictures there: the page reports its own changes and the
+// bridge renders STREAM_SETTLE_MS after the first change of a batch. Changes of the page's own (clock, progress
+// bar) are rendered at most every STREAM_SELF_MIN_MS; a change within PRESS_URGENT_MS after a press, or one the app
+// counts in data-eink-full, is not held back. All of it only while a stream client listens (asked within
+// STREAM_IDLE_MS). A press that waited longer than PRESS_MAX_AGE_MS for the page is dropped, never fed late.
+const STREAM_SETTLE_MS = Number(env("STREAM_SETTLE_MS", 10));
+const STREAM_SELF_MIN_MS = Number(env("STREAM_SELF_MIN_MS", 5000));
+const STREAM_IDLE_MS = Number(env("STREAM_IDLE_MS", 10000));
+const STREAM_WAIT_MS = Number(env("STREAM_WAIT_MS", 25000));
+const PRESS_URGENT_MS = Number(env("PRESS_URGENT_MS", 1500));
+const PRESS_MAX_AGE_MS = Number(env("PRESS_MAX_AGE_MS", 2000));
+// A press whose sender has already hung up was given up on by the Kindle (its 0.3 s limit) and only reached us late
+// (bridge stalled, request stuck on the way, sent again by the Kindle's kernel after a gap): dropped. The hang-up is
+// read from the socket one turn after the request, hence the short wait before the answer. 0 switches the check off.
+const PRESS_GONE_WAIT_MS = Number(env("PRESS_GONE_WAIT_MS", 5));
 const ENV_RADIO_DUTY = env("RADIO_DUTY_ENABLED", env("SLEEP_ENABLED", "1")) !== "0";
 let RADIO_DUTY_ENABLED = ENV_RADIO_DUTY;
 const SAVER_POLL_S = Number(env("SAVER_POLL_S", 60));
@@ -104,7 +126,14 @@ let page = null;
 let latest = null; // { buf, etag, fullGen, saver }
 let servedFullGen = -1; // the app's data-eink-full value the Kindle last drew with a full refresh
 let lastShotAt = null;
-let lastKeyAt = 0; // last /key hit: the device keeps its radio up KEEP_AWAKE_MS after it
+let lastKeyAt = 0; // last /key, /press or /wake hit: the device keeps its radio up KEEP_AWAKE_MS after it
+let lastPressAt = 0; // last press fed to the page through /press or /wake
+let shotSeq = 0; // counts captures; a frame from an older capture never replaces a newer one
+let latestSeq = 0;
+let streamWaiting = 0; // /stream.png requests being held right now
+let streamSeenAt = 0; // when the last one ended
+let pressStats = { fed: 0, dropped: 0 };
+let lastRender = null; // { captureMs, encodeMs, at } of the last stream frame, for /healthz
 // What /schedule last told the device, for /healthz: { verdict, windowSec, nextWake, label, night, at }.
 let lastDuty = null;
 let lastAlive = { value: 0, seenAt: 0 };
@@ -154,7 +183,12 @@ async function launch() {
       log("page crash", e.message);
       page = null;
     });
-    // Heartbeat for the freeze watchdog in shoot(); evaluateOnNewDocument survives reloads.
+    // The page tells us when its picture may have changed (stream.js); both survive reloads.
+    await page.exposeFunction("__einkChanged", (full) =>
+      renderer.mark(!!full || Date.now() - lastPressAt < PRESS_URGENT_MS),
+    );
+    await page.evaluateOnNewDocument(pageChangeReporter);
+    // Heartbeat for the freeze watchdog in capture(); evaluateOnNewDocument survives reloads.
     await page.evaluateOnNewDocument(() => {
       window.__alive = Date.now();
       setInterval(() => {
@@ -244,8 +278,10 @@ function pollSeconds(state, dflt) {
   return dflt;
 }
 
-async function shoot() {
+// One screenshot plus what the page says about itself. Touches the page: call it under the page lock (exclusive).
+async function capture() {
   const p = await ensurePage();
+  const seq = ++shotSeq;
   const png = await p.screenshot({ type: "png" });
   // The app counts full-refresh events in <html data-eink-full> (tab / screen / page / song change…);
   // /hint answers "full" once per new value. It may mark a photo region via data-eink-photo="x,y,w,h"
@@ -277,9 +313,15 @@ async function shoot() {
       );
       lastAlive = { value: 0, seenAt: Date.now() };
       await p.reload({ waitUntil: "networkidle0", timeout: 20000 });
-      return shoot();
+      return capture();
     }
   }
+  return { seq, png, fullGen, photo, saver };
+}
+
+// Turns a capture into the frame the Kindle draws. CPU work only, no page access: the stream renderer runs it
+// outside the page lock so a press never waits behind the encoding (the photo pipeline takes most of a second).
+async function encode({ seq, png, fullGen, photo, saver }) {
   let frame = sharp(png)
     .resize(WIDTH, HEIGHT, { fit: "fill" })
     .flatten({ background: "#ffffff" })
@@ -321,12 +363,19 @@ async function shoot() {
   // md5, not sha1: the Kindle's busybox has md5sum only, and it sends the hash of the frame it drew
   // back as ?etag= so an unchanged frame costs no PNG.
   const etag = crypto.createHash("md5").update(buf).digest("hex");
+  if (seq < latestSeq) return latest; // a newer capture was encoded first
+  latestSeq = seq;
   const changed = !latest || latest.etag !== etag;
   latest = { buf, etag, fullGen, saver };
   connecting.remember(latest);
   lastShotAt = new Date().toISOString();
   if (changed) frames.emit("frame", latest);
   return latest;
+}
+
+// Screenshot + encoding in one go, for the callers that hold the page lock anyway (/key, /reload, fresh polls).
+async function shoot() {
+  return encode(await capture());
 }
 
 const safeShoot = () =>
@@ -344,6 +393,88 @@ async function settleBusy(p) {
     if (!busy) return;
     await sleep(150);
   }
+}
+
+// ---- two channels: /press, /wake, /stream.png ----
+const streamListening = () => streamWaiting > 0 || Date.now() - streamSeenAt < STREAM_IDLE_MS;
+
+// One frame for the stream: wait (without holding the page lock, so presses still get through) while the page says
+// it is busy, capture under the lock, encode outside it.
+async function renderForStream() {
+  const until = Date.now() + BUSY_WAIT_MS;
+  for (;;) {
+    let t0 = 0;
+    const cap = await exclusive(async () => {
+      const p = await ensurePage();
+      const busy = await p.evaluate(() => !!document.documentElement.dataset.einkBusy);
+      if (busy && Date.now() < until) return null;
+      t0 = Date.now();
+      return capture();
+    });
+    if (cap) {
+      const t1 = Date.now();
+      const frame = await encode(cap);
+      lastRender = { captureMs: t1 - t0, encodeMs: Date.now() - t1, at: new Date().toISOString() };
+      return frame;
+    }
+    await sleep(150);
+  }
+}
+
+const renderer = createRenderScheduler({
+  render: () =>
+    renderForStream().catch(async (e) => {
+      log("stream render failed, relaunching:", e.message);
+      page = null;
+      await launch();
+      await safeShoot();
+    }),
+  active: streamListening,
+  settleMs: STREAM_SETTLE_MS,
+  selfMinMs: STREAM_SELF_MIN_MS,
+  onError: (e) => log("stream render error:", e.message),
+});
+
+const feedPress = createPressFeeder({
+  exclusive,
+  ready: ensurePage,
+  press: (p, code) => p.keyboard.press(code),
+  maxAgeMs: PRESS_MAX_AGE_MS,
+  log,
+});
+
+// /press: the key goes to the page in its turn; the picture follows on /stream.png.
+function acceptPress(name, code) {
+  feedPress(name, code)
+    .then((fed) => {
+      if (!fed) return void pressStats.dropped++;
+      pressStats.fed++;
+      lastPressAt = Date.now();
+      renderer.mark(true);
+    })
+    .catch(async (e) => {
+      // Never pressed again: a key must not act late.
+      pressStats.dropped++;
+      log(`press ${name} failed, relaunching:`, e.message);
+      page = null;
+      await launch().catch(() => {});
+    });
+}
+
+// /wake: leaves the screensaver and does nothing else. The app's own wake listener swallows the first key while the
+// screensaver shows; this hands it a key no handler knows, and only while the screensaver is up, so it cannot act
+// on a control (F1 / F4 act on the screensaver's photo and are never used here).
+function wakeSaver() {
+  return exclusive(async () => {
+    const p = await ensurePage();
+    return p.evaluate(() => {
+      if (document.documentElement.dataset.einkSaver !== "1") return false;
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Unidentified", bubbles: true, cancelable: true }),
+      );
+      return true;
+    });
+  });
 }
 
 async function pressKey(code) {
@@ -441,6 +572,13 @@ const server = http.createServer(async (req, res) => {
           saver: latest?.saver ?? false,
           duty: lastDuty,
           lastKeyAt: lastKeyAt ? new Date(lastKeyAt).toISOString() : null,
+          stream: {
+            listening: streamListening(),
+            waiting: streamWaiting,
+            presses: pressStats,
+            lastRender,
+            ...renderer.state(),
+          },
           schedule: {
             enabled: RADIO_DUTY_ENABLED,
             ...schedule,
@@ -564,6 +702,72 @@ const server = http.createServer(async (req, res) => {
       }
       lastKeyAt = Date.now();
       return sendPng(res, await pressKey(code), url.searchParams.get("etag"));
+    }
+    if (path.startsWith("/press/")) {
+      // One press, answered at once with "ok": received, not done. No picture here, see /stream.png.
+      const name = decodeURIComponent(path.slice(7)).toLowerCase();
+      const code = KEYS[name];
+      if (!code) {
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        return res.end(`unknown key '${name}'. valid: ${Object.keys(KEYS).join(", ")}\n`);
+      }
+      if (PRESS_GONE_WAIT_MS > 0) {
+        await sleep(PRESS_GONE_WAIT_MS);
+        if (req.destroyed || res.destroyed) {
+          pressStats.dropped++;
+          log(`press ${name} dropped: the client had already hung up`);
+          return;
+        }
+      }
+      lastKeyAt = Date.now();
+      res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
+      res.end("ok\n");
+      return acceptPress(name, code);
+    }
+    if (path === "/wake") {
+      lastKeyAt = Date.now();
+      res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
+      res.end("ok\n");
+      wakeSaver()
+        .then((woke) => {
+          if (!woke) return;
+          lastPressAt = Date.now();
+          renderer.mark(true);
+          log("wake: left the screensaver");
+        })
+        .catch((e) => log("wake failed:", e.message));
+      return;
+    }
+    if (path === "/stream.png") {
+      // Held open until a frame other than ?have=<etag> exists, at most ?wait= ms. Then an EMPTY 200 (never a 304:
+      // the Kindle's wget takes that for an error) and the client simply asks again.
+      const have = url.searchParams.get("have") || "";
+      const wait = Math.min(
+        Math.max(Number(url.searchParams.get("wait")) || STREAM_WAIT_MS, 0),
+        60000,
+      );
+      const wasListening = streamListening();
+      let frame = null;
+      streamWaiting++;
+      try {
+        if (!latest) await safeShoot();
+        // A client with nothing on its panel, or the first one after a pause: render now. Otherwise only make sure
+        // no frame a press is waiting for is still on its way, so the answer is the newest picture.
+        if (!have || !wasListening) await renderer.fresh();
+        else {
+          renderer.plan();
+          await renderer.settled();
+        }
+        frame =
+          latest.etag !== have
+            ? latest
+            : await nextFrame(frames, have, wait, (gone) => res.on("close", gone));
+      } finally {
+        streamWaiting--;
+        streamSeenAt = Date.now();
+      }
+      if (res.destroyed) return;
+      return frame ? sendPng(res, frame) : sendPng(res, latest, latest.etag);
     }
     if (path === "/reload") return sendPng(res, await reloadPage());
     res.writeHead(404, { "Content-Type": "text/plain" });
