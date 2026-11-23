@@ -57,6 +57,7 @@ import { isCustomTab } from "@/lib/panel-config";
 import type { PanelView, TabId } from "@/lib/panel-config";
 import { ICON_DEFAULTS, iconFor, pickIcon, type IconComponent } from "@/lib/icons";
 import { useFullRefresh } from "@/lib/eink";
+import { offerNextPhoto, photoOnRequest, photoTimerMs } from "@/lib/saver-photo";
 import { BatteryBadge } from "@/components/battery-badge";
 import { useKindleBattery } from "@/lib/battery";
 import { dateLocale, isRtl, makeT } from "@/lib/i18n";
@@ -195,6 +196,10 @@ function HomeControl() {
   // F4 skips to the next photo without judging this one.
   const skipPhoto = useRef<() => void>(() => {});
   const [marking, setMarking] = useState(false);
+  // The bridge's "next photo" request (saver-photo.ts): a plain refetch, so the night window keeps its photo.
+  const nextPhoto = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
+  const [nexting, setNexting] = useState(false);
+  const nextShown = useRef<Array<() => void>>([]);
   const battery = useKindleBattery();
   // F1 / F4 on the saver ask for a new photo even inside the night window (no automatic rotation there).
   const forceNextPhoto = useRef(false);
@@ -262,6 +267,7 @@ function HomeControl() {
           ? notice.text
           : t("status.done", { text: notice.text })
         : t("status.connected");
+  const onRequest = photoOnRequest();
   const photo = useQuery({
     queryKey: ["screensaver"],
     queryFn: () => {
@@ -270,8 +276,12 @@ function HomeControl() {
       return getScreensaver({ data: { force } });
     },
     enabled: screensaver,
-    // Rotation period = the Kindle's day wake interval (DAY_WAKE_MIN), so every photo gets one wake.
-    refetchInterval: (result.photoMinutes ?? SAMPLE_REFRESH_MS / 60_000) * 60_000,
+    // Plain browser: rotation period = the Kindle's day wake interval (DAY_WAKE_MIN). Under the Kindle bridge the
+    // photo changes only on request (saver start, F1 / F4, the bridge's "next photo"), never by a timer of the page:
+    // the panel with its radio off would not see it.
+    refetchInterval: photoTimerMs(onRequest, result.photoMinutes, SAMPLE_REFRESH_MS),
+    refetchOnWindowFocus: !onRequest,
+    refetchOnReconnect: !onRequest,
     staleTime: 0,
     gcTime: 0,
   });
@@ -526,9 +536,28 @@ function HomeControl() {
       .then(() => photoRefetch())
       .finally(() => setMarking(false));
   };
-  // While a mark + next photo is in flight the bridge holds its post-key screenshot (data-eink-busy),
-  // so the Kindle gets the new photo in the key's own redraw instead of the next poll.
-  const photoBusy = screensaver && (marking || photo.isFetching);
+  nextPhoto.current = () => {
+    // A photo is on its way already (saver start, F1 / F4, an earlier request): no second one.
+    if (!screensaver || marking || nexting || photo.isFetching) return Promise.resolve(false);
+    setNexting(true);
+    return new Promise<boolean>((resolve) => {
+      void photoRefetch()
+        .catch(() => undefined)
+        .finally(() => {
+          // Answered only after the render that shows the result (the effect below), so the bridge's screenshot
+          // right after the answer has the new photo.
+          nextShown.current.push(() => resolve(true));
+          setNexting(false);
+        });
+    });
+  };
+  useEffect(() => {
+    if (!screensaver) return;
+    return offerNextPhoto(() => nextPhoto.current());
+  }, [screensaver]);
+  // While a mark + next photo or a "next photo" request is in flight the bridge holds its screenshot
+  // (data-eink-busy), so the Kindle gets the new photo in the key's own redraw instead of the next poll.
+  const photoBusy = screensaver && (marking || nexting || photo.isFetching);
   useEffect(() => {
     if (photoBusy) document.documentElement.dataset["einkBusy"] = "1";
     else delete document.documentElement.dataset["einkBusy"];
@@ -537,10 +566,23 @@ function HomeControl() {
     };
   }, [photoBusy]);
   useEffect(() => {
+    if (nexting) return;
+    for (const shown of nextShown.current.splice(0)) shown();
+  }, [nexting]);
+  useEffect(() => {
     if (!screensaver) return;
     publishPhotoRegion();
     return () => document.documentElement.removeAttribute("data-eink-photo");
   }, [screensaver, photoSrc]);
+  // Which photo the page shows (<html data-eink-photo-id>): the bridge feeds a photo key pressed while the Kindle's
+  // radio was off only when this is the photo it last sent to the panel.
+  useEffect(() => {
+    if (!screensaver || !photoAssetId) return;
+    document.documentElement.dataset["einkPhotoId"] = photoAssetId;
+    return () => {
+      delete document.documentElement.dataset["einkPhotoId"];
+    };
+  }, [screensaver, photoAssetId]);
 
   const changeLight = (index: number, amount: number) => {
     const light = data.lights[index];

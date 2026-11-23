@@ -40,6 +40,13 @@ seconds until the next scheduled update, and the client **switches the Wi-Fi rad
 
     radio on -> battery report -> /schedule -> fresh frame, FULL refresh -> EINK_SETTLE + sync -> radio off ... window ...
 
+**The screensaver photo changes when the panel asks for it.** The server does not move on to another photo on a timer
+of its own (bridge README, "The screensaver photo changes only on request"), so the photo on the panel and the photo on
+the server stay the same one while the radio is off. The timed wake at the end of a window that goes straight into the
+next window fetches `/screen.png?fresh=1&next=1`: one request, the next photo, one full draw, then the badge and the
+radio off again. The first window after the screensaver started asks with plain `fresh=1` (that photo is new). In both
+flows, `STREAM=0` and `STREAM=1`. At night the bridge hands back the same photo.
+
 `lipc-set-prop com.lab126.cmd wirelessEnable 0` is what does it: the `ar6003` module is unloaded and `wlan0` disappears
 (verified 2026-10-15), so the radio is really powered down, not just marked down. `wirelessEnable 1` brings it back and
 `lipc-get-prop com.lab126.wifid cmState` reads `CONNECTED` **6 s** later (measured; bounded by `WIFI_WAIT`, with one extra
@@ -86,8 +93,12 @@ and pictures no longer wait for each other. The bridge must know `/press`, `/wak
   and is itself dropped; so is every press made until the connection is up, also when it was the timer that switched the
   radio on (`key right dropped: pressed while the radio connected`). When a press started it and the connection is up,
   the bridge gets **one** `GET /wake`, which leaves the screensaver and can do nothing else. The next press acts normally.
-  Exception: **F1 and F4** judge the screensaver's photo (keep / skip) and never leave the screensaver, so after one of
-  them no `/wake` is sent: the radio comes up, the current photo is redrawn and the next F1 / F4 acts on it.
+  Exception (owner 2026-11-23): **F1 and F4** judge the photo on the panel (keep / skip for good) and never leave the
+  screensaver. Such a press is **sent** once the connection is up: one `GET /press/f1?saver=1` (or `f4`), limit 1 s, no
+  second try, and no `/wake`. Then the picture loop starts and its first picture, a full draw, is the next photo. The
+  bridge presses the key only while its page shows the screensaver with the photo it last sent; the client does not
+  send it when the last picture of the window did not arrive (log `key f4 dropped: the last picture did not arrive`).
+  A second F1 / F4 made while the radio still connects is dropped like any other press.
 - **Pictures.** A picture loop (a child of the main loop, recorded in `children.pid`) keeps one request open:
   `GET /stream.png?have=<md5 of the frame on the panel>&wait=<STREAM_WAIT s in ms>`. The bridge answers the moment it has
   a newer frame; the loop draws it (`/hint` and `FULL_REFRESH_EVERY` decide full or partial, as before) and asks again.

@@ -40,6 +40,7 @@ vi.mock("@/lib/media.functions", () => ({
   playMusic: mocks.playMusic,
 }));
 
+type BridgeWindow = { __einkPhotoOnRequest?: boolean; __einkNextPhoto?: () => Promise<boolean> };
 const KEY = "kindle-panel-state";
 const press = (key: string) =>
   act(() => {
@@ -84,6 +85,7 @@ describe("Panel idle behaviour and persistence", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    delete (window as unknown as BridgeWindow).__einkPhotoOnRequest;
   });
 
   it("closes a light modal after 30 s idle but keeps the amp view open", async () => {
@@ -260,6 +262,92 @@ describe("Panel idle behaviour and persistence", () => {
     // Any other key still wakes the panel.
     press("Enter");
     expect(document.querySelector(".photo-screen")).toBeNull();
+  });
+
+  const saverShot = (assetId: string, marked: number) => ({
+    image: "data:image/jpeg;base64,/9j/4AAQ",
+    assetId,
+    marked,
+    sample: false,
+    result: { configured: false, snapshot: null, lang: "he" as const },
+  });
+  const startSaver = async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    press("ArrowDown"); // re-arms the 5 min idle timer on the fake clock
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1000);
+    });
+    await waitFor(() =>
+      expect(document.querySelector(".photo-demo")?.textContent).toContain("1 סומנו"),
+    );
+  };
+
+  it("in a plain browser the page changes the screensaver photo on its own timer", async () => {
+    mocks.getScreensaver
+      .mockResolvedValueOnce(saverShot("photo-1", 1))
+      .mockResolvedValue(saverShot("photo-2", 2));
+    await renderApp();
+    await startSaver();
+    expect(mocks.getScreensaver).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + 1000);
+    });
+    await waitFor(() =>
+      expect(document.querySelector(".photo-demo")?.textContent).toContain("2 סומנו"),
+    );
+    expect(mocks.getScreensaver).toHaveBeenCalledTimes(2);
+  });
+
+  it("under the bridge the screensaver photo changes only on request", async () => {
+    const w = window as unknown as BridgeWindow;
+    w.__einkPhotoOnRequest = true; // what the bridge sets before the app's scripts run
+    mocks.getScreensaver.mockResolvedValueOnce(saverShot("photo-1", 1));
+    await renderApp();
+    expect(w.__einkNextPhoto).toBeUndefined(); // no screensaver: nothing to ask for
+    await startSaver();
+    expect(document.documentElement.dataset["einkPhotoId"]).toBe("photo-1");
+
+    // No timer of the page: one hour later it is still the first photo.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    });
+    expect(mocks.getScreensaver).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".photo-demo")?.textContent).toContain("1 סומנו");
+
+    // The bridge asks: a plain (not forced) refetch, busy while it runs, answered when the new photo shows.
+    let deliver: (shot: ReturnType<typeof saverShot>) => void = () => {};
+    mocks.getScreensaver.mockReturnValueOnce(
+      new Promise((resolve) => {
+        deliver = resolve;
+      }),
+    );
+    let first: Promise<boolean> = Promise.resolve(false);
+    let second: Promise<boolean> = Promise.resolve(true);
+    await act(async () => {
+      first = w.__einkNextPhoto?.() ?? Promise.resolve(false);
+    });
+    await waitFor(() => expect(document.documentElement.dataset["einkBusy"]).toBe("1"));
+    await act(async () => {
+      second = w.__einkNextPhoto?.() ?? Promise.resolve(true);
+    });
+    expect(await second).toBe(false); // one is on its way already: no second photo
+    expect(mocks.getScreensaver).toHaveBeenCalledTimes(2);
+    expect(mocks.getScreensaver).toHaveBeenLastCalledWith({ data: { force: false } });
+    await act(async () => {
+      deliver(saverShot("photo-2", 2));
+    });
+    expect(await first).toBe(true);
+    expect(document.querySelector(".photo-demo")?.textContent).toContain("2 סומנו");
+    expect(document.documentElement.dataset["einkBusy"]).toBeUndefined();
+    expect(document.documentElement.dataset["einkPhotoId"]).toBe("photo-2");
+    expect(mocks.markScreensaverPhoto).not.toHaveBeenCalled();
+    expect(document.querySelector(".photo-screen")).not.toBeNull();
+
+    // Awake again: the offer is withdrawn.
+    press("Enter");
+    expect(document.querySelector(".photo-screen")).toBeNull();
+    expect(w.__einkNextPhoto).toBeUndefined();
+    expect(document.documentElement.dataset["einkPhotoId"]).toBeUndefined();
   });
 
   it("remembers the tab and the media screen and restores them on mount", async () => {

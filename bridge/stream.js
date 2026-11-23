@@ -101,7 +101,8 @@ export function createRenderScheduler({
 
 // Feeds presses to the page one at a time, in the order they arrived (exclusive = the bridge's page lock). A press
 // that had to wait longer than maxAgeMs for its turn (hung renderer, browser relaunch) is dropped: a key must never
-// act late. Resolves true when the key was pressed, false when it was dropped.
+// act late. A press may bring a condition (refuse(page) = why it must not be pressed now, or nothing); it is asked
+// right before the key goes in, under the same lock. Resolves true when the key was pressed, false when it was dropped.
 export function createPressFeeder({
   exclusive,
   ready,
@@ -110,13 +111,18 @@ export function createPressFeeder({
   now = Date.now,
   log = () => {},
 }) {
-  return (name, code) => {
+  return (name, code, refuse = null) => {
     const at = now();
     return exclusive(async () => {
       const page = await ready();
       const waited = now() - at;
       if (waited > maxAgeMs) {
         log(`press ${name} dropped: it waited ${waited} ms for its turn`);
+        return false;
+      }
+      const why = refuse ? await refuse(page) : "";
+      if (why) {
+        log(`press ${name} dropped: ${why}`);
         return false;
       }
       await press(page, code);
@@ -142,6 +148,100 @@ export function nextFrame(frames, have, waitMs, onGone = () => {}) {
     frames.on("frame", onFrame);
     onGone(() => finish(null));
   });
+}
+
+// ---- the screensaver photo changes only on request ----
+// The Kindle switches its radio off between updates while the screensaver shows. A photo that the page changed on a
+// timer of its own would then be on the server and not on the panel, so under the bridge the page has no such timer
+// (photoOnRequestFlag) and the photo changes when somebody asks: the screensaver starting, F1 / F4, the device at its
+// timed wake (/screen.png?fresh=1&next=1), and the bridge itself while a client is there to see the result.
+
+// When the photo last changed and who asked, and whether the bridge has to ask now. intervalMs() = the device's day
+// wake interval. due(slackMs): the screensaver shows and the photo is older than the interval less the slack (a
+// device that polls on the grid arrives a few seconds early or late; never less than half the interval).
+export function createPhotoClock({ intervalMs, now = Date.now }) {
+  let saver = false;
+  let at = 0;
+  let by = null;
+  const note = (who) => {
+    at = now();
+    by = who;
+  };
+  return {
+    // What a screenshot saw. A screensaver that has just started brought its first photo.
+    seen(isSaver) {
+      if (isSaver && !saver) note("screensaver start");
+      saver = !!isSaver;
+    },
+    note,
+    due(slackMs = 0) {
+      const every = Number(intervalMs());
+      if (!saver || !(every > 0)) return false;
+      return now() - at >= Math.max(every - slackMs, every / 2);
+    },
+    state: () => ({ at: at ? new Date(at).toISOString() : null, by }),
+  };
+}
+
+// One request for the next photo at a time: whoever asks while one is in flight gets that one's answer, so two
+// askers at the same moment can never move the photo twice. ask(who) does the asking.
+export function createSingleFlight(ask) {
+  let flying = null;
+  return (who) => {
+    flying ??= Promise.resolve()
+      .then(() => ask(who))
+      .finally(() => {
+        flying = null;
+      });
+    return flying;
+  };
+}
+
+// Runs inside the page (puppeteer evaluateOnNewDocument), before the app's scripts: "a bridge drives you, do not
+// change the screensaver photo on a timer". An app that does not know the flag keeps its timer.
+export function photoOnRequestFlag() {
+  window.__einkPhotoOnRequest = true;
+}
+
+// Runs inside the page (puppeteer evaluate): asks the app for the next screensaver photo and answers when the page
+// shows it, the new picture loaded and decoded. "asked" = a photo was asked for, "busy" = one was on its way already,
+// "no screensaver" = nothing to do, "old app" = an app without the request (it changes the photo on its own timer).
+export function requestNextPhoto() {
+  if (document.documentElement.dataset.einkSaver !== "1") return "no screensaver";
+  if (typeof window.__einkNextPhoto !== "function") return "old app";
+  return Promise.resolve(window.__einkNextPhoto()).then(async (asked) => {
+    await Promise.all(
+      Array.from(document.images, (img) =>
+        typeof img.decode === "function" ? img.decode().catch(() => {}) : null,
+      ),
+    );
+    return asked ? "asked" : "busy";
+  });
+}
+
+// Runs inside the page: true while the picture is not ready to be shot. The app says so itself (data-eink-busy: a
+// mark + next photo in flight). On the screensaver a photo that is still loading counts too: the shot right after
+// "busy" went would otherwise still show the old one.
+export function pageBusy() {
+  const root = document.documentElement;
+  if (root.dataset.einkBusy) return true;
+  return root.dataset.einkSaver === "1" && Array.from(document.images).some((img) => !img.complete);
+}
+
+// Runs inside the page: what the screensaver shows, for the photo keys of a panel whose radio was off.
+export function saverPhoto() {
+  const root = document.documentElement;
+  return { saver: root.dataset.einkSaver === "1", photoId: root.dataset.einkPhotoId || "" };
+}
+
+// A photo key (F1 keep / F4 skip for good) pressed on a panel whose radio was off judges the photo ON THE PANEL. It
+// may only go in while the page shows the screensaver with that very photo. onPanel = the photo id of the last frame
+// sent to the device, null when that frame was not the screensaver. Returns why not, or "" when it is fine.
+export function photoKeyRefusal(page, onPanel) {
+  if (!page.saver) return "the screensaver does not show";
+  if (onPanel === null || page.photoId !== onPanel)
+    return "the panel does not show the server's photo";
+  return "";
 }
 
 // Runs inside the page (puppeteer evaluateOnNewDocument): tells the bridge when the picture may have changed,

@@ -185,16 +185,31 @@ check "radio off: a press made after the connection is up is sent" seq_is press/
 check "radio off: the log says what happened to the presses" sh -c "grep -q 'key up only wakes the panel' $W/dir/nexus.log && grep -q 'key right dropped: pressed while the radio connected' $W/dir/nexus.log"
 check "radio off: the marker is gone, the poll timer is armed" sh -c "[ ! -e $W/tmp/nexus.radio_off ] && grep -q 'arm 20' $W/calls"
 
-# F1 / F4 judge the screensaver's photo: they bring the radio back but never leave the screensaver (owner 2026-11-23)
+# F1 / F4 judge the photo on the panel: with the radio off the press is sent once the radio is up (the owner's one
+# exception to "a press made with the radio off is dropped", 2026-11-23), and the screensaver stays: no wake message
 for kn in f1 f4; do
   reset; echo $(( NOW + 600 )) > $W/tmp/nexus.radio_off; sum FRAME1 > $W/tmp/nexus.last.md5
   if [ $kn = f1 ]; then kc=$F1; else kc=$F4; fi
-  gate "$(key $kc); handle_event $(( $(date +%s) + 2 )) 0 1 $kc 1"
-  check "radio off, $kn: the radio comes up and the picture loop starts again" sh -c "grep -q 'wirelessEnable 1' $W/calls && grep -q 'stream_start full' $W/calls"
+  gate "$(key $kc); $(key $kc); handle_event $(( $(date +%s) + 2 )) 0 1 $DOWN 1"
+  check "radio off, $kn: the radio comes up and the picture loop starts again with a full redraw" sh -c "grep -q 'wirelessEnable 1' $W/calls && grep -q 'stream_start full' $W/calls"
   check "radio off, $kn: no wake message, the screensaver stays" hasnt "/wake"
-  check "radio off, $kn: the waking press itself is not sent, the next one is" seq_is press/ "wget http://bridge.test/x/press/$kn|"
-  check "radio off, $kn: the log says so" logged "key $kn is a photo key: the screensaver stays"
+  check "radio off, $kn: the press is sent once, marked as a photo key, after the radio is on and before the picture loop" sh -c "[ \"\$(grep -c 'press/$kn' $W/calls)\" = 1 ] && grep -n -e 'wirelessEnable 1' -e 'press/$kn?saver=1\$' -e stream_start $W/calls | cut -d: -f2- | tr '\n' '|' | grep -q '^lipc-set com.lab126.cmd wirelessEnable 1|wget http://bridge.test/x/press/$kn?saver=1|stream_start full|\$'"
+  check "radio off, $kn: a second $kn made while the radio connected is dropped, a later key is sent as usual" seq_is press/ "wget http://bridge.test/x/press/$kn?saver=1|wget http://bridge.test/x/press/down|"
+  check "radio off, $kn: the log says so" sh -c "grep -q 'key $kn is a photo key, it is sent once the radio is up' $W/dir/nexus.log && grep -q 'key $kn dropped: pressed while the radio connected' $W/dir/nexus.log"
 done
+reset; echo $(( NOW + 600 )) > $W/tmp/nexus.radio_off; touch $W/press_hang
+t0=$(ms); gate "$(key $F4)"; t1=$(ms)
+check "radio off, f4 gets no answer: one try, given up after about 1 s, never sent again (took $(( t1 - t0 )) ms)" sh -c "[ \"\$(grep -c press/f4 $W/calls)\" = 1 ] && grep -q 'key f4 not delivered, dropped' $W/dir/nexus.log && [ $(( t1 - t0 )) -ge 950 ] && [ $(( t1 - t0 )) -le 2500 ]"
+check "radio off, f4 gets no answer: the picture loop starts all the same" has "stream_start full"
+check "radio off, f4 gets no answer: the request that hung is gone" nohung
+rm -f $W/press_hang
+reset; echo $(( NOW + 600 )) > $W/tmp/nexus.radio_off
+gate "FAILS=1; $(key $F4)"
+check "radio off, f4 after a picture that did not arrive: not sent (the panel may show an older photo), no wake message" sh -c "! grep -q -e /press/ -e /wake $W/calls && grep -q 'key f4 dropped: the last picture did not arrive' $W/dir/nexus.log && grep -q 'stream_start full' $W/calls"
+reset; echo $(( NOW + 600 )) > $W/tmp/nexus.radio_off; touch $W/no_wifi
+gate "$(key $F4)"
+check "radio off, f4 and Wi-Fi does not come back: nothing is sent" sh -c "! grep -q -e /press/ -e /wake $W/calls"
+rm -f $W/no_wifi
 
 reset; echo $(( NOW + 600 )) > $W/tmp/nexus.radio_off; touch $W/no_wifi
 gate "$(key $F2)"
@@ -314,6 +329,31 @@ check "radio-off window, a draw was cut short: drawn again in full" has "eips -f
 conf "STREAM=0"; reset; touch $W/doze; sum FRAME1 > $W/tmp/nexus.last.md5; sum FRAME1 > $W/tmp/nexus.full.md5
 ( set +u; . $W/lib.sh; eval "$DOZE" ) > $W/out 2>&1
 check "radio-off window, STREAM=0: always drawn again in full, as before" has "eips -f -g $W/tmp/nexus.png = FRAME1"
+# the screensaver photo changes only on request: the timed wake that goes straight into the next window asks for it
+conf "STREAM=1"; reset; touch $W/doze; echo $(( NOW - 1 )) > $W/tmp/nexus.radio_off; sum FRAME1 > $W/tmp/nexus.last.md5; sum FRAME1 > $W/tmp/nexus.full.md5; frame FRAME2
+( set +u; . $W/lib.sh; eval "$DOZE" ) > $W/out 2>&1
+check "timed wake, next window: radio on, schedule, ONE picture request that asks for the next photo" sh -c "grep -n -e 'wirelessEnable 1' -e /schedule -e 'screen.png?fresh' $W/calls | cut -d: -f2- | tr '\n' '|' | grep -q '^lipc-set com.lab126.cmd wirelessEnable 1|wget http://bridge.test/x/schedule[^|]*|wget http://bridge.test/x/screen.png?fresh=1&next=1|\$'"
+check "timed wake, next window: exactly one draw, in full, of the new photo" seq_is "eips.*-g" "eips -f -g $W/tmp/nexus.png = FRAME2|"
+check "timed wake, next window: the picture loop is not started, no press, no wake message" sh -c "! grep -q -e stream_start -e stream.png -e /press/ -e /wake $W/calls"
+check "timed wake, next window: then the badge and the radio off again" sh -c "grep -n -e 'eips -f -g' -e 'connecting=1' -e 'wirelessEnable 0' $W/calls | cut -d: -f2- | tr '\n' '|' | grep -q '^eips -f -g.*|wget.*connecting=1.*|lipc-set com.lab126.cmd wirelessEnable 0|\$' && [ -e $W/tmp/nexus.radio_off ]"
+reset; touch $W/doze; echo $(( NOW - 1 )) > $W/tmp/nexus.radio_off; sum FRAME1 > $W/tmp/nexus.last.md5; sum FRAME1 > $W/tmp/nexus.full.md5
+( set +u; . $W/lib.sh; eval "$DOZE" ) > $W/out 2>&1
+check "timed wake at night (the bridge keeps the photo): still one request with next=1 and one full draw" sh -c "[ \"\$(grep -c 'screen.png?fresh' $W/calls)\" = 1 ] && grep -q 'fresh=1&next=1' $W/calls && [ \"\$(grep -c 'eips -f -g' $W/calls)\" = 1 ]"
+reset; touch $W/doze; sum FRAME1 > $W/tmp/nexus.last.md5; sum FRAME1 > $W/tmp/nexus.full.md5
+( set +u; . $W/lib.sh; eval "$DOZE" ) > $W/out 2>&1
+check "first window after the screensaver started: the next photo is NOT asked for" sh -c "grep -q 'screen.png?fresh=1' $W/calls && ! grep -q 'next=1' $W/calls"
+reset; touch $W/doze; sum FRAME1 > $W/tmp/nexus.last.md5
+( set +u; . $W/lib.sh; eval "$DOZE" ) > $W/out 2>&1
+check "first window, last draw was a partial one: drawn again in full, still without asking for the next photo" sh -c "grep -q 'eips -f -g' $W/calls && ! grep -q 'next=1' $W/calls"
+reset; echo $(( NOW - 1 )) > $W/tmp/nexus.radio_off
+gate "cycle"
+check "timed wake, the panel is in use again (awake): the picture loop as before, the next photo is not asked for" sh -c "grep -q 'stream_start full' $W/calls && ! grep -q -e 'next=1' -e screen.png $W/calls"
+conf "STREAM=0"; reset; touch $W/doze; echo $(( NOW - 1 )) > $W/tmp/nexus.radio_off; sum FRAME1 > $W/tmp/nexus.last.md5; frame FRAME2
+( set +u; . $W/lib.sh; eval "$DOZE" ) > $W/out 2>&1
+check "timed wake, STREAM=0: the same one request with next=1 and one full draw" sh -c "[ \"\$(grep -c 'screen.png?fresh' $W/calls)\" = 1 ] && grep -q 'screen.png?fresh=1&next=1' $W/calls && [ \"\$(grep 'eips.*-g' $W/calls | tr '\n' '|')\" = 'eips -f -g $W/tmp/nexus.png = FRAME2|' ]"
+reset; touch $W/doze; sum FRAME1 > $W/tmp/nexus.last.md5
+( set +u; . $W/lib.sh; eval "$DOZE" ) > $W/out 2>&1
+check "first window, STREAM=0: the next photo is not asked for" sh -c "grep -q 'screen.png?fresh=1' $W/calls && ! grep -q 'next=1' $W/calls"
 conf "STREAM=1"; reset
 lib 'echo FRAME1 > $SHOT.tmp; draw aaa full; cat $FULLTAG; echo FRAME1 > $SHOT.tmp; draw bbb; [ -e $FULLTAG ] || echo gone'
 check "a finished full draw is remembered, a partial draw forgets it" sh -c "[ \"\$(tr '\n' '|' < $W/out)\" = 'aaa|gone|' ]"

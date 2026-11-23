@@ -1,7 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { createPressFeeder, createRenderScheduler, nextFrame } from "./stream.js";
+import {
+  createPhotoClock,
+  createPressFeeder,
+  createRenderScheduler,
+  createSingleFlight,
+  nextFrame,
+  pageBusy,
+  photoKeyRefusal,
+  photoOnRequestFlag,
+  requestNextPhoto,
+  saverPhoto,
+} from "./stream.js";
 
 // A clock the test moves by hand, with the scheduler's timers on it.
 function fakeClock() {
@@ -37,7 +48,9 @@ function fakeClock() {
 function manualRender(clock) {
   const renders = [];
   const render = () =>
-    new Promise((done) => renders.push({ at: clock.now(), done: () => (done(), clock.advance(0)) }));
+    new Promise((done) =>
+      renders.push({ at: clock.now(), done: () => (done(), clock.advance(0)) }),
+    );
   return { renders, render };
 }
 
@@ -133,7 +146,13 @@ test("scheduler: nothing is rendered while nobody listens; the change is rendere
 test("scheduler: fresh() resolves only after a render that started after the call", async () => {
   const clock = fakeClock();
   const { renders, render } = manualRender(clock);
-  const s = createRenderScheduler({ render, active: () => false, settleMs: 40, selfMinMs: 5000, ...clock });
+  const s = createRenderScheduler({
+    render,
+    active: () => false,
+    settleMs: 40,
+    selfMinMs: 5000,
+    ...clock,
+  });
   let got = 0;
   // nobody "listens" yet: fresh() renders all the same (it is the listener arriving)
   s.fresh().then(() => got++);
@@ -296,4 +315,211 @@ test("nextFrame: the hold ends at once when the client goes away, and leaves not
   gone();
   assert.equal(await p, null);
   assert.equal(frames.listenerCount("frame"), 0);
+});
+
+test("press feeder: a press with a condition is dropped when the condition says no, and asked under the lock", async () => {
+  const pressed = [];
+  const logged = [];
+  const order = [];
+  const feed = createPressFeeder({
+    exclusive: lock(),
+    ready: async () => "page",
+    press: async (page, code) => void (pressed.push(code), order.push(`press ${code}`)),
+    log: (m) => logged.push(m),
+  });
+  const refuse = (why) => async (page) => (order.push(`asked on ${page}`), why);
+  assert.equal(await feed("f4", "F4", refuse("the panel does not show the server's photo")), false);
+  assert.equal(await feed("f1", "F1", refuse("")), true);
+  assert.equal(await feed("up", "ArrowUp"), true);
+  assert.deepEqual(pressed, ["F1", "ArrowUp"]);
+  assert.deepEqual(order, ["asked on page", "asked on page", "press F1", "press ArrowUp"]);
+  assert.deepEqual(logged, ["press f4 dropped: the panel does not show the server's photo"]);
+});
+
+// ---- the screensaver photo changes only on request ----
+const MIN = 60000;
+
+test("photo clock: the screensaver starting counts as a photo change; due only after the interval, only on the screensaver", () => {
+  let t = 1000;
+  const clock = createPhotoClock({ intervalMs: () => 10 * MIN, now: () => t });
+  assert.equal(clock.due(), false, "no screensaver, nothing due");
+  assert.deepEqual(clock.state(), { at: null, by: null });
+  clock.seen(true);
+  assert.equal(clock.state().by, "screensaver start");
+  t += 10 * MIN - 1;
+  clock.seen(true); // later screenshots of the same screensaver change nothing
+  assert.equal(clock.due(), false);
+  t += 1;
+  assert.equal(clock.due(), true);
+  clock.seen(false); // woken
+  assert.equal(clock.due(), false);
+  t += 3 * MIN;
+  clock.seen(true); // a new screensaver brings a new photo
+  assert.equal(clock.due(), false);
+  assert.equal(clock.state().at, new Date(t).toISOString());
+});
+
+test("photo clock: every change resets it, whoever asked", () => {
+  let t = 0;
+  const clock = createPhotoClock({ intervalMs: () => 10 * MIN, now: () => t });
+  clock.seen(true);
+  t = 9 * MIN;
+  clock.note("key f4");
+  t = 15 * MIN;
+  assert.equal(clock.due(), false, "6 min after F4");
+  t = 19 * MIN;
+  assert.equal(clock.due(), true);
+  clock.note("the device");
+  assert.equal(clock.due(), false);
+  assert.deepEqual(clock.state(), { at: new Date(19 * MIN).toISOString(), by: "the device" });
+});
+
+test("photo clock: the slack lets a poll that arrives a little early count, but never below half the interval", () => {
+  let t = 0;
+  let every = 10 * MIN;
+  const clock = createPhotoClock({ intervalMs: () => every, now: () => t });
+  clock.seen(true);
+  t = 9 * MIN + 5000;
+  assert.equal(clock.due(), false);
+  assert.equal(clock.due(MIN), true);
+  every = MIN; // a one minute interval with a one minute slack
+  t = 29000;
+  assert.equal(clock.due(MIN), false);
+  t = 30000;
+  assert.equal(clock.due(MIN), true);
+  every = 0; // no usable interval: never
+  assert.equal(clock.due(), false);
+});
+
+test("single flight: two askers at the same moment move the photo once and get the same answer", async () => {
+  const asked = [];
+  let answer;
+  const next = createSingleFlight((who) => (asked.push(who), new Promise((r) => (answer = r))));
+  const a = next("the device");
+  const b = next("the bridge (a poll)");
+  assert.equal(a, b);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(asked, ["the device"]);
+  answer("asked");
+  assert.deepEqual(await Promise.all([a, b]), ["asked", "asked"]);
+  const c = next("key f1");
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(asked, ["the device", "key f1"], "the next one asks again");
+  answer("busy");
+  assert.equal(await c, "busy");
+});
+
+test("single flight: a failed request does not block the next one", async () => {
+  let n = 0;
+  const next = createSingleFlight(async () => {
+    if (++n === 1) throw new Error("page gone");
+    return "asked";
+  });
+  await assert.rejects(next("a"), /page gone/);
+  assert.equal(await next("b"), "asked");
+});
+
+// The functions below run inside the page; here they get a page made by hand.
+function withPage({ dataset = {}, images = [], next } = {}, fn) {
+  const before = { window: globalThis.window, document: globalThis.document };
+  globalThis.window = next === undefined ? {} : { __einkNextPhoto: next };
+  globalThis.document = { documentElement: { dataset }, images };
+  const restore = () => Object.assign(globalThis, before);
+  let out;
+  try {
+    out = fn(globalThis.window);
+  } catch (e) {
+    restore();
+    throw e;
+  }
+  return Promise.resolve(out).finally(restore);
+}
+
+test("page: the flag tells the app that a bridge drives it", async () => {
+  await withPage({}, (w) => {
+    photoOnRequestFlag();
+    assert.equal(w.__einkPhotoOnRequest, true);
+  });
+});
+
+test("page: next photo is only asked for while the screensaver shows", async () => {
+  let calls = 0;
+  const next = async () => (calls++, true);
+  assert.equal(await withPage({ next }, () => requestNextPhoto()), "no screensaver");
+  assert.equal(calls, 0);
+});
+
+test("page: an app that does not know the request is left alone", async () => {
+  assert.equal(
+    await withPage({ dataset: { einkSaver: "1" } }, () => requestNextPhoto()),
+    "old app",
+  );
+});
+
+test("page: next photo answers after the app showed it and the picture is decoded", async () => {
+  const steps = [];
+  const img = { decode: async () => void steps.push("decoded") };
+  const broken = { decode: async () => Promise.reject(new Error("no source")) };
+  const next = async () => (steps.push("app answered"), true);
+  const answer = await withPage(
+    { dataset: { einkSaver: "1" }, images: [img, broken, {}], next },
+    () => requestNextPhoto(),
+  );
+  assert.equal(answer, "asked");
+  assert.deepEqual(steps, ["app answered", "decoded"]);
+});
+
+test("page: a request while a photo is already on its way is reported as busy", async () => {
+  const answer = await withPage({ dataset: { einkSaver: "1" }, next: async () => false }, () =>
+    requestNextPhoto(),
+  );
+  assert.equal(answer, "busy");
+});
+
+test("page: busy while the app says so, and on the screensaver while a picture still loads", async () => {
+  const loading = [{ complete: true }, { complete: false }];
+  assert.equal(await withPage({ dataset: { einkBusy: "1" } }, () => pageBusy()), true);
+  assert.equal(await withPage({ dataset: {} }, () => pageBusy()), false);
+  assert.equal(
+    await withPage({ dataset: {}, images: loading }, () => pageBusy()),
+    false,
+    "not on other screens",
+  );
+  assert.equal(
+    await withPage({ dataset: { einkSaver: "1" }, images: loading }, () => pageBusy()),
+    true,
+  );
+  assert.equal(
+    await withPage({ dataset: { einkSaver: "1" }, images: [{ complete: true }] }, () => pageBusy()),
+    false,
+  );
+});
+
+test("page: what the screensaver shows", async () => {
+  assert.deepEqual(await withPage({ dataset: {} }, () => saverPhoto()), {
+    saver: false,
+    photoId: "",
+  });
+  assert.deepEqual(
+    await withPage({ dataset: { einkSaver: "1", einkPhotoId: "abc" } }, () => saverPhoto()),
+    { saver: true, photoId: "abc" },
+  );
+});
+
+test("photo key from a panel whose radio was off: only on the photo the panel shows", () => {
+  const on = (photoId) => ({ saver: true, photoId });
+  assert.equal(photoKeyRefusal(on("abc"), "abc"), "");
+  assert.equal(
+    photoKeyRefusal(on(""), ""),
+    "",
+    "an app without photo ids: the screensaver is enough",
+  );
+  assert.match(photoKeyRefusal({ saver: false, photoId: "" }, "abc"), /screensaver does not show/);
+  assert.match(photoKeyRefusal(on("new"), "abc"), /does not show the server's photo/);
+  assert.match(
+    photoKeyRefusal(on("abc"), null),
+    /does not show the server's photo/,
+    "the panel got another screen last",
+  );
+  assert.match(photoKeyRefusal(on(""), null), /does not show the server's photo/);
 });

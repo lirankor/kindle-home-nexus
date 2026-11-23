@@ -247,6 +247,7 @@ show() { # show [full] : the update while awake. STREAM=1: the picture loop does
   if [ "$STREAM" = "1" ]; then stream_start $1; else fetch "/screen.png?fresh=1&etag=$(etag)" $1; fi
 }
 cycle() { # one scheduled update: radio up if needed, battery + frame, then decide the next window
+  woke=; [ -f $RADIOOFF ] && woke=1   # the timed wake at the end of a radio-off window (a key would have ended the window before)
   radio_up poll
   FF=; [ "$RECONNECTED" = "1" ] && { FF=full; RECONNECTED=; DROP_BEFORE=$(date +%s); }   # first frame after a reconnect: full refresh; STREAM=1: presses made while it connected are dropped
   report_battery
@@ -286,13 +287,18 @@ cycle() { # one scheduled update: radio up if needed, battery + frame, then deci
   # (the screensaver photo arrives by itself). Then a second flash of the same picture adds nothing: only ask whether
   # it is still the current one. Anything else (a partial draw, a draw cut short, a failed fetch, a reconnect) keeps
   # the rule: fetch again and draw in full.
+  # THE SCREENSAVER PHOTO changes only when somebody asks the bridge for the next one, so the panel and the server
+  # never show different photos while the radio is off. This is where the panel asks: a timed wake that goes straight
+  # into the next window (next=1). One request, one full draw, no picture loop in between. Not at the first window
+  # after the screensaver started: that photo is new.
   have=$(etag)
   if [ "$STREAM" = "1" ] && [ ! -f $DRAWING ] && [ $FAILS = 0 ] && [ -n "$have" ] && [ "$(cat $FULLTAG 2>/dev/null)" = "$have" ]; then
     fetch "/screen.png?fresh=1&etag=$have" full
   else
     [ -f $DRAWING ] && { log "previous draw was cut short, redrawing in full"; rm -f $DRAWING; }
     rm -f $LAST
-    fetch "/screen.png?fresh=1" full
+    nx=; [ -n "$woke" ] && nx="&next=1"
+    fetch "/screen.png?fresh=1$nx" full
   fi
   sleep $EINK_SETTLE
   sync
@@ -310,7 +316,10 @@ cycle() { # one scheduled update: radio up if needed, battery + frame, then deci
 # more for its turn (the loop was busy) is dropped too.
 # RADIO OFF: a press then only brings the radio back (with the connecting badge) and is dropped, like every press made
 # until the connection is up. Once it is, the bridge gets ONE /wake, which leaves the screensaver and can do nothing else.
-# Not after F1 / F4: those two judge the screensaver's photo, so they bring the radio back and the screensaver stays.
+# The one exception (owner 2026-11-23) is F1 / F4: those two judge the photo on the panel and never leave the
+# screensaver. Such a press is SENT once the connection is up, once, with ?saver=1 (the bridge then presses it only
+# while its page shows the screensaver with the photo it last sent here), and no /wake follows. The picture loop then
+# brings the result, the next photo, as its first full draw.
 # PICTURES: the picture loop (a child of the main loop) keeps one request open (bridge /stream.png?have=<the frame on
 # the panel>). The bridge answers the moment it has a newer frame; the loop draws it and asks again. No newer frame
 # within STREAM_WAIT seconds is an empty answer and still a success. The request is cut off 5 s after that at the
@@ -397,15 +406,17 @@ stream_gate() { # stream_gate <event sec> <key name> : 0 = send this press; 1 = 
   # 86400: event times that are not wall-clock times cannot be compared; then this rule is off
   if [ $age -ge 2 ] && [ $age -lt 86400 ]; then log "key $2 dropped: pressed ${age}s ago"; return 1; fi
   [ -f $RADIOOFF ] || return 0
-  log "radio is off: key $2 only wakes the panel"
+  case $2 in f1|f4) log "radio is off: key $2 is a photo key, it is sent once the radio is up";; *) log "radio is off: key $2 only wakes the panel";; esac
   radio_up key
   RECONNECTED=
   DROP_BEFORE=$(date +%s)
   if [ "$(radio_state)" = "CONNECTED" ]; then
     case $2 in
-      # F1 / F4 judge the screensaver's photo and never leave the screensaver: the radio comes up, the photo stays.
-      # The press itself is dropped like any other made with the radio off (the server may show another photo by now).
-      f1|f4) log "key $2 is a photo key: the screensaver stays";;
+      # F1 / F4 judge the photo on the panel and never leave the screensaver: sent once, late as it is, and no /wake.
+      # Not when the last picture of the window did not arrive: the panel may then show a photo the server left behind.
+      f1|f4)
+        if [ $FAILS = 0 ] && [ ! -f $DRAWING ]; then tiny "/press/$2?saver=1" 1000 || log "key $2 not delivered, dropped"
+        else log "key $2 dropped: the last picture did not arrive, the screensaver stays"; fi;;
       *) tiny /wake 1000 || log "wake message not delivered";;   # harmless when late: it can only leave the screensaver
     esac
   fi

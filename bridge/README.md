@@ -26,6 +26,7 @@ and serves 8-bit grayscale PNG screenshots (WIDTH x HEIGHT) for a Kindle to draw
 | `STREAM_WAIT_MS` | `25000` | ... how long `/stream.png` is held open when the request names no `wait` |
 | `PRESS_MAX_AGE_MS` | `2000` | ... a press that waited longer than this for the page is dropped, never fed late |
 | `PRESS_GONE_WAIT_MS` | `5` | ... a `/press` whose sender has hung up by then is dropped (`0` = check off) |
+| `NEXT_PHOTO_WAIT_MS` | `10000` | Screensaver photo on request: how long the bridge waits for the app's answer to "next photo" before it sends the picture as it is |
 
 ## Endpoints (all GET)
 
@@ -33,7 +34,8 @@ and serves 8-bit grayscale PNG screenshots (WIDTH x HEIGHT) for a Kindle to draw
   `?etag=<md5>` (the Kindle sends the hash of the frame it drew): an unchanged frame is an **empty 200** with
   `X-Unchanged: 1` (busybox 1.7.2 wget accepts only 200/206, so no 304). Long-poll with `?since=<etag>&wait=<ms>`
   (max 60000): returns 304 if nothing changed in time. `?fresh=1` takes a new screenshot first instead of serving
-  the last frame (the Kindle's polls).
+  the last frame (the Kindle's polls). `?fresh=1&next=1`: while the screensaver shows, the next photo is asked for
+  first and the answer is that photo (see "The screensaver photo changes only on request"); otherwise exactly `fresh=1`.
 - `/screen.png?connecting=1[&of=<frame etag>][&etag=<badge etag>]`: the battery saver's connecting picture, the frame
   with that ETag (default the current one; the bridge remembers the last 8) with a 216×216 Wi-Fi badge composited in
   the middle (`connecting.js`, cached per frame ETag). Unknown frame = 404. `ETag` = md5 of this PNG, `X-Frame-ETag` =
@@ -49,8 +51,8 @@ and serves 8-bit grayscale PNG screenshots (WIDTH x HEIGHT) for a Kindle to draw
 - `/reload` reload the page, return a frame.
 - `/press/<name>`, `/wake`, `/stream.png?have=<etag>&wait=<ms>`: the two-channel flow, see below. They are additions;
   every endpoint above answers as before, so a client that knows only `/key` keeps working.
-- `/healthz` JSON `{ok, etag, fullGen, servedFullGen, battery, lastShotAt, appUrl, saver, duty, lastKeyAt, stream{listening, waiting, presses{fed, dropped}, lastRender{captureMs, encodeMs, at}, dirty, urgent, running, renders}, schedule{…, next}}` — `duty` is what `/schedule` last told the device (`{verdict, windowSec, nextWake, label, night, at}`), the server-side way to see the radio duty cycle working.
-- Tests: `npm test` (`node --test`, `schedule.test.js`: grid, the 00:00/06:00 night edges, both DST transitions inside the night window, 2-day sweep; `stream.test.js`: when the page is rendered, the order and the dropping of presses, the held request).
+- `/healthz` JSON `{ok, etag, fullGen, servedFullGen, battery, lastShotAt, appUrl, saver, duty, lastKeyAt, photo{at, by, onPanel}, stream{listening, waiting, presses{fed, dropped}, lastRender{captureMs, encodeMs, at}, dirty, urgent, running, renders}, schedule{…, next}}` — `duty` is what `/schedule` last told the device (`{verdict, windowSec, nextWake, label, night, at}`), the server-side way to see the radio duty cycle working.
+- Tests: `npm test` (`node --test`, `schedule.test.js`: grid, the 00:00/06:00 night edges, both DST transitions inside the night window, 2-day sweep; `stream.test.js`: when the page is rendered, the order and the dropping of presses, the held request, the screensaver photo on request).
 
 ## Two channels
 
@@ -61,14 +63,17 @@ another, and neither waits for the other. The parts that need no browser are in 
   reach the page one at a time, in the order they arrived. A press is **dropped** instead of fed late when its sender
   hung up before the answer (the Kindle gives up after 0.3 s and never sends a press twice; log
   `press down dropped: the client had already hung up`) or when it waited more than `PRESS_MAX_AGE_MS` for the page.
-  No picture comes back here. Unknown name gives 400.
+  No picture comes back here. Unknown name gives 400. `?saver=1` marks a photo key (F1 / F4) from a panel whose radio
+  was off: see the next section.
 - `GET /wake`: answers `ok`; leaves the screensaver when it shows (`data-eink-saver="1"`) and does nothing otherwise.
   It hands the page a key no control knows, so it cannot act on anything. Sent once by the Kindle after a press made
   it switch its radio back on.
 - `GET /stream.png?have=<etag>&wait=<ms>`: held open until a frame other than `have` exists (the ETag of the frame on
   the panel), at most `wait` ms (max 60000, default `STREAM_WAIT_MS`); then an **empty 200** with `X-Unchanged: 1`
   and the client asks again. Always the newest frame: frames produced in between are skipped, nothing queues. Without
-  `have`, or as the first request after a pause, a fresh frame is rendered and sent at once.
+  `have`, or as the first request after a pause, a fresh frame is rendered and sent at once; a press that is still on
+  its way into the page goes in first, and the render waits while the page is busy (`data-eink-busy`, or a screensaver
+  photo that is still loading), so the first picture after a photo key is the next photo and not the one before it.
 - Rendering. Nobody polls: the page reports its own changes (a mutation observer on the document, plus image loads and focus moves) and
   the bridge renders `STREAM_SETTLE_MS` after the first change of a batch. One render at a time; a change that arrives
   while a frame is produced gives exactly one more render afterwards. Changes of the page's own are spaced
@@ -76,6 +81,37 @@ another, and neither waits for the other. The parts that need no browser are in 
   no stream client listens. The capture holds the page lock, the PNG encoding does not, so a press never waits for an
   encode. The fixed `KEY_SETTLE_MS` wait of `/key` is not used here (measured in a test copy: no frame after a press
   was ever followed by a corrected one); the wait while the page sets `data-eink-busy` is kept.
+
+## The screensaver photo changes only on request
+
+The Kindle switches its radio off between updates while the screensaver shows. A photo that changed on the server in
+the meantime would not be the photo on the panel, and F1 / F4 (keep / skip for good) judge the photo on the panel. So
+under the bridge the app has no photo timer of its own: the bridge sets `window.__einkPhotoOnRequest` before the app's
+scripts run (it survives reloads), and the app then changes the photo only when asked. A plain browser without the
+bridge keeps the app's timer. Who asks:
+
+- the screensaver starting (its first photo), and F1 / F4, as before;
+- the device, with `GET /screen.png?fresh=1&next=1` at the timed wake at the end of a radio-off window: the bridge
+  calls the app's `window.__einkNextPhoto()`, waits until the page shows the new photo (at most `NEXT_PHOTO_WAIT_MS`
+  for the answer, then while the page is busy), takes the screenshot and answers as for `fresh=1`. At night the app
+  hands back the same photo, as before. Without a screensaver the request is exactly `fresh=1`;
+- the bridge itself, only where a panel sees the result at once: while a `/stream.png` request is held open and the
+  photo is `DAY_WAKE_MIN` old (checked every 15 s), and on a `/screen.png?fresh=1` poll without `next=1` (a client of
+  the old flow) once the photo is `DAY_WAKE_MIN` less one minute old. Every request resets the same clock and requests
+  that overlap share one answer, so two askers never move the photo twice.
+
+`/healthz` `photo` says when the photo last changed and who asked (`by`: `screensaver start`, `key f4`, `the device`,
+`the bridge (a stream client listens)`, `the bridge (a poll)`), and `onPanel`: whether the last frame sent to a client
+shows the photo the page shows now (`null` without a screensaver).
+
+A photo key from a panel whose radio was off arrives seconds after it was pressed, as `/press/f1?saver=1` or
+`/press/f4?saver=1`. It is pressed on the page only while the page shows the screensaver with the very photo of the
+last frame sent to a client (`<html data-eink-photo-id>`); otherwise it is dropped and logged (`press f4 dropped: the
+panel does not show the server's photo`). A wrong "skip for good" cannot be taken back, a dropped press can be repeated.
+
+Old and new parts together: an app image without the request keeps its own timer (the bridge logs once `next photo:
+the app does not know the request, its own timer stays in charge`, `next=1` then answers like `fresh=1`); a bridge
+without the flag leaves the new app on its timer; a bridge that does not know `saver=1` presses the key like any other.
 
 ## Run locally
 

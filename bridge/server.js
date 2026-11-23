@@ -6,10 +6,17 @@ import sharp from "sharp";
 import { computeSchedule, readConfig as readScheduleConfig } from "./schedule.js";
 import { connectingResponse, createConnectingStore } from "./connecting.js";
 import {
+  createPhotoClock,
   createPressFeeder,
   createRenderScheduler,
+  createSingleFlight,
   nextFrame,
+  pageBusy,
   pageChangeReporter,
+  photoKeyRefusal,
+  photoOnRequestFlag,
+  requestNextPhoto,
+  saverPhoto,
 } from "./stream.js";
 
 const env = (k, d) => process.env[k] ?? d;
@@ -51,6 +58,13 @@ const PRESS_MAX_AGE_MS = Number(env("PRESS_MAX_AGE_MS", 2000));
 // (bridge stalled, request stuck on the way, sent again by the Kindle's kernel after a gap): dropped. The hang-up is
 // read from the socket one turn after the request, hence the short wait before the answer. 0 switches the check off.
 const PRESS_GONE_WAIT_MS = Number(env("PRESS_GONE_WAIT_MS", 5));
+// The screensaver photo changes only on request (stream.js "the screensaver photo changes only on request"). How long
+// the bridge waits for the app's answer to "next photo" (the pick, the download and the crop take a second or two);
+// how often it checks whether it has to ask itself while a stream client listens; how much earlier than the day wake
+// interval a poll of the old flow may get the next photo (a device on the grid arrives a few seconds early or late).
+const NEXT_PHOTO_WAIT_MS = Number(env("NEXT_PHOTO_WAIT_MS", 10000));
+const PHOTO_CLOCK_MS = 15000;
+const PHOTO_POLL_SLACK_MS = 60000;
 const ENV_RADIO_DUTY = env("RADIO_DUTY_ENABLED", env("SLEEP_ENABLED", "1")) !== "0";
 let RADIO_DUTY_ENABLED = ENV_RADIO_DUTY;
 const SAVER_POLL_S = Number(env("SAVER_POLL_S", 60));
@@ -128,6 +142,10 @@ let servedFullGen = -1; // the app's data-eink-full value the Kindle last drew w
 let lastShotAt = null;
 let lastKeyAt = 0; // last /key, /press or /wake hit: the device keeps its radio up KEEP_AWAKE_MS after it
 let lastPressAt = 0; // last press fed to the page through /press or /wake
+let lastFedAt = 0; // when the last /press key went into the page (set under the page lock)
+// The photo id of the last frame sent to a client (<html data-eink-photo-id>, "" = a photo without one), null when
+// that frame was not the screensaver: what the panel shows, for photoKeyRefusal.
+let panelPhoto = null;
 let shotSeq = 0; // counts captures; a frame from an older capture never replaces a newer one
 let latestSeq = 0;
 let streamWaiting = 0; // /stream.png requests being held right now
@@ -188,6 +206,8 @@ async function launch() {
       renderer.mark(!!full || Date.now() - lastPressAt < PRESS_URGENT_MS),
     );
     await page.evaluateOnNewDocument(pageChangeReporter);
+    // No photo timer in the page: the photo changes on request (nextPhoto below); survives reloads as well.
+    await page.evaluateOnNewDocument(photoOnRequestFlag);
     // Heartbeat for the freeze watchdog in capture(); evaluateOnNewDocument survives reloads.
     await page.evaluateOnNewDocument(() => {
       window.__alive = Date.now();
@@ -290,18 +310,21 @@ async function capture() {
   let photo = null;
   let alive = 0;
   let saver = false;
+  let photoId = "";
   try {
     const ds = await p.evaluate(() => ({
       f: document.documentElement.dataset.einkFull || "0",
       p: document.documentElement.dataset.einkPhoto || "",
       a: window.__alive || 0,
       s: document.documentElement.dataset.einkSaver === "1",
+      i: document.documentElement.dataset.einkPhotoId || "",
     }));
     fullGen = Number(ds.f) || 0;
     const m = /^(\d+),(\d+),(\d+),(\d+)$/.exec(ds.p || "");
     if (m) photo = { x: +m[1], y: +m[2], w: +m[3], h: +m[4] };
     alive = ds.a;
     saver = ds.s;
+    photoId = ds.i;
   } catch {}
   // Freeze watchdog: the heartbeat must move between shots; a page whose timers stopped gets reloaded
   // (same profile, so the remembered tab survives); if even that hangs, the protocol timeout relaunches.
@@ -316,12 +339,12 @@ async function capture() {
       return capture();
     }
   }
-  return { seq, png, fullGen, photo, saver };
+  return { seq, png, fullGen, photo, saver, photoId };
 }
 
 // Turns a capture into the frame the Kindle draws. CPU work only, no page access: the stream renderer runs it
 // outside the page lock so a press never waits behind the encoding (the photo pipeline takes most of a second).
-async function encode({ seq, png, fullGen, photo, saver }) {
+async function encode({ seq, png, fullGen, photo, saver, photoId }) {
   let frame = sharp(png)
     .resize(WIDTH, HEIGHT, { fit: "fill" })
     .flatten({ background: "#ffffff" })
@@ -366,7 +389,8 @@ async function encode({ seq, png, fullGen, photo, saver }) {
   if (seq < latestSeq) return latest; // a newer capture was encoded first
   latestSeq = seq;
   const changed = !latest || latest.etag !== etag;
-  latest = { buf, etag, fullGen, saver };
+  latest = { buf, etag, fullGen, saver, photoId };
+  photoClock.seen(saver);
   connecting.remember(latest);
   lastShotAt = new Date().toISOString();
   if (changed) frames.emit("frame", latest);
@@ -389,11 +413,49 @@ const safeShoot = () =>
 async function settleBusy(p) {
   const until = Date.now() + BUSY_WAIT_MS;
   while (Date.now() < until) {
-    const busy = await p.evaluate(() => !!document.documentElement.dataset.einkBusy);
+    const busy = await p.evaluate(pageBusy);
     if (!busy) return;
     await sleep(150);
   }
 }
+
+// ---- the screensaver photo changes only on request (stream.js) ----
+const photoClock = createPhotoClock({ intervalMs: () => schedule.dayWakeMin * 60000 });
+let oldAppNoted = false;
+// Asks the app for the next photo and waits until the page shows it. Does nothing unless the screensaver shows. Not
+// under the page lock: a press must not wait for a photo download. who = who wanted it, for /healthz and the log.
+const nextPhoto = createSingleFlight(async (who) => {
+  try {
+    const p = await ensurePage();
+    const t0 = Date.now();
+    const asking = p.evaluate(requestNextPhoto);
+    asking.catch(() => {});
+    const answer = await Promise.race([
+      asking,
+      sleep(NEXT_PHOTO_WAIT_MS).then(() => "no answer in time"),
+    ]);
+    if (answer === "no screensaver") return answer;
+    if (answer === "old app") {
+      // An app image from before the request: its page timer changes the photo as it always did.
+      if (!oldAppNoted)
+        log("next photo: the app does not know the request, its own timer stays in charge");
+      oldAppNoted = true;
+      photoClock.note("the page's own timer (app without the request)");
+      return answer;
+    }
+    if (answer === "asked") photoClock.note(who);
+    else if (answer !== "busy") photoClock.note(`${who}, ${answer}`); // do not ask again every few seconds
+    // "busy": a mark + next photo is in flight (F1 / F4), wait for it. No answer in time: the device's request has
+    // its own limit, it gets the picture as it is.
+    if (answer === "asked" || answer === "busy") await settleBusy(p);
+    log(`next photo for ${who}: ${answer} (${Date.now() - t0} ms)`);
+    return answer;
+  } catch (e) {
+    log("next photo failed:", e.message);
+    photoClock.note(`${who}, failed`); // the next try comes with the next interval, not every few seconds
+    return "failed";
+  }
+});
 
 // ---- two channels: /press, /wake, /stream.png ----
 const streamListening = () => streamWaiting > 0 || Date.now() - streamSeenAt < STREAM_IDLE_MS;
@@ -406,7 +468,7 @@ async function renderForStream() {
     let t0 = 0;
     const cap = await exclusive(async () => {
       const p = await ensurePage();
-      const busy = await p.evaluate(() => !!document.documentElement.dataset.einkBusy);
+      const busy = await p.evaluate(pageBusy);
       if (busy && Date.now() < until) return null;
       t0 = Date.now();
       return capture();
@@ -438,18 +500,36 @@ const renderer = createRenderScheduler({
 const feedPress = createPressFeeder({
   exclusive,
   ready: ensurePage,
-  press: (p, code) => p.keyboard.press(code),
+  press: async (p, code) => {
+    await p.keyboard.press(code);
+    lastFedAt = Date.now();
+  },
   maxAgeMs: PRESS_MAX_AGE_MS,
   log,
 });
 
-// /press: the key goes to the page in its turn; the picture follows on /stream.png.
-function acceptPress(name, code) {
-  feedPress(name, code)
+// A press that is in the queue has gone in, and the page had KEY_SETTLE_MS to show what it started (a photo key on the
+// screensaver sets data-eink-busy a moment later). For the first picture after a press: see /stream.png.
+async function pressesSettled() {
+  await exclusive(() => {});
+  const left = lastFedAt + KEY_SETTLE_MS - Date.now();
+  if (left > 0) await sleep(left);
+}
+
+const PHOTO_KEYS = new Set(["F1", "F4"]);
+// /press: the key goes to the page in its turn; the picture follows on /stream.png. photoKey (?saver=1): a photo key
+// from a panel whose radio was off, see photoKeyRefusal.
+function acceptPress(name, code, photoKey = false) {
+  const refuse = photoKey
+    ? async (p) => photoKeyRefusal(await p.evaluate(saverPhoto), panelPhoto)
+    : null;
+  const onSaver = !!latest?.saver;
+  feedPress(name, code, refuse)
     .then((fed) => {
       if (!fed) return void pressStats.dropped++;
       pressStats.fed++;
       lastPressAt = Date.now();
+      if (onSaver && PHOTO_KEYS.has(code)) photoClock.note(`key ${name}`);
       renderer.mark(true);
     })
     .catch(async (e) => {
@@ -509,6 +589,7 @@ async function reloadPage() {
 // `since` = the ?etag= the client sent: an identical frame is answered with an empty 200 (the
 // Kindle's busybox 1.7.2 wget treats anything but 200/206 as an error, so no 304/204).
 function sendPng(res, frame, since) {
+  panelPhoto = frame.saver ? frame.photoId || "" : null;
   if (since && since === frame.etag) {
     res.writeHead(200, {
       "Content-Type": "image/png",
@@ -572,6 +653,12 @@ const server = http.createServer(async (req, res) => {
           saver: latest?.saver ?? false,
           duty: lastDuty,
           lastKeyAt: lastKeyAt ? new Date(lastKeyAt).toISOString() : null,
+          // The screensaver photo: when it last changed and who asked; onPanel = the last frame sent to a client
+          // shows the photo the page shows now (null without a screensaver).
+          photo: {
+            ...photoClock.state(),
+            onPanel: latest?.saver ? (latest.photoId || "") === panelPhoto : null,
+          },
           stream: {
             listening: streamListening(),
             waiting: streamWaiting,
@@ -667,7 +754,12 @@ const server = http.createServer(async (req, res) => {
       const since = url.searchParams.get("since");
       const wait = Math.min(Math.max(Number(url.searchParams.get("wait")) || 0, 0), 60000);
       // fresh=1: screenshot now instead of serving the last frame (polls; keys always shoot).
-      if (!latest || url.searchParams.get("fresh") === "1") await safeShoot();
+      // fresh=1&next=1 (the Kindle's timed wake at the end of a radio-off window): the next screensaver photo first.
+      // Without next=1 (a client of the old flow) the photo moves on once it is a day wake interval old.
+      const fresh = url.searchParams.get("fresh") === "1";
+      if (fresh && url.searchParams.get("next") === "1") await nextPhoto("the device");
+      else if (fresh && photoClock.due(PHOTO_POLL_SLACK_MS)) await nextPhoto("the bridge (a poll)");
+      if (!latest || fresh) await safeShoot();
       if (url.searchParams.get("etag")) return sendPng(res, latest, url.searchParams.get("etag"));
       if (since && latest.etag === since) {
         if (!wait) {
@@ -701,6 +793,7 @@ const server = http.createServer(async (req, res) => {
         return res.end(`unknown key '${name}'. valid: ${Object.keys(KEYS).join(", ")}\n`);
       }
       lastKeyAt = Date.now();
+      if (latest?.saver && PHOTO_KEYS.has(code)) photoClock.note(`key ${name}`);
       return sendPng(res, await pressKey(code), url.searchParams.get("etag"));
     }
     if (path.startsWith("/press/")) {
@@ -722,7 +815,7 @@ const server = http.createServer(async (req, res) => {
       lastKeyAt = Date.now();
       res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
       res.end("ok\n");
-      return acceptPress(name, code);
+      return acceptPress(name, code, url.searchParams.get("saver") === "1");
     }
     if (path === "/wake") {
       lastKeyAt = Date.now();
@@ -753,8 +846,12 @@ const server = http.createServer(async (req, res) => {
         if (!latest) await safeShoot();
         // A client with nothing on its panel, or the first one after a pause: render now. Otherwise only make sure
         // no frame a press is waiting for is still on its way, so the answer is the newest picture.
-        if (!have || !wasListening) await renderer.fresh();
-        else {
+        // After a press that is still on its way into the page (a photo key sent by a panel whose radio was off):
+        // the press first, so the one picture this client draws in full is the result, not the photo before it.
+        if (!have || !wasListening) {
+          await pressesSettled();
+          await renderer.fresh();
+        } else {
           renderer.plan();
           await renderer.settled();
         }
@@ -787,6 +884,11 @@ async function main() {
   await launch();
   await safeShoot();
   setInterval(() => safeShoot().catch((e) => log("refresh error", e.message)), REFRESH_MS);
+  // The fallback clock of the screensaver photo: only while a stream request is held open, so the new photo goes
+  // straight to a panel (a Kindle whose radio stays on). A Kindle with its radio off asks itself at its timed wake.
+  setInterval(() => {
+    if (streamWaiting > 0 && photoClock.due()) nextPhoto("the bridge (a stream client listens)");
+  }, PHOTO_CLOCK_MS);
   if (PAGE_RELOAD_MS > 0)
     setInterval(() => reloadPage().catch((e) => log("reload error", e.message)), PAGE_RELOAD_MS);
 }
