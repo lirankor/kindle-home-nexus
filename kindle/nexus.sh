@@ -310,6 +310,7 @@ cycle() { # one scheduled update: radio up if needed, battery + frame, then deci
 # more for its turn (the loop was busy) is dropped too.
 # RADIO OFF: a press then only brings the radio back (with the connecting badge) and is dropped, like every press made
 # until the connection is up. Once it is, the bridge gets ONE /wake, which leaves the screensaver and can do nothing else.
+# Not after F1 / F4: those two judge the screensaver's photo, so they bring the radio back and the screensaver stays.
 # PICTURES: the picture loop (a child of the main loop) keeps one request open (bridge /stream.png?have=<the frame on
 # the panel>). The bridge answers the moment it has a newer frame; the loop draws it and asks again. No newer frame
 # within STREAM_WAIT seconds is an empty answer and still a success. The request is cut off 5 s after that at the
@@ -401,7 +402,12 @@ stream_gate() { # stream_gate <event sec> <key name> : 0 = send this press; 1 = 
   RECONNECTED=
   DROP_BEFORE=$(date +%s)
   if [ "$(radio_state)" = "CONNECTED" ]; then
-    tiny /wake 1000 || log "wake message not delivered"   # harmless when late: it can only leave the screensaver
+    case $2 in
+      # F1 / F4 judge the screensaver's photo and never leave the screensaver: the radio comes up, the photo stays.
+      # The press itself is dropped like any other made with the radio off (the server may show another photo by now).
+      f1|f4) log "key $2 is a photo key: the screensaver stays";;
+      *) tiny /wake 1000 || log "wake message not delivered";;   # harmless when late: it can only leave the screensaver
+    esac
   fi
   arm ${POLL_SECONDS:-20}
   stream_start full

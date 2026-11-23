@@ -86,6 +86,8 @@ and pictures no longer wait for each other. The bridge must know `/press`, `/wak
   and is itself dropped; so is every press made until the connection is up, also when it was the timer that switched the
   radio on (`key right dropped: pressed while the radio connected`). When a press started it and the connection is up,
   the bridge gets **one** `GET /wake`, which leaves the screensaver and can do nothing else. The next press acts normally.
+  Exception: **F1 and F4** judge the screensaver's photo (keep / skip) and never leave the screensaver, so after one of
+  them no `/wake` is sent: the radio comes up, the current photo is redrawn and the next F1 / F4 acts on it.
 - **Pictures.** A picture loop (a child of the main loop, recorded in `children.pid`) keeps one request open:
   `GET /stream.png?have=<md5 of the frame on the panel>&wait=<STREAM_WAIT s in ms>`. The bridge answers the moment it has
   a newer frame; the loop draws it (`/hint` and `FULL_REFRESH_EVERY` decide full or partial, as before) and asks again.

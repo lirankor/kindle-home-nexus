@@ -117,7 +117,7 @@ lib() { # lib <shell code> : run it inside nexus.sh's functions; the poll timer 
 }
 NOW=$(date +%s)
 key() { echo "handle_event $(date +%s) 0 1 $1 1"; }   # a key-down event made this second
-UP=103; DOWN=108; RIGHT=106; F1=158; F2=29
+UP=103; DOWN=108; RIGHT=106; F1=158; F2=29; F4=102
 
 # ---- 1. the switch is off: the old flow ----
 conf; reset
@@ -175,15 +175,26 @@ gate() { # gate <shell code> : like lib, with the picture loop replaced by a rec
     WIFI_WAIT=3; eval "$1" ) > $W/out 2>&1
 }
 reset; echo $(( NOW + 600 )) > $W/tmp/nexus.radio_off; sum FRAME1 > $W/tmp/nexus.last.md5
-gate "$(key $F1); $(key $F1); $(key $RIGHT); handle_event $(( $(date +%s) + 2 )) 0 1 $DOWN 1"
+gate "$(key $UP); $(key $UP); $(key $RIGHT); handle_event $(( $(date +%s) + 2 )) 0 1 $DOWN 1"
 check "radio off: the press switches the radio on and shows the connecting label" order "wirelessEnable 1" "Connecting..."
-check "radio off: that press is not sent" hasnt "/press/f1"
+check "radio off: that press is not sent" hasnt "/press/up"
 check "radio off: presses made until the connection is up are dropped as well" hasnt "/press/right"
 check "radio off: exactly one wake message, after the radio is on" sh -c "[ \"\$(grep -c 'wget http://bridge.test/x/wake\$' $W/calls)\" = 1 ] && grep -n -e 'wirelessEnable 1' -e /wake $W/calls | head -2 | tail -1 | grep -q /wake"
 check "radio off: the picture loop starts again with a full redraw" has "stream_start full"
 check "radio off: a press made after the connection is up is sent" seq_is press/ "wget http://bridge.test/x/press/down|"
-check "radio off: the log says what happened to the presses" sh -c "grep -q 'key f1 only wakes the panel' $W/dir/nexus.log && grep -q 'key right dropped: pressed while the radio connected' $W/dir/nexus.log"
+check "radio off: the log says what happened to the presses" sh -c "grep -q 'key up only wakes the panel' $W/dir/nexus.log && grep -q 'key right dropped: pressed while the radio connected' $W/dir/nexus.log"
 check "radio off: the marker is gone, the poll timer is armed" sh -c "[ ! -e $W/tmp/nexus.radio_off ] && grep -q 'arm 20' $W/calls"
+
+# F1 / F4 judge the screensaver's photo: they bring the radio back but never leave the screensaver (owner 2026-11-23)
+for kn in f1 f4; do
+  reset; echo $(( NOW + 600 )) > $W/tmp/nexus.radio_off; sum FRAME1 > $W/tmp/nexus.last.md5
+  if [ $kn = f1 ]; then kc=$F1; else kc=$F4; fi
+  gate "$(key $kc); handle_event $(( $(date +%s) + 2 )) 0 1 $kc 1"
+  check "radio off, $kn: the radio comes up and the picture loop starts again" sh -c "grep -q 'wirelessEnable 1' $W/calls && grep -q 'stream_start full' $W/calls"
+  check "radio off, $kn: no wake message, the screensaver stays" hasnt "/wake"
+  check "radio off, $kn: the waking press itself is not sent, the next one is" seq_is press/ "wget http://bridge.test/x/press/$kn|"
+  check "radio off, $kn: the log says so" logged "key $kn is a photo key: the screensaver stays"
+done
 
 reset; echo $(( NOW + 600 )) > $W/tmp/nexus.radio_off; touch $W/no_wifi
 gate "$(key $F2)"
